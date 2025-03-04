@@ -1,0 +1,146 @@
+volumes:
+  n8n_storage:
+  postgres_storage:
+  qdrant_storage:
+  localai_storage:
+
+networks:
+  autoreel:
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    hostname: postgres
+    networks: ["autoreel"]
+    restart: unless-stopped
+    ports:
+      - 5432:5432
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+    volumes:
+      - postgres_storage:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  n8n:
+    image: n8n-custom:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    hostname: n8n
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - 5678:5678
+    volumes:
+      - n8n_storage:/home/node/.n8n
+      - ./n8n/backup:/backup
+      - ./shared:/data/shared
+      - ./storage:/storage
+    environment:
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - N8N_DIAGNOSTICS_ENABLED=false
+      - N8N_PERSONALIZATION_ENABLED=false
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_USER_MANAGEMENT_JWT_SECRET=${N8N_USER_MANAGEMENT_JWT_SECRET}
+      - PATH=/google-cloud-sdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      - CLOUDSDK_CONFIG=/home/node/.config/gcloud
+      - GENERIC_TIMEZONE=Asia/Ho_Chi_Minh
+      - WEBHOOK_URL=https://n8n.autoreel.io.vn/
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      - N8N_PUSH_BACKEND=websocket
+      - N8N_RUNNERS_ENABLED=true
+      - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  qdrant:
+    image: qdrant/qdrant
+    hostname: qdrant
+    container_name: qdrant
+    networks: ["autoreel"]
+    restart: unless-stopped
+    ports:
+      - 6333:6333
+    volumes:
+      - qdrant_storage:/qdrant/storage
+
+  localai:
+    image: localai/localai:v2.26.0-cublas-cuda12-ffmpeg
+    hostname: localai
+    container_name: localai
+    networks: ["autoreel"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/readyz"]
+      interval: 1m
+      timeout: 20s
+      retries: 5
+    ports:
+      - 8080:8080
+    environment:
+      - DEBUG=true
+      - MODEL_PATH=/build/models
+    volumes:
+      - ./models:/build/models:cached
+      - localai_storage:/build/models
+    command:
+      - llama-3.2-3b-instruct:q8_0
+      - whisper-1
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  ffmpeg:
+    image: jrottenberg/ffmpeg:7.1-nvidia
+    hostname: ffmpeg
+    container_name: ffmpeg
+    networks: ["autoreel"]
+    restart: unless-stopped
+    volumes:
+      - ./storage:/storage
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  comfyui:
+    image: yanwk/comfyui-boot:cu124-slim
+    hostname: comfyui
+    container_name: comfyui
+    networks: ["autoreel"]
+    restart: unless-stopped
+    ports:
+      - 8188:8188
+    volumes:
+      - ./storage:/root
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

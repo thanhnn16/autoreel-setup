@@ -1,0 +1,10 @@
+server {
+    server_name n8n.autoreel.io.vn;
+
+    location / {
+        proxy_pass http://localhost:5678;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_http_version 1.1;
+    }
+}
