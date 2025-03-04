@@ -340,8 +340,23 @@ echo "--------- 🟢 Bắt đầu tải Flux1 Checkpoint -----------"
 echo "Tạo thư mục cho Flux1 Checkpoint..."
 mkdir -p ~/n8n/storage/ComfyUI/models/checkpoints/FLUX1
 
-echo "Đang tải Flux1-dev-fp8 Checkpoint..."
-wget -O ~/n8n/storage/ComfyUI/models/checkpoints/FLUX1/flux1-dev-fp8.safetensors https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev-fp8.safetensors
+# Đường dẫn đến file Flux1 Checkpoint
+FLUX1_FILE=~/n8n/storage/ComfyUI/models/checkpoints/FLUX1/flux1-dev-fp8.safetensors
+
+# Kiểm tra xem file đã tồn tại chưa
+if [ -f "$FLUX1_FILE" ]; then
+    echo "File Flux1-dev-fp8 Checkpoint đã tồn tại. Bỏ qua bước tải..."
+else
+    echo "Đang tải Flux1-dev-fp8 Checkpoint..."
+    wget -O "$FLUX1_FILE" https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev-fp8.safetensors
+    
+    # Kiểm tra xem tải thành công không
+    if [ -f "$FLUX1_FILE" ]; then
+        echo "Tải Flux1-dev-fp8 Checkpoint thành công!"
+    else
+        echo "⚠️ Tải Flux1-dev-fp8 Checkpoint không thành công. Vui lòng tải thủ công sau."
+    fi
+fi
 
 echo "Đặt quyền cho thư mục và file..."
 chmod -R 777 ~/n8n/storage/ComfyUI/models
