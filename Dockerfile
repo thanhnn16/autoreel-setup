@@ -1,8 +1,8 @@
-# Stage 1: Lấy ffmpeg có hỗ trợ CUDA và đầy đủ codec từ image jrottenberg
-FROM jrottenberg/ffmpeg:7.1-nvidia AS ffmpeg
+# Stage 1: Lấy ffmpeg có hỗ trợ CUDA và đầy đủ codec từ image linuxserver
+FROM linuxserver/ffmpeg:latest AS ffmpeg
 
 # Stage 2: Xây dựng image n8n tùy chỉnh dựa trên Ubuntu có CUDA runtime
-FROM nvidia/cuda:12.6.0-base-ubuntu20.04
+FROM nvidia/cuda:12.2.0-base-ubuntu20.04
 # Cài đặt các gói cần thiết
 RUN apt-get update && apt-get install -y \
     curl \
@@ -44,13 +44,16 @@ RUN bun install -g n8n
 
 # Copy binary ffmpeg từ stage 1
 COPY --from=ffmpeg /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
+COPY --from=ffmpeg /usr/local/bin/ffprobe /usr/local/bin/ffprobe
 
 # Copy các thư viện ffmpeg cần thiết, nhưng loại trừ libc.so.6 để tránh xung đột
 RUN mkdir -p /usr/local/lib/ffmpeg
-COPY --from=ffmpeg /usr/local/lib/ /tmp/ffmpeg_libs/
-RUN cd /tmp/ffmpeg_libs && \
-    find . -type f -name "*.so*" ! -name "libc.so*" -exec cp --parents {} /usr/local/lib/ \; && \
-    rm -rf /tmp/ffmpeg_libs
+COPY --from=ffmpeg /usr/local/lib/ /tmp/ffmpeg_libs/ || true
+RUN if [ -d "/tmp/ffmpeg_libs" ]; then \
+    cd /tmp/ffmpeg_libs && \
+    find . -type f -name "*.so*" ! -name "libc.so*" -exec cp --parents {} /usr/local/lib/ \; || true && \
+    rm -rf /tmp/ffmpeg_libs; \
+    fi
 
 # Thiết lập LD_LIBRARY_PATH để ffmpeg có thể tìm các thư viện cần thiết
 ENV LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH}"

@@ -59,6 +59,8 @@ services:
       - N8N_PUSH_BACKEND=websocket
       - N8N_RUNNERS_ENABLED=true
       - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
     depends_on:
       postgres:
         condition: service_healthy
@@ -97,6 +99,9 @@ services:
     environment:
       - DEBUG=true
       - MODEL_PATH=/build/models
+      - CUDA_VERSION=12.2
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     volumes:
       - ./models:/build/models:cached
       - localai_storage:/build/models
@@ -112,13 +117,20 @@ services:
               capabilities: [gpu]
 
   ffmpeg:
-    image: jrottenberg/ffmpeg:7.1-nvidia
+    image: linuxserver/ffmpeg:latest
     hostname: ffmpeg
     container_name: ffmpeg
     networks: ["autoreel"]
     restart: unless-stopped
     volumes:
       - ./storage:/storage
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Asia/Ho_Chi_Minh
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
+    runtime: nvidia
     deploy:
       resources:
         reservations:
@@ -128,7 +140,7 @@ services:
               capabilities: [gpu]
 
   comfyui:
-    image: yanwk/comfyui-boot:cu124-slim
+    image: mmartial/comfyui-nvidia-docker:ubuntu22_cuda12.3.2-latest
     hostname: comfyui
     container_name: comfyui
     networks: ["autoreel"]
@@ -137,6 +149,13 @@ services:
       - 8188:8188
     volumes:
       - ./storage:/root
+    environment:
+      - CUDA_VERSION=12.2
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - WANTED_UID=1000
+      - WANTED_GID=1000
+      - SECURITY_LEVEL=normal
     deploy:
       resources:
         reservations:
