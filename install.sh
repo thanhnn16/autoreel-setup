@@ -48,14 +48,35 @@ check_cuda_installation() {
   else
     echo "⚠️ CUDA chưa được cài đặt. Đang cài đặt CUDA 12.6..."
     
+    # Dừng tất cả dịch vụ đang sử dụng NVIDIA
+    echo "Dừng tất cả dịch vụ đang sử dụng NVIDIA..."
+    sudo systemctl stop nvidia-persistenced.service || true
+    
+    # Gỡ bỏ tất cả module NVIDIA hiện tại
+    echo "Gỡ bỏ tất cả module NVIDIA hiện tại..."
+    sudo rmmod nvidia_drm || true
+    sudo rmmod nvidia_modeset || true
+    sudo rmmod nvidia_uvm || true
+    sudo rmmod nvidia || true
+    
     # Tải driver NVIDIA cho CUDA 12.6
     wget https://developer.download.nvidia.com/compute/cuda/12.6.0/local_installers/cuda_12.6.0_560.28.03_linux.run
 
     # Cấp quyền thực thi
     chmod +x cuda_12.6.0_560.28.03_linux.run
 
-    # Cài đặt driver và CUDA Toolkit
-    sudo ./cuda_12.6.0_560.28.03_linux.run
+    # Cài đặt driver và CUDA Toolkit với tùy chọn bỏ qua kiểm tra phiên bản compiler
+    # và chấp nhận tiếp tục bỏ qua sanity checks
+    echo "Cài đặt CUDA 12.6 và NVIDIA driver..."
+    sudo ./cuda_12.6.0_560.28.03_linux.run --silent --driver --toolkit --samples --run-nvidia-xconfig --override --no-cc-version-check
+    # Nếu cách trên không hoạt động, thử phương pháp khác
+    if [ $? -ne 0 ]; then
+      echo "Thử phương pháp cài đặt khác..."
+      sudo apt-get update
+      sudo apt-get install -y build-essential dkms
+      sudo apt-get install -y linux-headers-$(uname -r)
+      sudo ./cuda_12.6.0_560.28.03_linux.run --driver --toolkit --silent --override
+    fi
     
     # Thiết lập biến môi trường
     echo 'export PATH=/usr/local/cuda-12.6/bin${PATH:+:${PATH}}' >> ~/.bashrc
