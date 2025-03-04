@@ -46,14 +46,14 @@ RUN bun install -g n8n
 COPY --from=ffmpeg /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
 COPY --from=ffmpeg /usr/local/bin/ffprobe /usr/local/bin/ffprobe
 
-# Copy các thư viện ffmpeg cần thiết, nhưng loại trừ libc.so.6 để tránh xung đột
-RUN mkdir -p /usr/local/lib/ffmpeg
-COPY --from=ffmpeg /usr/local/lib/ /tmp/ffmpeg_libs/ || true
-RUN if [ -d "/tmp/ffmpeg_libs" ]; then \
-    cd /tmp/ffmpeg_libs && \
-    find . -type f -name "*.so*" ! -name "libc.so*" -exec cp --parents {} /usr/local/lib/ \; || true && \
-    rm -rf /tmp/ffmpeg_libs; \
-    fi
+# Tạo thư mục cho thư viện ffmpeg và sao chép thư viện trực tiếp
+RUN mkdir -p /usr/local/lib
+COPY --from=ffmpeg /usr/local/lib/*.so* /usr/local/lib/
+COPY --from=ffmpeg /usr/local/lib/mfx /usr/local/lib/mfx
+COPY --from=ffmpeg /usr/local/lib/libmfx-gen /usr/local/lib/libmfx-gen
+
+# Loại bỏ các thư viện có thể xung đột
+RUN cd /usr/local/lib && find . -name "libc.so*" -delete
 
 # Thiết lập LD_LIBRARY_PATH để ffmpeg có thể tìm các thư viện cần thiết
 ENV LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH}"
