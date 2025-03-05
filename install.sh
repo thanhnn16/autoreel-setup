@@ -15,60 +15,94 @@ wait_for_apt() {
 check_cuda_installation() {
   echo "Kiểm tra cài đặt CUDA..."
   
-  if command -v nvcc &> /dev/null; then
-    nvcc_version=$(nvcc --version | grep "release" | awk '{print $6}' | cut -d',' -f1)
-    echo "✅ CUDA đã được cài đặt, phiên bản: $nvcc_version"
-    
-    # Kiểm tra phiên bản CUDA từ nvidia-smi
-    if command -v nvidia-smi &> /dev/null; then
-      cuda_version=$(nvidia-smi | grep "CUDA Version" | awk '{print $9}')
-      echo "✅ CUDA Version từ nvidia-smi: $cuda_version"
+  # Kiểm tra trạng thái CUDA từ nvidia-smi trước
+  if command -v nvidia-smi &> /dev/null; then
+    cuda_version=$(nvidia-smi | grep "CUDA Version" | awk '{print $9}')
+    if [[ -n "$cuda_version" ]]; then
+      echo "✅ CUDA Runtime đã được cài đặt, phiên bản: $cuda_version (từ nvidia-smi)"
       
-      # Nếu phiên bản CUDA != 12.2, thực hiện nâng cấp/downgrade
-      if [[ "$cuda_version" != "12.2" ]]; then
-        echo "⚠️ Phiên bản CUDA hiện tại khác 12.2. Đang cài đặt CUDA 12.2..."
-        
-        # Tải driver NVIDIA cho CUDA 12.2
-        wget https://developer.download.nvidia.com/compute/cuda/12.2.0/local_installers/cuda_12.2.0_535.54.03_linux.run
-
-        # Cấp quyền thực thi
-        chmod +x cuda_12.2.0_535.54.03_linux.run
-
-        # Cài đặt driver và CUDA Toolkit
-        sudo ./cuda_12.2.0_535.54.03_linux.run
-        
-        # Thiết lập biến môi trường
-        echo 'export PATH=/usr/local/cuda-12.2/bin${PATH:+:${PATH}}' >> ~/.bashrc
-        echo 'export LD_LIBRARY_PATH=/usr/local/cuda-12.2/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}' >> ~/.bashrc
-        source ~/.bashrc
-        
-        echo "✅ Đã cài đặt CUDA 12.2. Vui lòng khởi động lại hệ thống để áp dụng thay đổi."
+      # Nếu phiên bản CUDA từ nvidia-smi đã là 12.6, không cần tiếp tục
+      if [[ "$cuda_version" == "12.6" ]]; then
+        echo "✅ CUDA Runtime phiên bản 12.6 đã được cài đặt. Không cần cài đặt lại."
+        return 0
       fi
     fi
-  else
-    echo "⚠️ CUDA chưa được cài đặt. Đang cài đặt CUDA 12.2..."
+  fi
+  
+  # Kiểm tra nvcc (CUDA compiler)
+  if command -v nvcc &> /dev/null; then
+    nvcc_version=$(nvcc --version | grep "release" | awk '{print $6}' | cut -d',' -f1)
+    echo "✅ CUDA Toolkit đã được cài đặt, phiên bản: $nvcc_version (từ nvcc)"
     
-    # Tải driver NVIDIA cho CUDA 12.2
-    wget https://developer.download.nvidia.com/compute/cuda/12.2.0/local_installers/cuda_12.2.0_535.54.03_linux.run
-
-    # Cấp quyền thực thi
-    chmod +x cuda_12.2.0_535.54.03_linux.run
-
-    # Cài đặt driver và CUDA Toolkit
-    sudo ./cuda_12.2.0_535.54.03_linux.run
-    
-    # Thiết lập biến môi trường
-    echo 'export PATH=/usr/local/cuda-12.2/bin${PATH:+:${PATH}}' >> ~/.bashrc
-    echo 'export LD_LIBRARY_PATH=/usr/local/cuda-12.2/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}' >> ~/.bashrc
-    source ~/.bashrc
-    
-    # Kiểm tra lại cài đặt
-    if command -v nvcc &> /dev/null; then
-      nvcc_version=$(nvcc --version | grep "release" | awk '{print $6}' | cut -d',' -f1)
-      echo "✅ CUDA đã được cài đặt thành công, phiên bản: $nvcc_version"
+    # Nếu phiên bản CUDA từ nvcc cũng khác 12.6 thì mới thực hiện nâng cấp/downgrade
+    if [[ "$nvcc_version" != "12.6" ]]; then
+      echo "⚠️ Phiên bản CUDA Toolkit hiện tại khác 12.6. Đang cài đặt CUDA 12.6.3..."
+      install_cuda_12_6_3
     else
-      echo "⚠️ Cài đặt CUDA không thành công. Vui lòng cài đặt thủ công."
+      echo "✅ CUDA Toolkit phiên bản 12.6 đã được cài đặt. Không cần cài đặt lại."
     fi
+  else
+    # Nếu đã có CUDA Runtime 12.6 từ nvidia-smi nhưng không có nvcc
+    if [[ "$cuda_version" == "12.6" ]]; then
+      echo "⚠️ CUDA Runtime 12.6 đã cài đặt nhưng không tìm thấy CUDA Toolkit (nvcc)."
+      # Tự động cài đặt CUDA Toolkit mà không hỏi người dùng
+      echo "Tự động cài đặt đầy đủ CUDA Toolkit..."
+      install_cuda_12_6_3
+    else
+      echo "⚠️ CUDA chưa được cài đặt đầy đủ. Đang cài đặt CUDA 12.6.3..."
+      install_cuda_12_6_3
+    fi
+  fi
+}
+
+# Hàm riêng để cài đặt CUDA 12.6.3
+install_cuda_12_6_3() {
+  # Chuẩn bị hệ thống
+  wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
+  wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential linux-headers-$(uname -r)
+  
+  # Xóa cài đặt CUDA cũ nếu có
+  echo "Xóa cài đặt CUDA cũ nếu có..."
+  wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get purge -y cuda* --autoremove
+  sudo rm -rf /usr/local/cuda*
+  
+  # Tải installer CUDA 12.6.3
+  echo "Tải CUDA 12.6.3 installer..."
+  wget -q --show-progress https://developer.download.nvidia.com/compute/cuda/12.6.3/local_installers/cuda_12.6.3_550.54.15_linux.run
+  
+  # Cấp quyền thực thi
+  chmod +x cuda_12.6.3_550.54.15_linux.run
+
+  # Cài đặt CUDA Toolkit (không cài driver vì đã cài riêng)
+  echo "Cài đặt CUDA 12.6.3 Toolkit..."
+  sudo ./cuda_12.6.3_550.54.15_linux.run --silent --toolkit --samples --no-opengl-libs --override
+  
+  # Thiết lập biến môi trường
+  echo 'export PATH=/usr/local/cuda-12.6/bin${PATH:+:${PATH}}' >> ~/.bashrc
+  echo 'export LD_LIBRARY_PATH=/usr/local/cuda-12.6/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}' >> ~/.bashrc
+  source ~/.bashrc
+  
+  # Cập nhật PATH cho toàn hệ thống
+  echo "/usr/local/cuda-12.6/lib64" | sudo tee /etc/ld.so.conf.d/cuda.conf
+  sudo ldconfig
+  
+  # Kiểm tra lại cài đặt
+  if command -v nvcc &> /dev/null; then
+    nvcc_version=$(nvcc --version | grep "release" | awk '{print $6}' | cut -d',' -f1)
+    echo "✅ CUDA đã được cài đặt thành công, phiên bản: $nvcc_version"
+    
+    # Kiểm tra chi tiết hơn với deviceQuery
+    echo "Cài đặt các gói phụ thuộc cho CUDA samples..."
+    wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y freeglut3-dev libx11-dev libxi-dev libxmu-dev libglu1-mesa-dev
+    
+    if [ -d "/usr/local/cuda-12.6/samples/1_Utilities/deviceQuery" ]; then
+      echo "Xác minh cài đặt CUDA với deviceQuery..."
+      cd /usr/local/cuda-12.6/samples/1_Utilities/deviceQuery
+      sudo make > /dev/null 2>&1
+      ./deviceQuery
+    fi
+  else
+    echo "⚠️ Cài đặt CUDA không thành công. Vui lòng cài đặt thủ công."
   fi
 }
 
@@ -81,23 +115,23 @@ check_nvidia_driver() {
       echo "⚠️ Phát hiện vấn đề với NVIDIA driver. Đang thực hiện khắc phục..."
       
       # Cập nhật package lists
-      wait_for_apt && sudo apt-get update -y
+      wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
       
       # Gỡ bỏ driver cũ nếu có
-      wait_for_apt && sudo apt-get remove --purge -y nvidia-*
+      wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get remove --purge -y nvidia-*
       
       # Cài đặt các gói cần thiết
-      wait_for_apt && sudo apt-get install -y build-essential dkms
+      wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential dkms
       
-      # Kiểm tra phiên bản driver được khuyến nghị
-      wait_for_apt && sudo apt-get install -y ubuntu-drivers-common
-      driver_version=$(ubuntu-drivers devices | grep "recommended" | awk '{print $3}' | cut -d'-' -f2)
-      if [ -z "$driver_version" ]; then
-        driver_version="535" # Phiên bản driver cho CUDA 12.2
-      fi
+      # Cài đặt Driver NVIDIA mới nhất
+      wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ubuntu-drivers-common
       
-      echo "Đang cài đặt lại NVIDIA driver phiên bản $driver_version..."
-      wait_for_apt && sudo apt-get install -y --reinstall nvidia-driver-$driver_version
+      echo "Đang cài đặt NVIDIA driver phiên bản mới nhất..."
+      wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive ubuntu-drivers autoinstall
+      
+      # Thêm blacklist cho Nouveau driver nếu cần
+      echo "blacklist nouveau" | sudo tee /etc/modprobe.d/blacklist-nouveau.conf
+      sudo update-initramfs -u
       
       echo "Kiểm tra và tải kernel module NVIDIA..."
       if ! lsmod | grep -q nvidia; then
@@ -110,12 +144,10 @@ check_nvidia_driver() {
       
       echo "⚠️ Nếu vẫn gặp vấn đề với NVIDIA driver, vui lòng khởi động lại hệ thống và chạy lại script."
       echo "Tự động khởi động lại hệ thống để áp dụng thay đổi."
-      restart_choice="y"
-      if [[ "$restart_choice" == "y" ]]; then
-        echo "Hệ thống sẽ khởi động lại sau 5 giây..."
-        sleep 5
-        sudo reboot
-      fi
+      # Không hỏi người dùng, tự động reboot
+      echo "Hệ thống sẽ khởi động lại sau 5 giây..."
+      sleep 5
+      sudo reboot
     else
       echo "✅ NVIDIA driver hoạt động bình thường."
       # Hiển thị thông tin GPU
@@ -124,28 +156,22 @@ check_nvidia_driver() {
     fi
   else
     echo "⚠️ Không tìm thấy NVIDIA driver. Đang cài đặt..."
-    wait_for_apt && sudo apt-get update -y
-    wait_for_apt && sudo apt-get install -y ubuntu-drivers-common
+    wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
+    wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ubuntu-drivers-common
     
-    # Tìm driver được khuyến nghị
-    driver_version=$(ubuntu-drivers devices | grep "recommended" | awk '{print $3}' | cut -d'-' -f2)
-    if [ -z "$driver_version" ]; then
-      driver_version="535" # Phiên bản driver cho CUDA 12.2
-    fi
+    echo "Đang cài đặt NVIDIA driver phiên bản mới nhất..."
+    wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive ubuntu-drivers autoinstall
     
-    echo "Đang cài đặt NVIDIA driver phiên bản $driver_version..."
-    wait_for_apt && sudo apt-get install -y nvidia-driver-$driver_version
+    # Thêm blacklist cho Nouveau driver
+    echo "blacklist nouveau" | sudo tee /etc/modprobe.d/blacklist-nouveau.conf
+    sudo update-initramfs -u
     
     echo "⚠️ Cần khởi động lại hệ thống để NVIDIA driver có hiệu lực."
     echo "Tự động khởi động lại hệ thống ngay bây giờ."
-    restart_choice="y"
-    if [[ "$restart_choice" == "y" ]]; then
-      echo "Hệ thống sẽ khởi động lại sau 5 giây..."
-      sleep 5
-      sudo reboot
-    else
-      echo "⚠️ Vui lòng khởi động lại hệ thống sau khi cài đặt hoàn tất để NVIDIA driver có hiệu lực."
-    fi
+    # Tự động reboot không hỏi người dùng
+    echo "Hệ thống sẽ khởi động lại sau 5 giây..."
+    sleep 5
+    sudo reboot
   fi
 }
 
@@ -154,10 +180,10 @@ verify_gpu_for_docker() {
   echo "Kiểm tra GPU cho Docker..."
   
   # Kiểm tra xem Docker có thể truy cập GPU không
-  if sudo docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu20.04 nvidia-smi &> /dev/null; then
+  if sudo docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu20.04 nvidia-smi &> /dev/null; then
     echo "✅ Docker có thể truy cập GPU thành công."
     # Hiển thị thông tin GPU từ container
-    sudo docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu20.04 nvidia-smi
+    sudo docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu20.04 nvidia-smi
   else
     echo "⚠️ Docker không thể truy cập GPU. Đang cấu hình lại NVIDIA Container Toolkit..."
     
@@ -167,17 +193,17 @@ verify_gpu_for_docker() {
     | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
     | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
     
-    wait_for_apt && sudo apt-get update -y
-    wait_for_apt && sudo apt-get install -y nvidia-container-toolkit
+    wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
+    wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nvidia-container-toolkit
     
     # Cấu hình Docker để sử dụng NVIDIA runtime
     sudo nvidia-ctk runtime configure --runtime=docker
     sudo systemctl restart docker
     
     # Kiểm tra lại
-    if sudo docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu20.04 nvidia-smi &> /dev/null; then
+    if sudo docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu20.04 nvidia-smi &> /dev/null; then
       echo "✅ Docker đã có thể truy cập GPU thành công."
-      sudo docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu20.04 nvidia-smi
+      sudo docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu20.04 nvidia-smi
     else
       echo "⚠️ Docker vẫn không thể truy cập GPU. Vui lòng kiểm tra lại cài đặt thủ công."
     fi
@@ -189,19 +215,17 @@ cleanup_temp_files() {
   echo "Đang dọn dẹp thư mục và file tạm..."
   
   # Xóa các file tạm và cache apt
-  sudo apt-get clean -y
-  sudo apt-get autoremove -y
+  sudo DEBIAN_FRONTEND=noninteractive apt-get clean -y
+  sudo DEBIAN_FRONTEND=noninteractive apt-get autoremove -y
   
   # Xóa các file tạm trong /tmp
   sudo rm -rf /tmp/*
   
-  # Xóa cache Docker nếu cần
+  # Xóa cache Docker
   echo "Tự động xóa cache Docker."
-  clean_docker="y"
-  if [[ "$clean_docker" == "y" ]]; then
-    echo "Đang xóa cache Docker..."
-    sudo docker system prune -af --volumes
-  fi
+  # Không hỏi người dùng, tự động xóa cache
+  echo "Đang xóa cache Docker..."
+  sudo docker system prune -af --volumes
   
   # Xóa các file log cũ
   sudo find /var/log -type f -name "*.gz" -delete
@@ -215,19 +239,19 @@ cleanup_temp_files() {
 }
 
 echo "--------- 🟢 Bắt đầu clone repository -----------"
-git clone https://github.com/thanhnn16/MIAI_n8n_dockercompose.git
-mv MIAI_n8n_dockercompose n8n
+git clone https://github.com/thanhnn16/autoreel-setup.git --quiet
+mv autoreel-setup n8n
 cd n8n
 cp .env.example .env
 echo "--------- 🔴 Hoàn thành clone repository -----------"
 
 echo "--------- 🟢 Bắt đầu cài đặt Docker -----------"
-wait_for_apt && sudo apt update -y
-wait_for_apt && sudo apt install -y apt-transport-https ca-certificates curl software-properties-common
+wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt update -y
+wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt install -y apt-transport-https ca-certificates curl software-properties-common
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
 sudo add-apt-repository -y "deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable"
 apt-cache policy docker-ce
-wait_for_apt && sudo apt install -y docker-ce
+wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt install -y docker-ce
 echo "--------- 🔴 Hoàn thành cài đặt Docker -----------"
 
 echo "--------- 🟢 Bắt đầu cài đặt Docker Compose -----------"
@@ -249,8 +273,8 @@ curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
 curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list \
 | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' \
 | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-wait_for_apt && sudo apt-get update -y
-wait_for_apt && sudo apt-get install -y nvidia-container-toolkit
+wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
+wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nvidia-container-toolkit
 sudo nvidia-ctk runtime configure --runtime=docker
 sudo systemctl restart docker
 echo "--------- 🔴 Hoàn thành cài đặt NVIDIA support cho Docker -----------"
@@ -260,12 +284,12 @@ verify_gpu_for_docker
 echo "--------- 🔴 Hoàn thành kiểm tra GPU cho Docker -----------"
 
 echo "--------- 🟢 Bắt đầu cài đặt Nginx -----------"
-wait_for_apt && sudo apt update -y
-wait_for_apt && sudo apt install -y nginx
+wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt update -y
+wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt install -y nginx
 echo "--------- 🔴 Hoàn thành cài đặt Nginx -----------"
 
 echo "--------- 🟢 Bắt đầu cài đặt Snap -----------"
-wait_for_apt && sudo apt install -y snapd
+wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt install -y snapd
 echo "--------- 🔴 Hoàn thành cài đặt Snap -----------"
 
 echo "--------- 🟢 Bắt đầu cấu hình Nginx cho n8n -----------"
@@ -308,14 +332,15 @@ fi
 echo "--------- 🔴 Hoàn thành cấu hình Nginx cho n8n -----------"
 
 echo "--------- 🟢 Bắt đầu cài đặt Certbot -----------"
-sudo snap install --classic certbot
+sudo snap install --classic certbot --quiet
 sudo ln -sf /snap/bin/certbot /usr/bin/certbot
 echo "--------- 🔴 Hoàn thành cài đặt Certbot -----------"
 
 echo "--------- 🟢 Bắt đầu thiết lập SSL với Certbot -----------"
-# Chạy certbot để lấy chứng chỉ SSL, chế độ tự động
+# Chạy certbot để lấy chứng chỉ SSL, chế độ tự động và không tương tác
 sudo certbot --nginx --non-interactive --agree-tos --redirect \
-    --staple-ocsp --email admin@autoreel.io.vn -d n8n.autoreel.io.vn
+    --staple-ocsp --email admin@autoreel.io.vn -d n8n.autoreel.io.vn \
+    --quiet
 echo "--------- 🔴 Hoàn thành thiết lập SSL với Certbot -----------"
 
 echo "--------- 🟢 Bắt đầu build Docker Compose -----------"
@@ -326,7 +351,8 @@ mkdir -p storage
 chmod 777 storage
 
 echo "Đang build các container..."
-sudo docker-compose build
+# Xóa output của lệnh build để không hiển thị quá nhiều thông tin
+sudo docker-compose build --quiet
 echo "Build hoàn tất!"
 echo "--------- 🔴 Hoàn thành build Docker Compose -----------"
 
@@ -348,7 +374,8 @@ if [ -f "$FLUX1_FILE" ]; then
     echo "File Flux1-dev-fp8 Checkpoint đã tồn tại. Bỏ qua bước tải..."
 else
     echo "Đang tải Flux1-dev-fp8 Checkpoint..."
-    wget -O "$FLUX1_FILE" https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev-fp8.safetensors
+    # Thêm -q để chế độ yên lặng với thanh tiến trình đơn giản
+    wget -q --show-progress -O "$FLUX1_FILE" https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev-fp8.safetensors
     
     # Kiểm tra xem tải thành công không
     if [ -f "$FLUX1_FILE" ]; then
@@ -361,6 +388,149 @@ fi
 echo "Đặt quyền cho thư mục và file..."
 chmod -R 777 ~/n8n/storage/ComfyUI/models
 echo "--------- 🔴 Hoàn thành tải Flux1 Checkpoint -----------"
+
+echo "--------- 🟢 Bắt đầu tải Wan2.1 và Flux Models -----------"
+
+# Tạo cấu trúc thư mục cho Wan2.1
+mkdir -p ~/n8n/storage/ComfyUI/models/{text_encoders,vae,diffusion_models,clip_vision}
+
+# Hàm kiểm tra và tải model
+download_model() {
+  local url=$1
+  local dest=$2
+  local filename=$(basename "$dest")
+  
+  if [ -f "$dest" ]; then
+    echo "✅ $filename đã tồn tại. Bỏ qua..."
+  else
+    echo "🔄 Đang tải $filename..."
+    wget -q --show-progress -O "$dest" "$url"
+    
+    if [ -f "$dest" ]; then
+      echo "✅ Tải $filename thành công!"
+    else
+      echo "❌ Lỗi khi tải $filename"
+    fi
+  fi
+}
+
+# Tải các model Wan2.1
+echo "Đang tải các model Wan2.1..."
+download_model "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors" \
+  "~/n8n/storage/ComfyUI/models/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors"
+
+download_model "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors" \
+  "~/n8n/storage/ComfyUI/models/vae/wan_2.1_vae.safetensors"
+
+download_model "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_t2v_1.3B_bf16.safetensors" \
+  "~/n8n/storage/ComfyUI/models/diffusion_models/wan2.1_t2v_1.3B_bf16.safetensors"
+
+# Cấp quyền cho thư mục models
+chmod -R 777 ~/n8n/storage/ComfyUI/models
+
+echo "--------- 🔴 Hoàn thành tải model -----------"
+
+echo "--------- 🟢 Bắt đầu cập nhật ComfyUI và cài đặt node mới -----------"
+# Vào thư mục ComfyUI trong container để cập nhật
+echo "Bắt đầu cập nhật ComfyUI..."
+COMFYUI_CONTAINER=$(sudo docker ps | grep comfyui | awk '{print $1}')
+
+if [ -n "$COMFYUI_CONTAINER" ]; then
+    echo "✅ Tìm thấy container ComfyUI: $COMFYUI_CONTAINER"
+    # Cập nhật ComfyUI từ GitHub
+    sudo docker exec $COMFYUI_CONTAINER bash -c "cd /ComfyUI && git pull"
+    echo "✅ Đã cập nhật ComfyUI lên phiên bản mới nhất"
+    
+    # Cài đặt node ComfyUI-GGUF nếu chưa có
+    if [ ! -d "~/n8n/storage/ComfyUI/custom_nodes/ComfyUI-GGUF" ]; then
+        echo "🔄 Đang cài đặt ComfyUI-GGUF..."
+        sudo docker exec $COMFYUI_CONTAINER bash -c "cd /ComfyUI/custom_nodes && git clone https://github.com/city96/ComfyUI-GGUF.git"
+        echo "✅ Đã cài đặt ComfyUI-GGUF"
+    else
+        echo "✅ ComfyUI-GGUF đã được cài đặt. Cập nhật repository..."
+        sudo docker exec $COMFYUI_CONTAINER bash -c "cd /ComfyUI/custom_nodes/ComfyUI-GGUF && git pull"
+    fi
+    
+    # Cài đặt node ComfyUI-VideoHelperSuite nếu chưa có
+    if [ ! -d "~/n8n/storage/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite" ]; then
+        echo "🔄 Đang cài đặt ComfyUI-VideoHelperSuite..."
+        sudo docker exec $COMFYUI_CONTAINER bash -c "cd /ComfyUI/custom_nodes && git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+        echo "✅ Đã cài đặt ComfyUI-VideoHelperSuite"
+    else
+        echo "✅ ComfyUI-VideoHelperSuite đã được cài đặt. Cập nhật repository..."
+        sudo docker exec $COMFYUI_CONTAINER bash -c "cd /ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite && git pull"
+    fi
+    
+    # Cài đặt các gói Python cần thiết cho các node
+    echo "🔄 Đang cài đặt các gói Python cần thiết..."
+    sudo docker exec $COMFYUI_CONTAINER bash -c "pip install -r /ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite/requirements.txt"
+    sudo docker exec $COMFYUI_CONTAINER bash -c "pip install -r /ComfyUI/custom_nodes/ComfyUI-GGUF/requirements.txt"
+    echo "✅ Đã cài đặt các gói Python cần thiết"
+else
+    echo "❌ Không tìm thấy container ComfyUI đang chạy. Vui lòng đảm bảo container đã được khởi động."
+fi
+
+echo "--------- 🟢 Bắt đầu tải thêm các model Wan2.1 mới -----------"
+
+# Tải thêm các model Wan2.1 mới
+echo "Đang tải các model Wan2.1 mới..."
+
+# Tải mô hình clip_vision
+download_model "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/clip_vision/clip_vision_h.safetensors" \
+  "~/n8n/storage/ComfyUI/models/clip_vision/clip_vision_h.safetensors"
+
+# Mặc định tự động tải cả mô hình 14B
+echo "Tự động tải tất cả các mô hình bao gồm cả mô hình 14B..."
+download_14b="y"
+if [[ "$download_14b" == "y" ]]; then
+    # Tải mô hình t2v (text to video) 14B
+    download_model "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_t2v_14B_fp8_e4m3fn.safetensors" \
+      "~/n8n/storage/ComfyUI/models/diffusion_models/wan2.1_t2v_14B_fp8_e4m3fn.safetensors"
+    
+    # Tải mô hình i2v (image to video) 14B
+    download_model "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_i2v_720p_14B_fp8_e4m3fn.safetensors" \
+      "~/n8n/storage/ComfyUI/models/diffusion_models/wan2.1_i2v_720p_14B_fp8_e4m3fn.safetensors"
+else
+    echo "Bỏ qua tải mô hình 14B."
+fi
+
+# Cấp quyền cho thư mục models
+chmod -R 777 ~/n8n/storage/ComfyUI/models
+chmod -R 777 ~/n8n/storage/ComfyUI/custom_nodes
+
+# Khởi động lại container ComfyUI để áp dụng thay đổi
+if [ -n "$COMFYUI_CONTAINER" ]; then
+    echo "🔄 Đang khởi động lại container ComfyUI..."
+    sudo docker restart $COMFYUI_CONTAINER
+    echo "✅ Đã khởi động lại container ComfyUI"
+fi
+
+echo "--------- 🟢 Kiểm tra cài đặt -----------"
+echo "Kiểm tra cài đặt ComfyUI và các node mới..."
+
+# Kiểm tra ComfyUI
+if [ -n "$COMFYUI_CONTAINER" ]; then
+    echo "- ComfyUI container: ✅ (ID: $COMFYUI_CONTAINER)"
+else
+    echo "- ComfyUI container: ❌ (Không tìm thấy)"
+fi
+
+# Kiểm tra các node
+for node in "ComfyUI-GGUF" "ComfyUI-VideoHelperSuite"; do
+    if [ -d "~/n8n/storage/ComfyUI/custom_nodes/$node" ]; then
+        echo "- Node $node: ✅"
+    else
+        echo "- Node $node: ❌ (Không tìm thấy)"
+    fi
+done
+
+# Kiểm tra các model
+for model_type in "text_encoders" "diffusion_models" "clip_vision" "vae"; do
+    echo "Các model trong ~/n8n/storage/ComfyUI/models/$model_type:"
+    ls -la ~/n8n/storage/ComfyUI/models/$model_type 2>/dev/null || echo "  Không tìm thấy thư mục này"
+done
+
+echo "--------- 🔴 Hoàn thành cập nhật ComfyUI và cài đặt node mới -----------"
 
 echo "--------- 🟢 Dọn dẹp các file tạm và thư mục dư thừa -----------"
 cleanup_temp_files
@@ -380,4 +550,5 @@ echo "Nếu bạn gặp vấn đề với NVIDIA driver, vui lòng thử các b�
 echo "1. Khởi động lại hệ thống: sudo reboot"
 echo "2. Sau khi khởi động lại, kiểm tra trạng thái driver: nvidia-smi"
 echo "3. Nếu vẫn gặp vấn đề, chạy lại script này hoặc cài đặt thủ công driver NVIDIA"
+echo "4. Để cài đặt thủ công CUDA 12.6.3, tham khảo: https://developer.nvidia.com/cuda-12-6-3-download-archive"
 
