@@ -142,7 +142,7 @@ services:
               capabilities: [gpu]
 
   comfyui:
-    image: mmartial/comfyui-nvidia-docker:ubuntu22_cuda12.3.2-latest
+    image: yanwk/comfyui-boot:cu124-slim
     hostname: comfyui
     container_name: comfyui
     networks: ["autoreel"]
@@ -152,12 +152,10 @@ services:
     volumes:
       - ./storage:/root
     environment:
-      - CUDA_VERSION=12.2
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - WANTED_UID=1000
       - WANTED_GID=1000
-      - SECURITY_LEVEL=normal
     deploy:
       resources:
         reservations:
