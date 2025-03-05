@@ -150,7 +150,8 @@ services:
     ports:
       - 8188:8188
     volumes:
-      - ./storage:/root
+      - ./storage/ComfyUI:/ComfyUI
+      - ./storage:/storage
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
