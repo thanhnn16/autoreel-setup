@@ -17,15 +17,11 @@ RUN apt-get update && apt-get install -y \
     lsb-release \
     apt-transport-https
 
-# Cài đặt Bun thay vì Node.js
-RUN curl -fsSL https://bun.sh/install | bash && \
-    echo 'export BUN_INSTALL="$HOME/.bun"' >> /root/.bashrc && \
-    echo 'export PATH="$BUN_INSTALL/bin:$PATH"' >> /root/.bashrc && \
-    . /root/.bashrc && \
-    /root/.bun/bin/bun --version
-
-# Thiết lập PATH để sử dụng Bun
-ENV PATH="/root/.bun/bin:${PATH}"
+# Cài đặt Node.js thay vì Bun vì n8n yêu cầu Node.js để chạy đúng cách
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+    apt-get install -y nodejs && \
+    npm install -g npm && \
+    node --version && npm --version
 
 # Cài đặt các gói hỗ trợ Python và tiện ích khác (nếu cần cho n8n hoặc gcloud)
 RUN apt-get install -y python3 python3-pip
@@ -39,8 +35,8 @@ RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.
 # Thiết lập biến môi trường cho gcloud
 ENV CLOUDSDK_CONFIG="/home/node/.config/gcloud"
 
-# Cài đặt n8n toàn cục sử dụng Bun
-RUN bun install -g n8n
+# Cài đặt n8n toàn cục sử dụng npm
+RUN npm install -g n8n
 
 # Copy binary ffmpeg từ stage 1
 COPY --from=ffmpeg /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
@@ -59,16 +55,20 @@ RUN cd /usr/local/lib && find . -name "libc.so*" -delete
 ENV LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH}"
 
 # Tạo user 'node' nếu chưa có, và chuyển sang user này
-RUN useradd -m node && mkdir -p /home/node/.n8n && chown -R node:node /home/node && \
-    mkdir -p /root/.bun && cp -r /root/.bun /home/node/ && chown -R node:node /home/node/.bun
+RUN useradd -m node && mkdir -p /home/node/.n8n && chown -R node:node /home/node
 
-# Thiết lập PATH cho user node
-ENV PATH="/home/node/.bun/bin:${PATH}"
+# Đảm bảo n8n có thể được tìm thấy trong PATH cho user node
+RUN npm config set prefix /usr/local
+ENV PATH="/usr/local/bin:${PATH}"
+
 USER node
 WORKDIR /home/node
 
 # Expose port mặc định của n8n (5678)
 EXPOSE 5678
+
+# Kiểm tra xem n8n có thể được tìm thấy hay không
+RUN which n8n
 
 # Khi chạy container, khởi động n8n
 CMD ["n8n"]
