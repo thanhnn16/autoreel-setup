@@ -11,6 +11,7 @@ services:
   postgres:
     image: postgres:16-alpine
     hostname: postgres
+    container_name: postgres
     networks: ["autoreel"]
     restart: unless-stopped
     ports:
@@ -34,6 +35,7 @@ services:
       dockerfile: Dockerfile
     hostname: n8n
     container_name: n8n
+    networks: ["autoreel"]
     restart: unless-stopped
     ports:
       - 5678:5678
