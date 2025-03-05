@@ -21,9 +21,9 @@ check_cuda_installation() {
     if [[ -n "$cuda_version" ]]; then
       echo "✅ CUDA Runtime đã được cài đặt, phiên bản: $cuda_version (từ nvidia-smi)"
       
-      # Nếu phiên bản CUDA từ nvidia-smi đã là 12.6, không cần tiếp tục
-      if [[ "$cuda_version" == "12.6" ]]; then
-        echo "✅ CUDA Runtime phiên bản 12.6 đã được cài đặt. Không cần cài đặt lại."
+      # Nếu phiên bản CUDA từ nvidia-smi đã là 12.2, không cần tiếp tục
+      if [[ "$cuda_version" == "12.2" ]]; then
+        echo "✅ CUDA Runtime phiên bản 12.2 đã được cài đặt. Không cần cài đặt lại."
         return 0
       fi
     fi
@@ -34,29 +34,29 @@ check_cuda_installation() {
     nvcc_version=$(nvcc --version | grep "release" | awk '{print $6}' | cut -d',' -f1)
     echo "✅ CUDA Toolkit đã được cài đặt, phiên bản: $nvcc_version (từ nvcc)"
     
-    # Nếu phiên bản CUDA từ nvcc cũng khác 12.6 thì mới thực hiện nâng cấp/downgrade
-    if [[ "$nvcc_version" != "12.6" ]]; then
-      echo "⚠️ Phiên bản CUDA Toolkit hiện tại khác 12.6. Đang cài đặt CUDA 12.6.3..."
-      install_cuda_12_6_3
+    # Nếu phiên bản CUDA từ nvcc cũng khác 12.2 thì mới thực hiện nâng cấp/downgrade
+    if [[ "$nvcc_version" != "12.2" ]]; then
+      echo "⚠️ Phiên bản CUDA Toolkit hiện tại khác 12.2. Đang cài đặt CUDA 12.2.0..."
+      install_cuda_12_2_0
     else
-      echo "✅ CUDA Toolkit phiên bản 12.6 đã được cài đặt. Không cần cài đặt lại."
+      echo "✅ CUDA Toolkit phiên bản 12.2 đã được cài đặt. Không cần cài đặt lại."
     fi
   else
-    # Nếu đã có CUDA Runtime 12.6 từ nvidia-smi nhưng không có nvcc
-    if [[ "$cuda_version" == "12.6" ]]; then
-      echo "⚠️ CUDA Runtime 12.6 đã cài đặt nhưng không tìm thấy CUDA Toolkit (nvcc)."
+    # Nếu đã có CUDA Runtime 12.2 từ nvidia-smi nhưng không có nvcc
+    if [[ "$cuda_version" == "12.2" ]]; then
+      echo "⚠️ CUDA Runtime 12.2 đã cài đặt nhưng không tìm thấy CUDA Toolkit (nvcc)."
       # Tự động cài đặt CUDA Toolkit mà không hỏi người dùng
       echo "Tự động cài đặt đầy đủ CUDA Toolkit..."
-      install_cuda_12_6_3
+      install_cuda_12_2_0
     else
-      echo "⚠️ CUDA chưa được cài đặt đầy đủ. Đang cài đặt CUDA 12.6.3..."
-      install_cuda_12_6_3
+      echo "⚠️ CUDA chưa được cài đặt đầy đủ. Đang cài đặt CUDA 12.2.0..."
+      install_cuda_12_2_0
     fi
   fi
 }
 
-# Hàm riêng để cài đặt CUDA 12.6.3
-install_cuda_12_6_3() {
+# Hàm riêng để cài đặt CUDA 12.2.0
+install_cuda_12_2_0() {
   # Chuẩn bị hệ thống
   wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
   wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential linux-headers-$(uname -r)
@@ -66,24 +66,24 @@ install_cuda_12_6_3() {
   wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get purge -y cuda* --autoremove
   sudo rm -rf /usr/local/cuda*
   
-  # Tải installer CUDA 12.6.3
-  echo "Tải CUDA 12.6.3 installer..."
-  wget -q --show-progress https://developer.download.nvidia.com/compute/cuda/12.6.3/local_installers/cuda_12.6.3_560.35.05_linux.run
+  # Tải và cài đặt CUDA 12.2.0 theo yêu cầu của người dùng
+  echo "Tải CUDA 12.2.0 installer..."
+  wget https://developer.download.nvidia.com/compute/cuda/12.2.0/local_installers/cuda_12.2.0_535.54.03_linux.run
   
   # Cấp quyền thực thi
-  chmod +x cuda_12.6.3_560.35.05_linux.run
-
-  # Cài đặt CUDA Toolkit (không cài driver vì đã cài riêng)
-  echo "Cài đặt CUDA 12.6.3 Toolkit..."
-  sudo ./cuda_12.6.3_560.35.05_linux.run --silent --toolkit --samples --no-opengl-libs --override
+  chmod +x cuda_12.2.0_535.54.03_linux.run
+  
+  # Cài đặt CUDA 12.2.0 ở chế độ không tương tác (silent)
+  echo "Cài đặt CUDA 12.2.0 ở chế độ không tương tác..."
+  sudo ./cuda_12.2.0_535.54.03_linux.run --silent --toolkit --samples --no-opengl-libs --override
   
   # Thiết lập biến môi trường
-  echo 'export PATH=/usr/local/cuda-12.6/bin${PATH:+:${PATH}}' >> ~/.bashrc
-  echo 'export LD_LIBRARY_PATH=/usr/local/cuda-12.6/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}' >> ~/.bashrc
+  echo 'export PATH=/usr/local/cuda-12.2/bin${PATH:+:${PATH}}' >> ~/.bashrc
+  echo 'export LD_LIBRARY_PATH=/usr/local/cuda-12.2/lib64${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}' >> ~/.bashrc
   source ~/.bashrc
   
   # Cập nhật PATH cho toàn hệ thống
-  echo "/usr/local/cuda-12.6/lib64" | sudo tee /etc/ld.so.conf.d/cuda.conf
+  echo "/usr/local/cuda-12.2/lib64" | sudo tee /etc/ld.so.conf.d/cuda.conf
   sudo ldconfig
   
   # Kiểm tra lại cài đặt
@@ -95,9 +95,9 @@ install_cuda_12_6_3() {
     echo "Cài đặt các gói phụ thuộc cho CUDA samples..."
     wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y freeglut3-dev libx11-dev libxi-dev libxmu-dev libglu1-mesa-dev
     
-    if [ -d "/usr/local/cuda-12.6/samples/1_Utilities/deviceQuery" ]; then
+    if [ -d "/usr/local/cuda-12.2/samples/1_Utilities/deviceQuery" ]; then
       echo "Xác minh cài đặt CUDA với deviceQuery..."
-      cd /usr/local/cuda-12.6/samples/1_Utilities/deviceQuery
+      cd /usr/local/cuda-12.2/samples/1_Utilities/deviceQuery
       sudo make > /dev/null 2>&1
       ./deviceQuery
     fi
@@ -106,84 +106,15 @@ install_cuda_12_6_3() {
   fi
 }
 
-# Hàm kiểm tra NVIDIA driver
-check_nvidia_driver() {
-  echo "Kiểm tra NVIDIA driver..."
-  if command -v nvidia-smi &> /dev/null; then
-    nvidia_output=$(nvidia-smi 2>&1)
-    if echo "$nvidia_output" | grep -q "NVIDIA-SMI has failed"; then
-      echo "⚠️ Phát hiện vấn đề với NVIDIA driver. Đang thực hiện khắc phục..."
-      
-      # Cập nhật package lists
-      wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
-      
-      # Gỡ bỏ driver cũ nếu có
-      wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get remove --purge -y nvidia-*
-      
-      # Cài đặt các gói cần thiết
-      wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential dkms
-      
-      # Cài đặt Driver NVIDIA mới nhất
-      wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ubuntu-drivers-common
-      
-      echo "Đang cài đặt NVIDIA driver phiên bản mới nhất..."
-      wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive ubuntu-drivers autoinstall
-      
-      # Thêm blacklist cho Nouveau driver nếu cần
-      echo "blacklist nouveau" | sudo tee /etc/modprobe.d/blacklist-nouveau.conf
-      sudo update-initramfs -u
-      
-      echo "Kiểm tra và tải kernel module NVIDIA..."
-      if ! lsmod | grep -q nvidia; then
-        echo "Tải kernel module NVIDIA..."
-        sudo modprobe nvidia
-      fi
-      
-      echo "Kiểm tra lại NVIDIA driver..."
-      nvidia-smi
-      
-      echo "⚠️ Nếu vẫn gặp vấn đề với NVIDIA driver, vui lòng khởi động lại hệ thống và chạy lại script."
-      echo "Tự động khởi động lại hệ thống để áp dụng thay đổi."
-      # Không hỏi người dùng, tự động reboot
-      echo "Hệ thống sẽ khởi động lại sau 5 giây..."
-      sleep 5
-      sudo reboot
-    else
-      echo "✅ NVIDIA driver hoạt động bình thường."
-      # Hiển thị thông tin GPU
-      echo "Thông tin GPU:"
-      nvidia-smi
-    fi
-  else
-    echo "⚠️ Không tìm thấy NVIDIA driver. Đang cài đặt..."
-    wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
-    wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ubuntu-drivers-common
-    
-    echo "Đang cài đặt NVIDIA driver phiên bản mới nhất..."
-    wait_for_apt && sudo DEBIAN_FRONTEND=noninteractive ubuntu-drivers autoinstall
-    
-    # Thêm blacklist cho Nouveau driver
-    echo "blacklist nouveau" | sudo tee /etc/modprobe.d/blacklist-nouveau.conf
-    sudo update-initramfs -u
-    
-    echo "⚠️ Cần khởi động lại hệ thống để NVIDIA driver có hiệu lực."
-    echo "Tự động khởi động lại hệ thống ngay bây giờ."
-    # Tự động reboot không hỏi người dùng
-    echo "Hệ thống sẽ khởi động lại sau 5 giây..."
-    sleep 5
-    sudo reboot
-  fi
-}
-
 # Hàm kiểm tra GPU cho Docker
 verify_gpu_for_docker() {
   echo "Kiểm tra GPU cho Docker..."
   
   # Kiểm tra xem Docker có thể truy cập GPU không
-  if sudo docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu20.04 nvidia-smi &> /dev/null; then
+  if sudo docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi &> /dev/null; then
     echo "✅ Docker có thể truy cập GPU thành công."
     # Hiển thị thông tin GPU từ container
-    sudo docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu20.04 nvidia-smi
+    sudo docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi
   else
     echo "⚠️ Docker không thể truy cập GPU. Đang cấu hình lại NVIDIA Container Toolkit..."
     
@@ -201,9 +132,9 @@ verify_gpu_for_docker() {
     sudo systemctl restart docker
     
     # Kiểm tra lại
-    if sudo docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu20.04 nvidia-smi &> /dev/null; then
+    if sudo docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi &> /dev/null; then
       echo "✅ Docker đã có thể truy cập GPU thành công."
-      sudo docker run --rm --gpus all nvidia/cuda:12.6.0-base-ubuntu20.04 nvidia-smi
+      sudo docker run --rm --gpus all nvidia/cuda:12.2.0-base-ubuntu22.04 nvidia-smi
     else
       echo "⚠️ Docker vẫn không thể truy cập GPU. Vui lòng kiểm tra lại cài đặt thủ công."
     fi
@@ -267,10 +198,6 @@ echo "--------- 🟢 Bắt đầu cài đặt Docker Compose -----------"
 sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.3/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
 sudo chmod +x /usr/local/bin/docker-compose
 echo "--------- 🔴 Hoàn thành cài đặt Docker Compose -----------"
-
-echo "--------- 🟢 Kiểm tra và cài đặt NVIDIA driver -----------"
-check_nvidia_driver
-echo "--------- 🔴 Hoàn thành kiểm tra NVIDIA driver -----------"
 
 echo "--------- 🟢 Kiểm tra và cài đặt CUDA -----------"
 check_cuda_installation
@@ -550,14 +477,7 @@ echo ""
 echo "Thông tin hệ thống:"
 echo "- Docker version: $(docker --version)"
 echo "- Docker Compose version: $(docker-compose --version)"
-echo "- NVIDIA Driver version: $(nvidia-smi | grep "Driver Version" | awk '{print $3}')"
 if command -v nvcc &> /dev/null; then
   echo "- CUDA version: $(nvcc --version | grep "release" | awk '{print $6}' | cut -d',' -f1)"
 fi
-echo ""
-echo "Nếu bạn gặp vấn đề với NVIDIA driver, vui lòng thử các bước sau:"
-echo "1. Khởi động lại hệ thống: sudo reboot"
-echo "2. Sau khi khởi động lại, kiểm tra trạng thái driver: nvidia-smi"
-echo "3. Nếu vẫn gặp vấn đề, chạy lại script này hoặc cài đặt thủ công driver NVIDIA"
-echo "4. Để cài đặt thủ công CUDA 12.6.3, tham khảo: https://developer.nvidia.com/cuda-12-6-3-download-archive"
 

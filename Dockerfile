@@ -2,7 +2,7 @@
 FROM linuxserver/ffmpeg:latest AS ffmpeg
 
 # Stage 2: Xây dựng image n8n tùy chỉnh dựa trên Ubuntu có CUDA runtime
-FROM nvidia/cuda:12.2.0-base-ubuntu20.04
+FROM nvidia/cuda:12.2.0-base-ubuntu22.04
 # Cài đặt các gói cần thiết
 RUN apt-get update && apt-get install -y \
     curl \
@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y \
     apt-transport-https
 
 # Cài đặt Node.js thay vì Bun vì n8n yêu cầu Node.js để chạy đúng cách
-RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y nodejs && \
     npm install -g npm && \
     node --version && npm --version
