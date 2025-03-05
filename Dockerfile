@@ -1,6 +1,7 @@
 # Stage 1: Lấy ffmpeg có hỗ trợ CUDA và đầy đủ codec từ image linuxserver
 FROM linuxserver/ffmpeg:latest AS ffmpeg
 
+nvidia/cuda:12.6.3-base-ubuntu20.04
 # Stage 2: Xây dựng image n8n tùy chỉnh dựa trên Ubuntu có CUDA runtime
 FROM nvidia/cuda:12.2.0-base-ubuntu20.04
 # Cài đặt các gói cần thiết

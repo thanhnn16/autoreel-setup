@@ -68,14 +68,14 @@ install_cuda_12_6_3() {
   
   # Tải installer CUDA 12.6.3
   echo "Tải CUDA 12.6.3 installer..."
-  wget -q --show-progress https://developer.download.nvidia.com/compute/cuda/12.6.3/local_installers/cuda_12.6.3_550.54.15_linux.run
+  wget -q --show-progress https://developer.download.nvidia.com/compute/cuda/12.6.3/local_installers/cuda_12.6.3_560.35.05_linux.run
   
   # Cấp quyền thực thi
-  chmod +x cuda_12.6.3_550.54.15_linux.run
+  chmod +x cuda_12.6.3_560.35.05_linux.run
 
   # Cài đặt CUDA Toolkit (không cài driver vì đã cài riêng)
   echo "Cài đặt CUDA 12.6.3 Toolkit..."
-  sudo ./cuda_12.6.3_550.54.15_linux.run --silent --toolkit --samples --no-opengl-libs --override
+  sudo ./cuda_12.6.3_560.35.05_linux.run --silent --toolkit --samples --no-opengl-libs --override
   
   # Thiết lập biến môi trường
   echo 'export PATH=/usr/local/cuda-12.6/bin${PATH:+:${PATH}}' >> ~/.bashrc
