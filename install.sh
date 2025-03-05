@@ -240,6 +240,15 @@ cleanup_temp_files() {
 
 echo "--------- 🟢 Bắt đầu clone repository -----------"
 git clone https://github.com/thanhnn16/autoreel-setup.git --quiet
+
+# Kiểm tra xem thư mục n8n đã tồn tại chưa
+if [ -d "n8n" ]; then
+    echo "⚠️ Thư mục n8n đã tồn tại. Đang tạo bản sao lưu..."
+    timestamp=$(date +%Y%m%d%H%M%S)
+    mv n8n n8n_backup_$timestamp
+    echo "✅ Đã tạo bản sao lưu thư mục n8n cũ thành n8n_backup_$timestamp"
+fi
+
 mv autoreel-setup n8n
 cd n8n
 cp .env.example .env
