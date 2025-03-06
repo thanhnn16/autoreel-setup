@@ -1113,11 +1113,10 @@ async function processTask(task) {
               "-i", subtitle_ass,
               "-map", "0:v",
               "-map", "1:a",
-              "-map", "2:s",
               "-c:v", "libx264",
               "-c:a", "aac",
-              "-c:s", "copy",
-              "-metadata:s:s:0", `language=vie`,
+              "-vf", `ass=${subtitle_ass}`,
+              "-metadata:s:v", `title="Video with burned subtitles"`,
               output_file
             ];
             
