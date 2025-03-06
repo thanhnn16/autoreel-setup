@@ -197,18 +197,18 @@ async function processTask(task) {
           // Tính toán các thông số hiệu ứng Ken Burns
           const zoom_start = 1.1;
           const zoom_end = 1.2;
-          const rotation = (index % 2 === 0) ? `0.5*sin(2*PI*(t/${duration}))` : `-0.5*sin(2*PI*(t/${duration}))`;
+          const rotation = (index % 2 === 0) ? `0.5*sin(2*PI*t/${duration})` : `-0.5*sin(2*PI*t/${duration})`;
           
           // Tính biểu thức pan theo chiều dọc (lên/xuống) và chiều ngang (trái/phải)
           const y_expr = (index % 2 === 0) 
-            ? `${pan_range} - (${pan_range}*(t/${duration}))` 
-            : `(${pan_range}*(t/${duration}))`;
+            ? `${pan_range} - (${pan_range}*t/${duration})` 
+            : `(${pan_range}*t/${duration})`;
           const x_expr = (index % 3 === 0)  // Thêm chuyển động ngang cho một số ảnh
-            ? `10 - (20*(t/${duration}))`
+            ? `10 - (20*t/${duration})`
             : '0';
 
           // Tạo hiệu ứng Ken Burns với rotation và position
-          const zoom_expr = `${zoom_start}+((${zoom_end}-${zoom_start})*(t/${duration}))`;
+          const zoom_expr = `${zoom_start}+((${zoom_end}-${zoom_start})*t/${duration})`;
           const x_position = `iw/2-(iw/zoom)/2+${x_expr}`;
           const y_position = `ih/2-(ih/zoom)/2+${y_expr}`;
           
