@@ -56,15 +56,11 @@ services:
       - PATH=/google-cloud-sdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       - CLOUDSDK_CONFIG=/home/node/.config/gcloud
       - GENERIC_TIMEZONE=Asia/Ho_Chi_Minh
-      # - WEBHOOK_URL=https://n8n.autoreel.io.vn/
       - WEBHOOK_URL=https://stunning-clam-lightly.ngrok-free.app
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
       - N8N_PUSH_BACKEND=websocket
       - N8N_RUNNERS_ENABLED=true
       - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
-      # - N8N_SECURE_COOKIE=false
     depends_on:
       postgres:
         condition: service_healthy
@@ -73,7 +69,6 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
               capabilities: [gpu]
 
   qdrant:
@@ -104,8 +99,6 @@ services:
       - DEBUG=true
       - MODEL_PATH=/build/models
       - CUDA_VERSION=12.2
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
     volumes:
       - ./models:/build/models:cached
       - localai_storage:/build/models
@@ -117,7 +110,6 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
               capabilities: [gpu]
 
   ffmpeg:
@@ -132,15 +124,11 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=Asia/Ho_Chi_Minh
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
-    runtime: nvidia
     deploy:
       resources:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
               capabilities: [gpu]
 
   comfyui:
@@ -154,8 +142,6 @@ services:
     volumes:
       - ./storage:/storage
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
       - WANTED_UID=1000
       - WANTED_GID=1000
     deploy:
@@ -163,5 +149,4 @@ services:
         reservations:
           devices:
             - driver: nvidia
-              count: 1
               capabilities: [gpu]

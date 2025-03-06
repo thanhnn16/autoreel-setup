@@ -1,74 +1,118 @@
-# Stage 1: Lấy ffmpeg có hỗ trợ CUDA và đầy đủ codec từ image linuxserver
-FROM linuxserver/ffmpeg:latest AS ffmpeg
+# Sử dụng hình ảnh cơ sở có hỗ trợ CUDA
+FROM nvidia/cuda:12.2.0-devel-ubuntu22.04
 
-# Stage 2: Xây dựng image n8n tùy chỉnh dựa trên Ubuntu có CUDA runtime
-FROM nvidia/cuda:12.2.0-base-ubuntu22.04
-# Cài đặt các gói cần thiết
+# Thiết lập biến môi trường để tránh các lời nhắc tương tác trong quá trình cài đặt
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Cài đặt các gói phụ thuộc cần thiết
 RUN apt-get update && apt-get install -y \
-    curl \
-    gnupg2 \
+    autoconf \
+    automake \
     build-essential \
+    cmake \
+    git \
+    libass-dev \
+    libfreetype6-dev \
+    libgnutls28-dev \
+    libmp3lame-dev \
+    libsdl2-dev \
+    libtool \
+    libva-dev \
+    libvdpau-dev \
+    libvorbis-dev \
+    libxcb1-dev \
+    libxcb-shm0-dev \
+    libxcb-xfixes0-dev \
+    pkg-config \
+    texinfo \
     wget \
-    tar \
-    gzip \
-    unzip \
-    ca-certificates \
-    libssl-dev \
-    lsb-release \
-    apt-transport-https
+    yasm \
+    zlib1g-dev \
+    nasm \
+    libx264-dev \
+    libx265-dev \
+    libnuma-dev \
+    libvpx-dev \
+    libfdk-aac-dev \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
 
-# Cài đặt Node.js thay vì Bun vì n8n yêu cầu Node.js để chạy đúng cách
-RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
-    apt-get install -y nodejs && \
-    npm install -g npm && \
-    node --version && npm --version
+# Cài đặt nv-codec-headers
+RUN git clone https://git.videolan.org/git/ffmpeg/nv-codec-headers.git && \
+    cd nv-codec-headers && \
+    make && \
+    make install
 
-# Cài đặt các gói hỗ trợ Python và tiện ích khác (nếu cần cho n8n hoặc gcloud)
-RUN apt-get install -y python3 python3-pip
+# Tải xuống và biên dịch FFmpeg với hỗ trợ CUDA
+RUN git clone https://git.ffmpeg.org/ffmpeg.git ffmpeg && \
+    cd ffmpeg && \
+    ./configure \
+    --prefix=/usr/local \
+    --pkg-config-flags="--static" \
+    --extra-cflags="-I/usr/local/cuda/include" \
+    --extra-ldflags="-L/usr/local/cuda/lib64" \
+    --extra-libs="-lpthread -lm" \
+    --bindir=/usr/local/bin \
+    --enable-gpl \
+    --enable-libass \
+    --enable-libfreetype \
+    --enable-libmp3lame \
+    --enable-libopus \
+    --enable-libvorbis \
+    --enable-libvpx \
+    --enable-libx264 \
+    --enable-libx265 \
+    --enable-nonfree \
+    --enable-cuda \
+    --enable-cuvid \
+    --enable-nvenc \
+    --enable-libnpp \
+    --extra-cflags=-I/usr/local/cuda/include \
+    --extra-ldflags=-L/usr/local/cuda/lib64 && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig
 
-# Cài đặt Google Cloud CLI theo hướng dẫn chính thức
-RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list && \
-    curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg && \
-    apt-get update -y && \
-    apt-get install google-cloud-cli -y
+# Xóa các tệp không cần thiết sau khi cài đặt để giảm kích thước hình ảnh
+RUN apt-get remove -y \
+    autoconf \
+    automake \
+    build-essential \
+    cmake \
+    git \
+    libass-dev \
+    libfreetype6-dev \
+    libgnutls28-dev \
+    libmp3lame-dev \
+    libsdl2-dev \
+    libtool \
+    libva-dev \
+    libvdpau-dev \
+    libvorbis-dev \
+    libxcb1-dev \
+    libxcb-shm0-dev \
+    libxcb-xfixes0-dev \
+    pkg-config \
+    texinfo \
+    wget \
+    yasm \
+    zlib1g-dev \
+    nasm \
+    libx264-dev \
+    libx265-dev \
+    libnuma-dev \
+    libvpx-dev \
+    libfdk-aac-dev && \
+    apt-get autoremove -y && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
-# Thiết lập biến môi trường cho gcloud
-ENV CLOUDSDK_CONFIG="/home/node/.config/gcloud"
+# Xác minh cài đặt FFmpeg
+RUN ffmpeg -version
 
-# Cài đặt n8n toàn cục sử dụng npm
-RUN npm install -g n8n
+# Thiết lập thư mục làm việc
+WORKDIR /workspace
 
-# Copy binary ffmpeg từ stage 1
-COPY --from=ffmpeg /usr/local/bin/ffmpeg /usr/local/bin/ffmpeg
-COPY --from=ffmpeg /usr/local/bin/ffprobe /usr/local/bin/ffprobe
-
-# Tạo thư mục cho thư viện ffmpeg và sao chép thư viện trực tiếp
-RUN mkdir -p /usr/local/lib
-COPY --from=ffmpeg /usr/local/lib/*.so* /usr/local/lib/
-COPY --from=ffmpeg /usr/local/lib/mfx /usr/local/lib/mfx
-COPY --from=ffmpeg /usr/local/lib/libmfx-gen /usr/local/lib/libmfx-gen
-
-# Loại bỏ các thư viện có thể xung đột
-RUN cd /usr/local/lib && find . -name "libc.so*" -delete
-
-# Thiết lập LD_LIBRARY_PATH để ffmpeg có thể tìm các thư viện cần thiết
-ENV LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH}"
-
-# Tạo user 'node' nếu chưa có, và chuyển sang user này
-RUN useradd -m node && mkdir -p /home/node/.n8n && chown -R node:node /home/node
-
-# Đảm bảo n8n có thể được tìm thấy trong PATH cho user node
-RUN npm config set prefix /usr/local
-ENV PATH="/usr/local/bin:${PATH}"
-
-USER node
-WORKDIR /home/node
-
-# Expose port mặc định của n8n (5678)
-EXPOSE 5678
-
-# Kiểm tra xem n8n có thể được tìm thấy hay không
-RUN which n8n
-
-# Khi chạy container, khởi động n8n
-CMD ["n8n"]
+# Lệnh mặc định khi chạy container
+CMD ["bash"]
