@@ -197,7 +197,7 @@ async function processTask(task) {
           // Tính toán các thông số hiệu ứng Ken Burns
           const zoom_start = 1.1;
           const zoom_end = 1.2;
-          const rotation = (index % 2 === 0) ? '0.5*sin(2*PI*t/duration)' : '-0.5*sin(2*PI*t/duration)';
+          const rotation = (index % 2 === 0) ? `0.5*sin(2*PI*t/${duration})` : `-0.5*sin(2*PI*t/${duration})`;
           
           // Tính biểu thức pan theo chiều dọc (lên/xuống) và chiều ngang (trái/phải)
           const y_expr = (index % 2 === 0) 
@@ -208,11 +208,17 @@ async function processTask(task) {
             : '0';
 
           // Tạo hiệu ứng Ken Burns với rotation và position
+          const zoom_expr = `${zoom_start}+((${zoom_end}-${zoom_start})*t/${duration})`;
+          const x_position = `iw/2-(iw/zoom)/2+${x_expr}`;
+          const y_position = `ih/2-(ih/zoom)/2+${y_expr}`;
+          
+          const zoompan_filter = `zoompan=z=${zoom_expr}:d=${Math.round(fps*duration)}:x=${x_position}:y=${y_position}:s=${video_width}x${video_height}:fps=${fps}`;
+          
           const filter_complex = [
             `scale=720:1280:force_original_aspect_ratio=increase`,
             `crop=720:1280`,
-            `zoompan=z='${zoom_start}+((${zoom_end}-${zoom_start})*t/${duration})':d=${Math.round(fps*duration)}:x='iw/2-(iw/zoom)/2+${x_expr}':y='ih/2-(ih/zoom)/2+${y_expr}':s=${video_width}x${video_height}:fps=${fps}`,
-            `rotate=${rotation}`
+            zoompan_filter,
+            `rotate=a=${rotation}`
           ].join(',');
 
           // Tạo thư mục tạm nếu chưa tồn tại
