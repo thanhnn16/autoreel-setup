@@ -45,7 +45,7 @@ app.post('/ffmpeg', (req, res) => {
   });
 });
 
-// Hàm xử lý toàn bộ workflow cho một task
+// Hàm xử lý toàn bộ workflow cho 1 task
 async function processTask(task) {
   const { id, images, durations, voiceUrl, bgUrl, subtitleUrl } = task;
   // --- Thiết lập thông số chung ---
@@ -115,7 +115,7 @@ async function processTask(task) {
 
   // --- Bước 5: Nối các video lại với nhau và thêm hiệu ứng fade ---
   const temp_video_no_audio = `temp_video_no_audio_${id}.mp4`;
-  const fade_out_start = total_duration - 1; // tính đơn giản
+  const fade_out_start = total_duration - 1;
   const argsConcat = [
     "-y", "-threads", "0",
     "-f", "concat",
@@ -168,7 +168,6 @@ async function processTask(task) {
   await runFFmpeg(argsSubtitle);
 
   // --- Bước 8: (Tùy chọn) Dọn dẹp các file tạm ---
-  // Ví dụ: xóa file danh sách, folder tạm, v.v.
   // fs.unlinkSync(imagesListFilename);
   // fs.unlinkSync(listFile);
   // fs.unlinkSync(subtitle_file);
@@ -179,22 +178,18 @@ async function processTask(task) {
   return final_video;
 }
 
-// Endpoint mới: nhận mảng task và xử lý workflow cho từng task
+// Endpoint mới: nhận 1 task và xử lý workflow cho task đó
 app.post('/process', async (req, res) => {
-  const tasks = req.body.tasks;
-  if (!tasks || !Array.isArray(tasks)) {
-    return res.status(400).send({ error: 'tasks is required and must be an array' });
+  const task = req.body; // Dữ liệu của task được gửi trực tiếp ({{ $json.xx }})
+  if (!task || !task.id) {
+    return res.status(400).send({ error: 'Task data is required with at least an id field' });
   }
   try {
-    let results = [];
-    for (const task of tasks) {
-      console.log(`Processing task with id: ${task.id}`);
-      const finalVideo = await processTask(task);
-      results.push({ id: task.id, finalVideo });
-    }
-    res.send({ results });
+    console.log(`Processing task with id: ${task.id}`);
+    const finalVideo = await processTask(task);
+    res.send({ id: task.id, finalVideo });
   } catch (error) {
-    console.error("Error processing tasks:", error);
+    console.error("Error processing task:", error);
     res.status(500).send({ error });
   }
 });
