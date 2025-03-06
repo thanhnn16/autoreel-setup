@@ -268,15 +268,15 @@ fi
 echo "--------- 🔴 Hoàn thành cấu hình Nginx cho n8n -----------"
 
 echo "--------- 🟢 Bắt đầu cài đặt Certbot -----------"
-sudo snap install --classic certbot --quiet
+sudo snap install --classic certbot
 sudo ln -sf /snap/bin/certbot /usr/bin/certbot
 echo "--------- 🔴 Hoàn thành cài đặt Certbot -----------"
 
 echo "--------- 🟢 Bắt đầu thiết lập SSL với Certbot -----------"
 # Chạy certbot để lấy chứng chỉ SSL, chế độ tự động và không tương tác
 sudo certbot --nginx --non-interactive --agree-tos --redirect \
-    --staple-ocsp --email admin@autoreel.io.vn -d n8n.autoreel.io.vn \
-    --quiet
+    --staple-ocsp --email thanhnn16.work@gmail.com -d n8n.autoreel.io.vn
+
 echo "--------- 🔴 Hoàn thành thiết lập SSL với Certbot -----------"
 
 echo "--------- 🟢 Bắt đầu build Docker Compose -----------"
@@ -299,77 +299,123 @@ echo "Các container đã được khởi động thành công!"
 echo "--------- 🔴 n8n đã được khởi động -----------"
 
 echo "--------- 🟢 Bắt đầu tải Flux1 Checkpoint -----------"
-echo "Tạo thư mục cho Flux1 Checkpoint..."
-mkdir -p ~/n8n/storage/ComfyUI/models/checkpoints/FLUX1
+echo "Tạo thư mục cho Flux1 Checkpoint trong container..."
+COMFYUI_CONTAINER=$(sudo docker ps | grep comfyui | awk '{print $1}')
 
-# Đường dẫn đến file Flux1 Checkpoint
-FLUX1_FILE=~/n8n/storage/ComfyUI/models/checkpoints/FLUX1/flux1-dev-fp8.safetensors
-
-# Kiểm tra xem file đã tồn tại chưa
-if [ -f "$FLUX1_FILE" ]; then
-    echo "File Flux1-dev-fp8 Checkpoint đã tồn tại. Bỏ qua bước tải..."
-else
-    echo "Đang tải Flux1-dev-fp8 Checkpoint..."
-    # Thêm -q để chế độ yên lặng với thanh tiến trình đơn giản
-    wget -q --show-progress -O "$FLUX1_FILE" https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev-fp8.safetensors
+if [ -n "$COMFYUI_CONTAINER" ]; then
+    echo "✅ Tìm thấy container ComfyUI: $COMFYUI_CONTAINER"
     
-    # Kiểm tra xem tải thành công không
-    if [ -f "$FLUX1_FILE" ]; then
-        echo "Tải Flux1-dev-fp8 Checkpoint thành công!"
+    # Tạo thư mục trong container
+    sudo docker exec $COMFYUI_CONTAINER mkdir -p /root/ComfyUI/models/checkpoints/FLUX1
+    
+    # Đường dẫn đến file Flux1 Checkpoint trong container
+    FLUX1_FILE="/root/ComfyUI/models/checkpoints/FLUX1/flux1-dev-fp8.safetensors"
+    
+    # Kiểm tra xem file đã tồn tại trong container chưa
+    if sudo docker exec $COMFYUI_CONTAINER test -f "$FLUX1_FILE"; then
+        echo "File Flux1-dev-fp8 Checkpoint đã tồn tại trong container. Bỏ qua bước tải..."
     else
-        echo "⚠️ Tải Flux1-dev-fp8 Checkpoint không thành công. Vui lòng tải thủ công sau."
+        echo "Đang tải Flux1-dev-fp8 Checkpoint trực tiếp vào container..."
+        sudo docker exec $COMFYUI_CONTAINER curl -L -o "$FLUX1_FILE" https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/flux1-dev-fp8.safetensors
+        
+        # Kiểm tra xem tải thành công không
+        if sudo docker exec $COMFYUI_CONTAINER test -f "$FLUX1_FILE"; then
+            echo "Tải Flux1-dev-fp8 Checkpoint thành công!"
+        else
+            echo "⚠️ Tải Flux1-dev-fp8 Checkpoint không thành công. Vui lòng tải thủ công sau."
+        fi
     fi
+    
+    # Đặt quyền cho thư mục và file trong container
+    sudo docker exec $COMFYUI_CONTAINER chmod -R 777 /root/ComfyUI/models
+else
+    echo "❌ Không tìm thấy container ComfyUI đang chạy. Vui lòng đảm bảo container đã được khởi động."
 fi
-
-echo "Đặt quyền cho thư mục và file..."
-chmod -R 777 ~/n8n/storage/ComfyUI/models
 echo "--------- 🔴 Hoàn thành tải Flux1 Checkpoint -----------"
 
 echo "--------- 🟢 Bắt đầu tải Wan2.1 và Flux Models -----------"
 
-# Tạo cấu trúc thư mục cho Wan2.1
-mkdir -p ~/n8n/storage/ComfyUI/models/{text_encoders,vae,diffusion_models,clip_vision}
-
-# Hàm kiểm tra và tải model
-download_model() {
-  local url=$1
-  local dest=$2
-  local filename=$(basename "$dest")
-  
-  if [ -f "$dest" ]; then
-    echo "✅ $filename đã tồn tại. Bỏ qua..."
-  else
-    echo "🔄 Đang tải $filename..."
-    wget -q --show-progress -O "$dest" "$url"
+if [ -n "$COMFYUI_CONTAINER" ]; then
+    # Tạo cấu trúc thư mục trong container
+    sudo docker exec $COMFYUI_CONTAINER mkdir -p /root/ComfyUI/models/{text_encoders,vae,diffusion_models,clip_vision,vae_approx}
+    # Tạo thư mục cho custom_nodes
+    sudo docker exec $COMFYUI_CONTAINER mkdir -p /root/ComfyUI/custom_nodes
     
-    if [ -f "$dest" ]; then
-      echo "✅ Tải $filename thành công!"
+    # Hàm kiểm tra và tải model trực tiếp vào container
+    download_model_to_container() {
+      local url=$1
+      local dest=$2
+      local filename=$(basename "$dest")
+      
+      if sudo docker exec $COMFYUI_CONTAINER test -f "$dest"; then
+        echo "✅ $filename đã tồn tại trong container. Bỏ qua..."
+      else
+        echo "🔄 Đang tải $filename trực tiếp vào container..."
+        sudo docker exec $COMFYUI_CONTAINER curl -L -o "$dest" "$url"
+        
+        if sudo docker exec $COMFYUI_CONTAINER test -f "$dest"; then
+          echo "✅ Tải $filename thành công!"
+        else
+          echo "❌ Lỗi khi tải $filename"
+        fi
+      fi
+    }
+    
+    # Tải các model Wan2.1 trực tiếp vào container
+    echo "Đang tải các model Wan2.1 trực tiếp vào container..."
+    download_model_to_container "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors" \
+      "/root/ComfyUI/models/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors"
+    
+    download_model_to_container "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors" \
+      "/root/ComfyUI/models/vae/wan_2.1_vae.safetensors"
+    
+    download_model_to_container "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_t2v_1.3B_bf16.safetensors" \
+      "/root/ComfyUI/models/diffusion_models/wan2.1_t2v_1.3B_bf16.safetensors"
+    
+    # Tải mô hình clip_vision trực tiếp vào container
+    download_model_to_container "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/clip_vision/clip_vision_h.safetensors" \
+      "/root/ComfyUI/models/clip_vision/clip_vision_h.safetensors"
+    
+    # Tải các mô hình vae_approx trực tiếp vào container
+    download_model_to_container "https://github.com/comfyanonymous/ComfyUI/raw/master/models/vae_approx/taesd_decoder.pth" \
+      "/root/ComfyUI/models/vae_approx/taesd_decoder.pth"
+    
+    download_model_to_container "https://github.com/comfyanonymous/ComfyUI/raw/master/models/vae_approx/taesdxl_decoder.pth" \
+      "/root/ComfyUI/models/vae_approx/taesdxl_decoder.pth"
+    
+    download_model_to_container "https://github.com/comfyanonymous/ComfyUI/raw/master/models/vae_approx/taesd3_decoder.pth" \
+      "/root/ComfyUI/models/vae_approx/taesd3_decoder.pth"
+    
+    download_model_to_container "https://github.com/comfyanonymous/ComfyUI/raw/master/models/vae_approx/taef1_decoder.pth" \
+      "/root/ComfyUI/models/vae_approx/taef1_decoder.pth"
+    
+    # Mặc định tự động tải cả mô hình 14B
+    echo "Tự động tải tất cả các mô hình bao gồm cả mô hình 14B..."
+    download_14b="y"
+    if [[ "$download_14b" == "y" ]]; then
+        # Tải mô hình t2v (text to video) 14B trực tiếp vào container
+        download_model_to_container "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_t2v_14B_fp8_e4m3fn.safetensors" \
+          "/root/ComfyUI/models/diffusion_models/wan2.1_t2v_14B_fp8_e4m3fn.safetensors"
+        
+        # Tải mô hình i2v (image to video) 14B trực tiếp vào container
+        download_model_to_container "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_i2v_720p_14B_fp8_e4m3fn.safetensors" \
+          "/root/ComfyUI/models/diffusion_models/wan2.1_i2v_720p_14B_fp8_e4m3fn.safetensors"
     else
-      echo "❌ Lỗi khi tải $filename"
+        echo "Bỏ qua tải mô hình 14B."
     fi
-  fi
-}
-
-# Tải các model Wan2.1
-echo "Đang tải các model Wan2.1..."
-download_model "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors" \
-  "~/n8n/storage/ComfyUI/models/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors"
-
-download_model "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors" \
-  "~/n8n/storage/ComfyUI/models/vae/wan_2.1_vae.safetensors"
-
-download_model "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_t2v_1.3B_bf16.safetensors" \
-  "~/n8n/storage/ComfyUI/models/diffusion_models/wan2.1_t2v_1.3B_bf16.safetensors"
-
-# Cấp quyền cho thư mục models
-chmod -R 777 ~/n8n/storage/ComfyUI/models
+    
+    # Đặt quyền cho thư mục và file trong container
+    sudo docker exec $COMFYUI_CONTAINER chmod -R 777 /root/ComfyUI/models
+    sudo docker exec $COMFYUI_CONTAINER chmod -R 777 /root/ComfyUI/custom_nodes
+else
+    echo "❌ Không tìm thấy container ComfyUI đang chạy. Vui lòng đảm bảo container đã được khởi động."
+fi
 
 echo "--------- 🔴 Hoàn thành tải model -----------"
 
 echo "--------- 🟢 Bắt đầu cập nhật ComfyUI và cài đặt node mới -----------"
 # Vào thư mục ComfyUI trong container để cập nhật
 echo "Bắt đầu cập nhật ComfyUI..."
-COMFYUI_CONTAINER=$(sudo docker ps | grep comfyui | awk '{print $1}')
 
 if [ -n "$COMFYUI_CONTAINER" ]; then
     echo "✅ Tìm thấy container ComfyUI: $COMFYUI_CONTAINER"
@@ -377,69 +423,41 @@ if [ -n "$COMFYUI_CONTAINER" ]; then
     sudo docker exec $COMFYUI_CONTAINER bash -c "cd /ComfyUI && git pull"
     echo "✅ Đã cập nhật ComfyUI lên phiên bản mới nhất"
     
-    # Cài đặt node ComfyUI-GGUF nếu chưa có
-    if [ ! -d "~/n8n/storage/ComfyUI/custom_nodes/ComfyUI-GGUF" ]; then
-        echo "🔄 Đang cài đặt ComfyUI-GGUF..."
-        sudo docker exec $COMFYUI_CONTAINER bash -c "cd /ComfyUI/custom_nodes && git clone https://github.com/city96/ComfyUI-GGUF.git"
+    # Cài đặt node ComfyUI-GGUF trực tiếp vào container
+    if ! sudo docker exec $COMFYUI_CONTAINER test -d "/root/ComfyUI/custom_nodes/ComfyUI-GGUF"; then
+        echo "🔄 Đang cài đặt ComfyUI-GGUF trực tiếp vào container..."
+        sudo docker exec $COMFYUI_CONTAINER bash -c "cd /root/ComfyUI/custom_nodes && git clone https://github.com/city96/ComfyUI-GGUF.git"
         echo "✅ Đã cài đặt ComfyUI-GGUF"
     else
         echo "✅ ComfyUI-GGUF đã được cài đặt. Cập nhật repository..."
-        sudo docker exec $COMFYUI_CONTAINER bash -c "cd /ComfyUI/custom_nodes/ComfyUI-GGUF && git pull"
+        sudo docker exec $COMFYUI_CONTAINER bash -c "cd /root/ComfyUI/custom_nodes/ComfyUI-GGUF && git pull"
     fi
     
-    # Cài đặt node ComfyUI-VideoHelperSuite nếu chưa có
-    if [ ! -d "~/n8n/storage/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite" ]; then
-        echo "🔄 Đang cài đặt ComfyUI-VideoHelperSuite..."
-        sudo docker exec $COMFYUI_CONTAINER bash -c "cd /ComfyUI/custom_nodes && git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
+    # Cài đặt node ComfyUI-VideoHelperSuite trực tiếp vào container
+    if ! sudo docker exec $COMFYUI_CONTAINER test -d "/root/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite"; then
+        echo "🔄 Đang cài đặt ComfyUI-VideoHelperSuite trực tiếp vào container..."
+        sudo docker exec $COMFYUI_CONTAINER bash -c "cd /root/ComfyUI/custom_nodes && git clone https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite.git"
         echo "✅ Đã cài đặt ComfyUI-VideoHelperSuite"
     else
         echo "✅ ComfyUI-VideoHelperSuite đã được cài đặt. Cập nhật repository..."
-        sudo docker exec $COMFYUI_CONTAINER bash -c "cd /ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite && git pull"
+        sudo docker exec $COMFYUI_CONTAINER bash -c "cd /root/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite && git pull"
     fi
     
-    # Cài đặt các gói Python cần thiết cho các node
+    # Cài đặt các gói Python cần thiết cho các node trong container
     echo "🔄 Đang cài đặt các gói Python cần thiết..."
-    sudo docker exec $COMFYUI_CONTAINER bash -c "pip install -r /ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite/requirements.txt"
-    sudo docker exec $COMFYUI_CONTAINER bash -c "pip install -r /ComfyUI/custom_nodes/ComfyUI-GGUF/requirements.txt"
+    sudo docker exec $COMFYUI_CONTAINER bash -c "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-VideoHelperSuite/requirements.txt"
+    sudo docker exec $COMFYUI_CONTAINER bash -c "pip install -r /root/ComfyUI/custom_nodes/ComfyUI-GGUF/requirements.txt"
     echo "✅ Đã cài đặt các gói Python cần thiết"
+    
+    # Khởi động lại container ComfyUI để áp dụng thay đổi
+    echo "🔄 Đang khởi động lại container ComfyUI..."
+    sudo docker restart $COMFYUI_CONTAINER
+    echo "✅ Đã khởi động lại container ComfyUI"
 else
     echo "❌ Không tìm thấy container ComfyUI đang chạy. Vui lòng đảm bảo container đã được khởi động."
 fi
 
-echo "--------- 🟢 Bắt đầu tải thêm các model Wan2.1 mới -----------"
-
-# Tải thêm các model Wan2.1 mới
-echo "Đang tải các model Wan2.1 mới..."
-
-# Tải mô hình clip_vision
-download_model "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/clip_vision/clip_vision_h.safetensors" \
-  "~/n8n/storage/ComfyUI/models/clip_vision/clip_vision_h.safetensors"
-
-# Mặc định tự động tải cả mô hình 14B
-echo "Tự động tải tất cả các mô hình bao gồm cả mô hình 14B..."
-download_14b="y"
-if [[ "$download_14b" == "y" ]]; then
-    # Tải mô hình t2v (text to video) 14B
-    download_model "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_t2v_14B_fp8_e4m3fn.safetensors" \
-      "~/n8n/storage/ComfyUI/models/diffusion_models/wan2.1_t2v_14B_fp8_e4m3fn.safetensors"
-    
-    # Tải mô hình i2v (image to video) 14B
-    download_model "https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_i2v_720p_14B_fp8_e4m3fn.safetensors" \
-      "~/n8n/storage/ComfyUI/models/diffusion_models/wan2.1_i2v_720p_14B_fp8_e4m3fn.safetensors"
-else
-    echo "Bỏ qua tải mô hình 14B."
-fi
-
-# Cấp quyền cho thư mục models
-chmod -R 777 ~/n8n/storage/ComfyUI/models
-chmod -R 777 ~/n8n/storage/ComfyUI/custom_nodes
-
-# Khởi động lại container ComfyUI để áp dụng thay đổi
-if [ -n "$COMFYUI_CONTAINER" ]; then
-    echo "🔄 Đang khởi động lại container ComfyUI..."
-    sudo docker restart $COMFYUI_CONTAINER
-    echo "✅ Đã khởi động lại container ComfyUI"
-fi
+echo "--------- 🔴 Hoàn thành cập nhật ComfyUI và cài đặt node mới -----------"
 
 echo "--------- 🟢 Kiểm tra cài đặt -----------"
 echo "Kiểm tra cài đặt ComfyUI và các node mới..."
@@ -447,26 +465,26 @@ echo "Kiểm tra cài đặt ComfyUI và các node mới..."
 # Kiểm tra ComfyUI
 if [ -n "$COMFYUI_CONTAINER" ]; then
     echo "- ComfyUI container: ✅ (ID: $COMFYUI_CONTAINER)"
+    
+    # Kiểm tra các node trong container
+    for node in "ComfyUI-GGUF" "ComfyUI-VideoHelperSuite"; do
+        if sudo docker exec $COMFYUI_CONTAINER test -d "/root/ComfyUI/custom_nodes/$node"; then
+            echo "- Node $node: ✅"
+        else
+            echo "- Node $node: ❌ (Không tìm thấy)"
+        fi
+    done
+    
+    # Kiểm tra các model trong container
+    for model_type in "text_encoders" "diffusion_models" "clip_vision" "vae" "vae_approx"; do
+        echo "Các model trong /root/ComfyUI/models/$model_type:"
+        sudo docker exec $COMFYUI_CONTAINER ls -la "/root/ComfyUI/models/$model_type" 2>/dev/null || echo "  Không tìm thấy thư mục này"
+    done
 else
     echo "- ComfyUI container: ❌ (Không tìm thấy)"
 fi
 
-# Kiểm tra các node
-for node in "ComfyUI-GGUF" "ComfyUI-VideoHelperSuite"; do
-    if [ -d "~/n8n/storage/ComfyUI/custom_nodes/$node" ]; then
-        echo "- Node $node: ✅"
-    else
-        echo "- Node $node: ❌ (Không tìm thấy)"
-    fi
-done
-
-# Kiểm tra các model
-for model_type in "text_encoders" "diffusion_models" "clip_vision" "vae"; do
-    echo "Các model trong ~/n8n/storage/ComfyUI/models/$model_type:"
-    ls -la ~/n8n/storage/ComfyUI/models/$model_type 2>/dev/null || echo "  Không tìm thấy thư mục này"
-done
-
-echo "--------- 🔴 Hoàn thành cập nhật ComfyUI và cài đặt node mới -----------"
+echo "--------- 🔴 Hoàn thành kiểm tra cài đặt -----------"
 
 echo "--------- 🟢 Dọn dẹp các file tạm và thư mục dư thừa -----------"
 cleanup_temp_files

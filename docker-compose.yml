@@ -56,13 +56,15 @@ services:
       - PATH=/google-cloud-sdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       - CLOUDSDK_CONFIG=/home/node/.config/gcloud
       - GENERIC_TIMEZONE=Asia/Ho_Chi_Minh
-      - WEBHOOK_URL=https://n8n.autoreel.io.vn/
+      # - WEBHOOK_URL=https://n8n.autoreel.io.vn/
+      - WEBHOOK_URL=https://stunning-clam-lightly.ngrok-free.app
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
       - N8N_PUSH_BACKEND=websocket
       - N8N_RUNNERS_ENABLED=true
       - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
+      # - N8N_SECURE_COOKIE=false
     depends_on:
       postgres:
         condition: service_healthy
@@ -150,7 +152,6 @@ services:
     ports:
       - 8188:8188
     volumes:
-      - ./storage/ComfyUI:/ComfyUI
       - ./storage:/storage
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
