@@ -161,7 +161,7 @@ async function processTask(task) {
     const processPromise = (async () => {
       try {
         // --- Thiết lập thông số chung ---
-        const fps = 30;
+        const fps = 60;
         const preset = "veryfast";
         const video_quality = 22;
         const pan_range = 30;
@@ -211,7 +211,7 @@ async function processTask(task) {
           const filter_complex = [
             `scale=720:1280:force_original_aspect_ratio=increase`,
             `crop=720:1280`,
-            `zoompan=z='${zoom_start}+((${zoom_end}-${zoom_start})*t/${duration})':d=${Math.round(fps*duration)}:x='iw/2-(iw/zoom)/2+${x_expr}':y='ih/2-(ih/zoom)/2+${y_expr}':s=${video_width}x${video_height}:fps=${fps}`,
+            `zoompan=z='${zoom_start}+((${zoom_end}-${zoom_start})*t/${duration})':d=${Math.round(fps*duration)}:x='iw/2-(iw/zoom)/2+${x_expr}':y='ih/2-(ih/zoom)/2+${y_expr}':s=${video_width}x${video_height}`,
             `rotate='${rotation}'`
           ].join(',');
 
