@@ -212,8 +212,13 @@ async function processTask(task) {
             `scale=720:1280:force_original_aspect_ratio=increase`,
             `crop=720:1280`,
             `zoompan=z='${zoom_start}+((${zoom_end}-${zoom_start})*t/${duration})':d=${Math.round(fps*duration)}:x='iw/2-(iw/zoom)/2+${x_expr}':y='ih/2-(ih/zoom)/2+${y_expr}':s=${video_width}x${video_height}:fps=${fps}`,
-            `rotate=${rotation}`
+            `rotate='${rotation}'`
           ].join(',');
+
+          // Tạo thư mục tạm nếu chưa tồn tại
+          if (!fs.existsSync(tempDir)) {
+            fs.mkdirSync(tempDir, { recursive: true });
+          }
 
           const args = [
             "-y", "-threads", "0",
@@ -228,7 +233,13 @@ async function processTask(task) {
           ];
           
           console.log(`[Task ${id}] Xử lý ảnh ${index}: ${image}`);
-          await runFFmpeg(args);
+          try {
+            await runFFmpeg(args);
+            console.log(`[Task ${id}] Đã xử lý xong ảnh ${index}`);
+          } catch (error) {
+            console.error(`[Task ${id}] Lỗi khi xử lý ảnh ${index}:`, error);
+            throw error;
+          }
         }
 
         // --- Bước 4: Tạo file danh sách video tạm ---
