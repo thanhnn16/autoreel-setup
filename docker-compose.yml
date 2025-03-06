@@ -150,3 +150,13 @@ services:
           devices:
             - driver: nvidia
               capabilities: [gpu]
+
+  ffmpeg-wrapper:
+    build:
+      context: ./ffmpeg-wrapper
+      dockerfile: Dockerfile
+    container_name: ffmpeg-wrapper
+    ports:
+      - "3000:3000"
+    networks: ["autoreel"]
+    restart: unless-stopped
