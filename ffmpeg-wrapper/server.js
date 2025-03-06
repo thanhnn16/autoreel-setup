@@ -136,7 +136,7 @@ app.post('/ffmpeg', (req, res) => {
 // Hàm xử lý toàn bộ workflow cho 1 task
 async function processTask(task) {
   const startTime = Date.now();
-  const { id, images, durations, voiceUrl, bgUrl, subtitleUrl } = task;
+  const { id, images, durations, voiceUrl, bgUrl, subtitleUrl, titleText } = task;
   
   writeLog(`[Task ${id}] Bắt đầu xử lý task với ${images.length} ảnh`, 'INFO');
   
@@ -178,7 +178,7 @@ async function processTask(task) {
         imagesListContent += `file '${images[images.length - 1]}'\n`;
         fs.writeFileSync(imagesListFilename, imagesListContent);
 
-        // Tính tổng thời gian video (giả sử durations là số giây dạng chuỗi)
+        // Tính tổng thời gian video
         const total_duration = durations.reduce((acc, d) => acc + parseFloat(d), 0);
         console.log(`[Task ${id}] Tổng thời gian video: ${total_duration} giây`);
 
@@ -188,36 +188,54 @@ async function processTask(task) {
           fs.mkdirSync(tempDir);
         }
 
-        // --- Bước 3: Chuyển từng ảnh thành file video với hiệu ứng zoompan ---
+        // --- Bước 3: Tạo video cho từng ảnh với hiệu ứng Ken Burns nâng cao ---
         for (let i = 0; i < images.length; i++) {
           const image = images[i];
           const duration = durations[i];
           const index = i + 1;
 
-          // Tính biểu thức y theo chỉ số ảnh (ảnh lẻ: pan xuống, ảnh chẵn: pan lên)
-          let y_expr;
-          if (index % 2 === 0) {
-            y_expr = `${pan_range} - (${pan_range}*on/((${fps}*${duration})-1))`;
-          } else {
-            y_expr = `(${pan_range}*on/((${fps}*${duration})-1))`;
-          }
+          // Tính toán các thông số hiệu ứng Ken Burns
+          const zoom_start = 1.1;
+          const zoom_end = 1.2;
+          const rotation = (index % 2 === 0) ? '0.5*sin(2*PI*t/duration)' : '-0.5*sin(2*PI*t/duration)';
+          
+          // Tính biểu thức pan theo chiều dọc (lên/xuống) và chiều ngang (trái/phải)
+          const y_expr = (index % 2 === 0) 
+            ? `${pan_range} - (${pan_range}*t/${duration})` 
+            : `(${pan_range}*t/${duration})`;
+          const x_expr = (index % 3 === 0)  // Thêm chuyển động ngang cho một số ảnh
+            ? `10 - (20*t/${duration})`
+            : '0';
+
+          // Tạo hiệu ứng Ken Burns với rotation và position
+          const filter_complex = [
+            `scale=${video_width}:${video_height}:force_original_aspect_ratio=increase`,
+            `crop=${video_width}:${video_height}`,
+            `zoompan=z='${zoom_start}+((${zoom_end}-${zoom_start})*t/${duration})':`,
+            `d=${fps}*${duration}:`,
+            `x='iw/2-(iw/zoom)/2+${x_expr}':`,
+            `y='ih/2-(ih/zoom)/2+${y_expr}':`,
+            `rotate='${rotation}':`,
+            `s=${video_width}x${video_height}:fps=${fps}`
+          ].join('');
 
           const args = [
             "-y", "-threads", "0",
             "-loop", "1", "-i", image,
             "-t", duration,
-            "-vf", `scale=${video_width}:${video_height}:force_original_aspect_ratio=increase,crop=${video_width}:${video_height},zoompan=z='1.1':d=${fps}*${duration}:x='iw/2-(iw/1.1)/2':y=${y_expr}:s=${video_width}x${video_height}:fps=${fps}`,
+            "-vf", filter_complex,
             "-c:v", "libx264",
             "-pix_fmt", "yuv420p",
             "-preset", preset,
             "-crf", video_quality.toString(),
             `${tempDir}/${index}.mp4`
           ];
+          
           console.log(`[Task ${id}] Xử lý ảnh ${index}: ${image}`);
           await runFFmpeg(args);
         }
 
-        // --- Bước 4: Tạo file danh sách các video tạm ---
+        // --- Bước 4: Tạo file danh sách video tạm ---
         const listFile = `list_${id}.txt`;
         let listContent = '';
         for (let i = 1; i <= images.length; i++) {
@@ -225,15 +243,44 @@ async function processTask(task) {
         }
         fs.writeFileSync(listFile, listContent);
 
-        // --- Bước 5: Nối các video lại với nhau và thêm hiệu ứng fade ---
+        // --- Bước 5: Nối video và thêm hiệu ứng chuyển cảnh ---
         const temp_video_no_audio = `temp_video_no_audio_${id}.mp4`;
-        const fade_out_start = total_duration - 1;
+        const fade_duration = 0.5;
+        const xfade_duration = 0.5;
+        
+        // Tạo chuỗi filter complex cho hiệu ứng chuyển cảnh
+        let filter_complex = [];
+        let inputs = [];
+        
+        // Thêm input cho mỗi video
+        for (let i = 1; i <= images.length; i++) {
+          inputs.push("-i", `${tempDir}/${i}.mp4`);
+        }
+        
+        // Tạo chuỗi filter complex
+        for (let i = 0; i < images.length; i++) {
+          if (i === 0) {
+            // Video đầu tiên
+            filter_complex.push(`[${i}:v]fade=t=in:st=0:d=${fade_duration}[v${i}]`);
+          } else {
+            // Các video còn lại với hiệu ứng xfade
+            filter_complex.push(
+              `[v${i-1}][${i}:v]xfade=transition=smoothleft:duration=${xfade_duration}[v${i}]`
+            );
+          }
+        }
+        
+        // Thêm fade out cho video cuối
+        const last_idx = images.length - 1;
+        filter_complex.push(
+          `[v${last_idx}]fade=t=out:st=${total_duration-fade_duration}:d=${fade_duration}[vout]`
+        );
+
         const argsConcat = [
           "-y", "-threads", "0",
-          "-f", "concat",
-          "-safe", "0",
-          "-i", listFile,
-          "-filter_complex", `fps=${fps},format=yuv420p,fade=t=in:st=0:d=0.5,fade=t=out:st=${fade_out_start}:d=0.5`,
+          ...inputs,
+          "-filter_complex", filter_complex.join(';'),
+          "-map", "[vout]",
           "-c:v", "libx264",
           "-pix_fmt", "yuv420p",
           "-preset", preset,
@@ -242,7 +289,7 @@ async function processTask(task) {
         ];
         
         try {
-          console.log(`[Task ${id}] Bắt đầu nối các video và thêm hiệu ứng fade`);
+          console.log(`[Task ${id}] Bắt đầu nối video và thêm hiệu ứng chuyển cảnh`);
           console.log(`[Task ${id}] Tham số FFmpeg: ${JSON.stringify(argsConcat)}`);
           
           const concatResult = await runFFmpeg(argsConcat);
@@ -251,260 +298,164 @@ async function processTask(task) {
           // Ghi log thông tin về quá trình xử lý
           if (concatResult && concatResult.stderr) {
             fs.writeFileSync(`${logsDir}/concat_log_${id}.txt`, concatResult.stderr);
-          }
-        } catch (error) {
-          console.error(`[Task ${id}] Lỗi khi nối video: ${error.message || 'Unknown error'}`);
-          if (error.stderr) {
-            console.error(`[Task ${id}] Chi tiết lỗi FFmpeg: ${error.stderr}`);
-            fs.writeFileSync(`${logsDir}/concat_error_${id}.txt`, error.stderr);
-          }
-          
-          // Kiểm tra xem file đầu ra có tồn tại không
-          if (!fs.existsSync(temp_video_no_audio)) {
-            throw new Error(`Không thể tạo file video ${temp_video_no_audio}: ${error.message || 'Unknown error'}`);
-          }
-        }
-
-        // --- Bước 6: Kết hợp video với âm thanh ---
-        const temp_video_with_audio = `temp_video_with_audio_${id}.mp4`;
-        const argsCombine = [
-          "-y", "-threads", "0",
-          "-i", temp_video_no_audio,
-          "-accurate_seek",
-          "-i", voiceUrl,
-          "-accurate_seek",
-          "-i", bgUrl,
-          "-filter_complex", "[1:a]volume=1.0[voice];[2:a]volume=0.3[bg];[voice][bg]amix=inputs=2:duration=longest,dynaudnorm=f=150:g=15[a]",
-          "-map", "0:v",
-          "-map", "[a]",
-          "-c:v", "copy",
-          "-c:a", "aac",
-          "-b:a", "192k",
-          "-shortest",
-          temp_video_with_audio
-        ];
-        
-        try {
-          console.log(`[Task ${id}] Bắt đầu kết hợp video với âm thanh`);
-          console.log(`[Task ${id}] File video đầu vào: ${temp_video_no_audio}`);
-          console.log(`[Task ${id}] File âm thanh chính: ${voiceUrl}`);
-          console.log(`[Task ${id}] File nhạc nền: ${bgUrl}`);
-          console.log(`[Task ${id}] Tham số FFmpeg: ${JSON.stringify(argsCombine)}`);
-          
-          // Kiểm tra các file đầu vào tồn tại
-          if (!fs.existsSync(temp_video_no_audio)) {
-            throw new Error(`File video đầu vào không tồn tại: ${temp_video_no_audio}`);
-          }
-          
-          const combineResult = await runFFmpeg(argsCombine);
-          console.log(`[Task ${id}] Kết hợp video với âm thanh thành công: ${temp_video_with_audio}`);
-          
-          // Ghi log thông tin về quá trình xử lý
-          if (combineResult && combineResult.stderr) {
-            fs.writeFileSync(`${logsDir}/combine_log_${id}.txt`, combineResult.stderr);
-          }
-        } catch (error) {
-          console.error(`[Task ${id}] Lỗi khi kết hợp video với âm thanh: ${error.message || 'Unknown error'}`);
-          if (error.stderr) {
-            console.error(`[Task ${id}] Chi tiết lỗi FFmpeg: ${error.stderr}`);
-            fs.writeFileSync(`${logsDir}/combine_error_${id}.txt`, error.stderr);
-          }
-          
-          // Kiểm tra xem file đầu ra có tồn tại không
-          if (!fs.existsSync(temp_video_with_audio)) {
-            throw new Error(`Không thể tạo file video với âm thanh ${temp_video_with_audio}: ${error.message || 'Unknown error'}`);
-          }
-        }
-
-        // --- Bước 7: Tải và thêm phụ đề vào video ---
-        const subtitle_file = `subtitle_${id}.srt`;
-        
-        try {
-          console.log(`[Task ${id}] Bắt đầu tải phụ đề từ ${subtitleUrl}`);
-          
-          // Tải phụ đề với timeout
-          let response, subtitleData;
-          try {
-            // Thêm timeout cho fetch request
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 giây timeout
-            
-            console.log(`[Task ${id}] Đang gửi request tải phụ đề...`);
-            response = await fetch(subtitleUrl, { signal: controller.signal });
-            clearTimeout(timeoutId);
-            
-            console.log(`[Task ${id}] Nhận response từ server phụ đề: ${response.status}`);
-            
-            if (!response.ok) {
-              throw new Error(`Không thể tải phụ đề, mã lỗi: ${response.status}`);
-            }
-            
-            console.log(`[Task ${id}] Đang đọc dữ liệu phụ đề...`);
-            subtitleData = await response.text();
-            console.log(`[Task ${id}] Đã nhận dữ liệu phụ đề, kích thước: ${subtitleData.length} bytes`);
-            
-            // Kiểm tra dữ liệu phụ đề
-            if (!subtitleData || subtitleData.trim().length === 0) {
-              throw new Error('Dữ liệu phụ đề trống');
-            }
-            
-            console.log(`[Task ${id}] Đang ghi file phụ đề: ${subtitle_file}`);
-            fs.writeFileSync(subtitle_file, subtitleData);
-            console.log(`[Task ${id}] Đã tải và lưu phụ đề thành công: ${subtitle_file}`);
-          } catch (fetchError) {
-            console.error(`[Task ${id}] Lỗi khi tải phụ đề: ${fetchError.message}`);
-            
-            // Nếu lỗi là do timeout hoặc network
-            if (fetchError.name === 'AbortError') {
-              console.error(`[Task ${id}] Request tải phụ đề bị timeout sau 30 giây`);
-            }
-            
-            // Tạo file phụ đề trống nếu không tải được
-            console.log(`[Task ${id}] Tạo file phụ đề trống để tiếp tục xử lý`);
-            fs.writeFileSync(subtitle_file, '1\n00:00:00,000 --> 00:00:05,000\nKhông thể tải phụ đề\n\n');
-            console.log(`[Task ${id}] Đã tạo file phụ đề trống: ${subtitle_file}`);
+            writeLog(`[Task ${id}] Đã ghi log cho quá trình nối video`, 'INFO');
           }
 
-          // Thêm phụ đề vào video
-          const final_video = `final_video_${id}.mp4`;
-          const argsSubtitle = [
+          // --- Bước 6: Tải và xử lý file âm thanh ---
+          const voice_file = `voice_${id}.mp3`;
+          const bg_file = `bg_${id}.mp3`;
+          
+          // Tải file voice và background
+          await Promise.all([
+            downloadFile(voiceUrl, voice_file),
+            downloadFile(bgUrl, bg_file)
+          ]);
+
+          // --- Bước 7: Mix âm thanh ---
+          const temp_audio = `temp_audio_${id}.mp3`;
+          const audioArgs = [
             "-y", "-threads", "0",
-            "-i", temp_video_with_audio,
-            "-vf", `subtitles=${subtitle_file}:force_style='FontName=Arial,FontSize=16,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BackColour=&H80000000,Bold=1,Italic=0,Alignment=2,MarginV=30'`,
-            "-c:a", "copy",
-            final_video
+            "-i", voice_file,
+            "-i", bg_file,
+            "-filter_complex", 
+            `[0:a]volume=1[voice];[1:a]volume=0.2[bg];[voice][bg]amix=inputs=2:duration=first:dropout_transition=0,dynaudnorm[out]`,
+            "-map", "[out]",
+            temp_audio
           ];
           
-          console.log(`[Task ${id}] Bắt đầu thêm phụ đề vào video`);
-          console.log(`[Task ${id}] File video đầu vào: ${temp_video_with_audio}`);
-          console.log(`[Task ${id}] File phụ đề: ${subtitle_file}`);
-          console.log(`[Task ${id}] Tham số FFmpeg: ${JSON.stringify(argsSubtitle)}`);
+          await runFFmpeg(audioArgs);
           
-          // Kiểm tra các file đầu vào tồn tại
-          if (!fs.existsSync(temp_video_with_audio)) {
-            console.error(`[Task ${id}] File video đầu vào không tồn tại: ${temp_video_with_audio}`);
-            throw new Error(`File video đầu vào không tồn tại: ${temp_video_with_audio}`);
+          // Ghi log cho quá trình xử lý âm thanh
+          writeLog(`[Task ${id}] Đã mix âm thanh thành công`, 'INFO');
+
+          // --- Bước 8: Tạo subtitle ASS ---
+          if (subtitleUrl) {
+            const subtitle_file = `subtitle_${id}.srt`;
+            await downloadFile(subtitleUrl, subtitle_file);
+            
+            // Chuyển đổi SRT sang ASS với hiệu ứng karaoke
+            const subtitle_ass = `subtitle_${id}.ass`;
+            
+            // Tạo file ASS từ PowerShell script
+            const createAssArgs = [
+              "powershell",
+              "-File", "./basic-ass-creator.ps1",
+              subtitle_file,
+              "output.json",
+              subtitle_ass,
+              titleText || "Video Title"
+            ];
+            
+            await new Promise((resolve, reject) => {
+              const process = spawn(createAssArgs[0], createAssArgs.slice(1));
+              process.on('close', (code) => {
+                if (code === 0) resolve();
+                else reject(new Error(`Failed to create ASS subtitle with code ${code}`));
+              });
+            });
+
+            // --- Bước 9: Kết hợp video, audio và subtitle ---
+            const output_file = `output_${id}.mp4`;
+            const finalArgs = [
+              "-y", "-threads", "0",
+              "-i", temp_video_no_audio,
+              "-i", temp_audio,
+              "-vf", `ass=${subtitle_ass}`,
+              "-c:v", "libx264",
+              "-c:a", "aac",
+              "-map", "0:v",
+              "-map", "1:a",
+              "-shortest",
+              output_file
+            ];
+            
+            await runFFmpeg(finalArgs);
+            
+            // Ghi log cho quá trình xử lý subtitle
+            writeLog(`[Task ${id}] Đã thêm subtitle ASS thành công`, 'INFO');
+            
+            // Xóa các file tạm nhưng giữ lại log
+            fs.unlinkSync(subtitle_file);
+            fs.unlinkSync(subtitle_ass);
+          } else {
+            // Nếu không có subtitle, chỉ kết hợp video và audio
+            const output_file = `output_${id}.mp4`;
+            const finalArgs = [
+              "-y", "-threads", "0",
+              "-i", temp_video_no_audio,
+              "-i", temp_audio,
+              "-c:v", "copy",
+              "-c:a", "aac",
+              "-map", "0:v",
+              "-map", "1:a",
+              "-shortest",
+              output_file
+            ];
+            
+            await runFFmpeg(finalArgs);
+            writeLog(`[Task ${id}] Đã tạo video không có subtitle thành công`, 'INFO');
           }
-          if (!fs.existsSync(subtitle_file)) {
-            console.error(`[Task ${id}] File phụ đề không tồn tại: ${subtitle_file}`);
-            throw new Error(`File phụ đề không tồn tại: ${subtitle_file}`);
-          }
+
+          // Xóa các file tạm nhưng giữ lại log
+          fs.unlinkSync(voice_file);
+          fs.unlinkSync(bg_file);
+          fs.unlinkSync(temp_audio);
+          fs.unlinkSync(temp_video_no_audio);
+          fs.unlinkSync(listFile);
+          fs.unlinkSync(imagesListFilename);
+          fs.rmdirSync(tempDir, { recursive: true });
+
+          // Ghi log tổng kết
+          const duration = (Date.now() - startTime) / 1000;
+          const summary = {
+            taskId: id,
+            startTime: new Date(startTime).toISOString(),
+            endTime: new Date().toISOString(),
+            duration: duration,
+            totalImages: images.length,
+            totalDuration: total_duration,
+            hasSubtitle: !!subtitleUrl,
+            videoSettings: {
+              width: video_width,
+              height: video_height,
+              fps: fps,
+              quality: video_quality,
+              preset: preset
+            }
+          };
           
-          // Thiết lập timeout cho quá trình thêm phụ đề
-          let subtitleTimeout;
-          const timeoutPromise = new Promise((_, reject) => {
-            subtitleTimeout = setTimeout(() => {
-              console.error(`[Task ${id}] Quá trình thêm phụ đề bị timeout sau 300 giây`);
-              reject(new Error('Quá trình thêm phụ đề bị timeout sau 300 giây'));
-            }, 300000); // 5 phút timeout
-          });
+          fs.writeFileSync(
+            `${logsDir}/task_${id}_summary.json`, 
+            JSON.stringify(summary, null, 2)
+          );
           
-          try {
-            console.log(`[Task ${id}] Đang chạy FFmpeg để thêm phụ đề...`);
-            const subtitleResult = await Promise.race([
-              runFFmpeg(argsSubtitle),
-              timeoutPromise
-            ]);
-            
-            clearTimeout(subtitleTimeout);
-            console.log(`[Task ${id}] Thêm phụ đề vào video thành công: ${final_video}`);
-            
-            // Ghi log thông tin về quá trình xử lý
-            if (subtitleResult && subtitleResult.stderr) {
-              console.log(`[Task ${id}] Ghi log FFmpeg cho quá trình thêm phụ đề`);
-              fs.writeFileSync(`${logsDir}/subtitle_log_${id}.txt`, subtitleResult.stderr);
-            }
-            
-            // Kiểm tra file đầu ra
-            if (!fs.existsSync(final_video)) {
-              console.error(`[Task ${id}] File video cuối cùng không tồn tại sau khi xử lý: ${final_video}`);
-              throw new Error(`File video cuối cùng không tồn tại: ${final_video}`);
-            }
-            
-            console.log(`[Task ${id}] Hoàn thành quá trình thêm phụ đề, kích thước file: ${fs.statSync(final_video).size} bytes`);
-            
-            // --- Bước 8: (Tùy chọn) Dọn dẹp các file tạm ---
-            try {
-              console.log(`[Task ${id}] Bắt đầu dọn dẹp các file tạm`);
-              
-              // Danh sách các file cần xóa
-              const filesToDelete = [
-                imagesListFilename,
-                listFile,
-                subtitle_file,
-                temp_video_no_audio,
-                temp_video_with_audio
-              ];
-              
-              // Xóa từng file
-              for (const file of filesToDelete) {
-                if (fs.existsSync(file)) {
-                  fs.unlinkSync(file);
-                  console.log(`[Task ${id}] Đã xóa file tạm: ${file}`);
-                }
-              }
-              
-              // Xóa thư mục tạm
-              if (fs.existsSync(tempDir)) {
-                fs.rmSync(tempDir, { recursive: true, force: true });
-                console.log(`[Task ${id}] Đã xóa thư mục tạm: ${tempDir}`);
-              }
-              
-              console.log(`[Task ${id}] Đã hoàn thành dọn dẹp các file tạm`);
-            } catch (cleanupError) {
-              console.error(`[Task ${id}] Lỗi khi dọn dẹp các file tạm: ${cleanupError.message}`);
-              // Không throw lỗi ở đây vì việc dọn dẹp không ảnh hưởng đến kết quả cuối cùng
-            }
-            
-            return final_video;
-          } catch (ffmpegError) {
-            clearTimeout(subtitleTimeout);
-            console.error(`[Task ${id}] Lỗi FFmpeg khi thêm phụ đề: ${ffmpegError.message || 'Unknown error'}`);
-            throw ffmpegError;
-          }
+          writeLog(`[Task ${id}] Hoàn thành xử lý task sau ${duration}s`, 'INFO');
+          return { success: true, duration, summary };
+          
         } catch (error) {
-          console.error(`[Task ${id}] Lỗi khi thêm phụ đề vào video: ${error.message || 'Unknown error'}`);
-          if (error.stderr) {
-            console.error(`[Task ${id}] Chi tiết lỗi FFmpeg: ${error.stderr}`);
-            fs.writeFileSync(`${logsDir}/subtitle_error_${id}.txt`, error.stderr);
-          }
-          
-          // Nếu có lỗi khi thêm phụ đề, trả về video có âm thanh nhưng không có phụ đề
-          console.log(`[Task ${id}] Trả về video không có phụ đề do lỗi: ${temp_video_with_audio}`);
-          return temp_video_with_audio;
+          throw new Error(`Lỗi khi nối video: ${error.message}`);
         }
+        
       } catch (error) {
-        console.error(`[Task ${id}] Lỗi trong quá trình xử lý task: ${error.message}`);
-        throw error;
+        throw new Error(`Lỗi trong quá trình xử lý task: ${error.message}`);
       }
     })();
-    
+
     // Chạy task với timeout
-    const result = await Promise.race([processPromise, taskTimeoutPromise]);
+    return await Promise.race([processPromise, taskTimeoutPromise]);
     
-    // Ghi log thời gian hoàn thành
-    const duration = (Date.now() - startTime) / 1000;
-    console.log(`[Task ${id}] Hoàn thành task sau ${duration} giây`);
-    
-    return result;
   } catch (error) {
     const duration = (Date.now() - startTime) / 1000;
-    console.error(`[Task ${id}] Task thất bại sau ${duration} giây: ${error.message}`);
-    
-    // Ghi log lỗi
-    try {
-      fs.writeFileSync(`${logsDir}/task_${id}_error.txt`, JSON.stringify({
-        error: error.message,
-        stack: error.stack,
-        time: new Date().toISOString(),
-        duration: duration
-      }, null, 2));
-    } catch (logError) {
-      console.error(`[Task ${id}] Không thể ghi log lỗi: ${logError.message}`);
-    }
-    
+    writeLog(`[Task ${id}] Lỗi sau ${duration}s: ${error.message}`, 'ERROR');
     throw error;
   }
+}
+
+// Hàm tải file từ URL
+async function downloadFile(url, filename) {
+  const response = await fetch(url);
+  const buffer = await response.buffer();
+  fs.writeFileSync(filename, buffer);
 }
 
 // Endpoint mới: nhận 1 task và xử lý workflow cho task đó

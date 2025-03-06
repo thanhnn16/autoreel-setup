@@ -1,0 +1,190 @@
+[
+  {
+    "groups": [
+      {
+        "text": "Trong một vóc phố nhỏ ở Sài Gòn",
+        "start": 0,
+        "end": 1.4800000190734863,
+        "startIndex": 0,
+        "endIndex": 7,
+        "index": 1
+      },
+      {
+        "text": "xuất hiện một chú mèo kỳ lạ với tận 10 cái chân",
+        "start": 1.8200000524520874,
+        "end": 3.859999895095825,
+        "startIndex": 8,
+        "endIndex": 19,
+        "index": 2
+      },
+      {
+        "text": "tự xưng là mèo thập túc",
+        "start": 4.199999809265137,
+        "end": 5.420000076293945,
+        "startIndex": 20,
+        "endIndex": 25,
+        "index": 3
+      },
+      {
+        "text": "Không giống những con mèo khác",
+        "start": 6.019999980926514,
+        "end": 7.099999904632568,
+        "startIndex": 26,
+        "endIndex": 31,
+        "index": 4
+      },
+      {
+        "text": "thập túc không sợ chó mà còn thường xuyên chế nhạo chúng bằng cách vung 10 chân lên múa may như thể đang làm siếc",
+        "start": 7.420000076293945,
+        "end": 11.84000015258789,
+        "startIndex": 32,
+        "endIndex": 56,
+        "index": 5
+      },
+      {
+        "text": "Dân phố bảo nhau",
+        "start": 12.539999961853027,
+        "end": 13.15999984741211,
+        "startIndex": 57,
+        "endIndex": 60,
+        "index": 6
+      },
+      {
+        "text": "thập túc có thể hút vép và phả khói ra từ 10 cái miệng nhỏ mọc dọc xuống lưng",
+        "start": 13.579999923706055,
+        "end": 16.799999237060547,
+        "startIndex": 61,
+        "endIndex": 79,
+        "index": 7
+      },
+      {
+        "text": "Giới trẻ hào hứng coi nó như thần tượng",
+        "start": 17.760000228881836,
+        "end": 19.399999618530273,
+        "startIndex": 80,
+        "endIndex": 88,
+        "index": 8
+      },
+      {
+        "text": "đua nhau mua vép để học theo",
+        "start": 19.600000381469727,
+        "end": 20.760000228881836,
+        "startIndex": 89,
+        "endIndex": 95,
+        "index": 9
+      },
+      {
+        "text": "phong cách thập túc",
+        "start": 20.920000076293945,
+        "end": 21.579999923706055,
+        "startIndex": 96,
+        "endIndex": 99,
+        "index": 10
+      },
+      {
+        "text": "Một hôm",
+        "start": 22.079999923706055,
+        "end": 22.799999237060547,
+        "startIndex": 100,
+        "endIndex": 101,
+        "index": 11
+      },
+      {
+        "text": "thập túc bỗng dưng biến mất",
+        "start": 23.079999923706055,
+        "end": 23.940000534057617,
+        "startIndex": 102,
+        "endIndex": 107,
+        "index": 12
+      },
+      {
+        "text": "để lại một lá thư viết",
+        "start": 24.299999237060547,
+        "end": 25.059999465942383,
+        "startIndex": 108,
+        "endIndex": 113,
+        "index": 13
+      },
+      {
+        "text": "Ta chỉ muốn các người hiểu rằng",
+        "start": 25.479999542236328,
+        "end": 26.739999771118164,
+        "startIndex": 114,
+        "endIndex": 120,
+        "index": 14
+      },
+      {
+        "text": "hút vép không làm các người thành siêu nhân",
+        "start": 26.959999084472656,
+        "end": 28.6200008392334,
+        "startIndex": 121,
+        "endIndex": 129,
+        "index": 15
+      },
+      {
+        "text": "mà chỉ khiến các người giống như ta kỳ quái và không ai hiểu nổi",
+        "start": 28.719999313354492,
+        "end": 31.280000686645508,
+        "startIndex": 130,
+        "endIndex": 144,
+        "index": 16
+      },
+      {
+        "text": "Sau đó",
+        "start": 32.20000076293945,
+        "end": 32.47999954223633,
+        "startIndex": 145,
+        "endIndex": 146,
+        "index": 17
+      },
+      {
+        "text": "dân phố nhận ra",
+        "start": 32.79999923706055,
+        "end": 33.540000915527344,
+        "startIndex": 147,
+        "endIndex": 150,
+        "index": 18
+      },
+      {
+        "text": "thập túc chẳng qua là sản phẩm tưởng tượng của một nhóm bạn nghiện vép quá đà",
+        "start": 33.720001220703125,
+        "end": 36.619998931884766,
+        "startIndex": 151,
+        "endIndex": 167,
+        "index": 19
+      },
+      {
+        "text": "Họ đã tạo ra câu chuyện này để châm biếm chính thói quen tai hại của mình",
+        "start": 37.099998474121094,
+        "end": 40.040000915527344,
+        "startIndex": 168,
+        "endIndex": 184,
+        "index": 20
+      },
+      {
+        "text": "Thế là cả phố đồng loạt bỏ vép",
+        "start": 40.91999816894531,
+        "end": 42.380001068115234,
+        "startIndex": 185,
+        "endIndex": 192,
+        "index": 21
+      },
+      {
+        "text": "và từ đó",
+        "start": 42.5,
+        "end": 43.060001373291016,
+        "startIndex": 193,
+        "endIndex": 195,
+        "index": 22
+      },
+      {
+        "text": "thập túc chỉ còn là huyền thoại", 
+        "start": 43.29999923706055,
+        "end": 44.459999084472656,
+        "startIndex": 196,
+        "endIndex": 202,
+        "index": 23
+      }
+    ]
+  }
+]
