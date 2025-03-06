@@ -2,15 +2,58 @@ import express from 'express';
 import { spawn } from 'child_process';
 import fs from 'fs';
 import fetch from 'node-fetch';
+import path from 'path';
+import { format } from 'util';
 
 const app = express();
 app.use(express.json());
+
+// Thiết lập thư mục logs
+const logsDir = './logs';
+if (!fs.existsSync(logsDir)) {
+  fs.mkdirSync(logsDir, { recursive: true });
+}
+
+// Tạo file log cho server
+const serverLogFile = path.join(logsDir, 'server.log');
+
+// Hàm ghi log
+function writeLog(message, level = 'INFO') {
+  const timestamp = new Date().toISOString();
+  const formattedMessage = `[${timestamp}] [${level}] ${message}\n`;
+  
+  // Vẫn giữ console log hiện tại
+  if (level === 'ERROR') {
+    console.error(message);
+  } else {
+    console.log(message);
+  }
+  
+  // Ghi vào file log
+  fs.appendFileSync(serverLogFile, formattedMessage);
+}
+
+// Override console.log và console.error để ghi logs
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+
+console.log = function() {
+  const message = format.apply(null, arguments);
+  originalConsoleLog.apply(console, arguments);
+  fs.appendFileSync(serverLogFile, `[${new Date().toISOString()}] [INFO] ${message}\n`);
+};
+
+console.error = function() {
+  const message = format.apply(null, arguments);
+  originalConsoleError.apply(console, arguments);
+  fs.appendFileSync(serverLogFile, `[${new Date().toISOString()}] [ERROR] ${message}\n`);
+};
 
 // Hàm chạy ffmpeg và trả về Promise
 function runFFmpeg(args) {
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
-    console.log(`[FFmpeg] Bắt đầu thực thi lệnh: ffmpeg ${args.join(' ')}`);
+    writeLog(`[FFmpeg] Bắt đầu thực thi lệnh: ffmpeg ${args.join(' ')}`, 'INFO');
     
     const ffmpeg = spawn('ffmpeg', args);
     let stdout = '';
@@ -20,7 +63,7 @@ function runFFmpeg(args) {
       const chunk = data.toString();
       stdout += chunk; 
       // Có thể log ra từng phần output nếu cần
-      // console.log(`[FFmpeg] stdout: ${chunk}`);
+      // writeLog(`[FFmpeg] stdout: ${chunk}`, 'INFO');
     });
     
     ffmpeg.stderr.on('data', (data) => { 
@@ -29,13 +72,13 @@ function runFFmpeg(args) {
       // FFmpeg thường ghi log vào stderr, kể cả khi không có lỗi
       // Chỉ log ra các thông báo lỗi quan trọng
       if (chunk.includes('Error') || chunk.includes('error') || chunk.includes('failed')) {
-        console.error(`[FFmpeg] stderr: ${chunk}`);
+        writeLog(`[FFmpeg] stderr: ${chunk}`, 'ERROR');
       }
     });
 
     ffmpeg.on('error', (error) => {
       const duration = (Date.now() - startTime) / 1000;
-      console.error(`[FFmpeg] Lỗi khi khởi chạy process (${duration}s): ${error.message}`);
+      writeLog(`[FFmpeg] Lỗi khi khởi chạy process (${duration}s): ${error.message}`, 'ERROR');
       reject({ 
         code: -1, 
         stdout, 
@@ -49,7 +92,7 @@ function runFFmpeg(args) {
     ffmpeg.on('close', (code) => {
       const duration = (Date.now() - startTime) / 1000;
       if (code === 0) {
-        console.log(`[FFmpeg] Thực thi thành công (${duration}s)`);
+        writeLog(`[FFmpeg] Thực thi thành công (${duration}s)`, 'INFO');
         resolve({ 
           code, 
           stdout, 
@@ -58,7 +101,7 @@ function runFFmpeg(args) {
           command: `ffmpeg ${args.join(' ')}`
         });
       } else {
-        console.error(`[FFmpeg] Thực thi thất bại với mã lỗi ${code} (${duration}s)`);
+        writeLog(`[FFmpeg] Thực thi thất bại với mã lỗi ${code} (${duration}s)`, 'ERROR');
         reject({ 
           code, 
           stdout, 
@@ -95,19 +138,14 @@ async function processTask(task) {
   const startTime = Date.now();
   const { id, images, durations, voiceUrl, bgUrl, subtitleUrl } = task;
   
-  console.log(`[Task ${id}] Bắt đầu xử lý task với ${images.length} ảnh`);
-  
-  // Tạo thư mục logs nếu chưa tồn tại
-  const logsDir = './logs';
-  if (!fs.existsSync(logsDir)) {
-    fs.mkdirSync(logsDir, { recursive: true });
-  }
+  writeLog(`[Task ${id}] Bắt đầu xử lý task với ${images.length} ảnh`, 'INFO');
   
   // Ghi log task đầu vào
   try {
     fs.writeFileSync(`${logsDir}/task_${id}_input.json`, JSON.stringify(task, null, 2));
+    writeLog(`[Task ${id}] Đã ghi log task đầu vào`, 'INFO');
   } catch (error) {
-    console.error(`[Task ${id}] Không thể ghi log task đầu vào: ${error.message}`);
+    writeLog(`[Task ${id}] Không thể ghi log task đầu vào: ${error.message}`, 'ERROR');
   }
   
   // Thiết lập timeout tổng thể cho task
@@ -571,6 +609,99 @@ app.get('/videos', (req, res) => {
   }
 });
 
+// Endpoint để xem logs
+app.get('/logs', (req, res) => {
+  try {
+    // Kiểm tra xem thư mục logs có tồn tại không
+    if (!fs.existsSync(logsDir)) {
+      return res.status(404).send({ error: 'Thư mục logs không tồn tại' });
+    }
+    
+    // Lấy danh sách các file log
+    const files = fs.readdirSync(logsDir);
+    const logFiles = files.filter(file => file.endsWith('.log') || file.endsWith('.json'));
+    
+    // Tạo danh sách logs với URL để xem
+    const host = req.get('host');
+    const protocol = req.protocol;
+    const logs = logFiles.map(file => {
+      const stats = fs.statSync(path.join(logsDir, file));
+      return {
+        filename: file,
+        size: stats.size,
+        created: stats.mtime,
+        viewUrl: `${protocol}://${host}/logs/${file}`
+      };
+    });
+    
+    res.send({ logs });
+  } catch (error) {
+    console.error('Error getting logs list:', error);
+    res.status(500).send({ error: error.message });
+  }
+});
+
+// Endpoint để xem nội dung của một file log cụ thể
+app.get('/logs/:filename', (req, res) => {
+  try {
+    const filename = req.params.filename;
+    const filePath = path.join(logsDir, filename);
+    
+    // Kiểm tra xem file có tồn tại không
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).send({ error: 'File log không tồn tại' });
+    }
+    
+    // Kiểm tra xem file có phải là file log hợp lệ không
+    if (!filename.endsWith('.log') && !filename.endsWith('.json')) {
+      return res.status(400).send({ error: 'Chỉ hỗ trợ xem file .log và .json' });
+    }
+    
+    // Đọc nội dung file
+    const content = fs.readFileSync(filePath, 'utf8');
+    
+    // Trả về nội dung dựa trên loại file
+    if (filename.endsWith('.json')) {
+      res.setHeader('Content-Type', 'application/json');
+      res.send(content);
+    } else {
+      // Nếu là file log, trả về dạng text
+      res.setHeader('Content-Type', 'text/plain');
+      res.send(content);
+    }
+  } catch (error) {
+    console.error(`Error reading log file: ${error.message}`);
+    res.status(500).send({ error: error.message });
+  }
+});
+
+// Endpoint để xóa một file log cụ thể
+app.delete('/logs/:filename', (req, res) => {
+  try {
+    const filename = req.params.filename;
+    const filePath = path.join(logsDir, filename);
+    
+    // Kiểm tra xem file có tồn tại không
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).send({ error: 'File log không tồn tại' });
+    }
+    
+    // Kiểm tra xem file có phải là file log hợp lệ không
+    if (!filename.endsWith('.log') && !filename.endsWith('.json')) {
+      return res.status(400).send({ error: 'Chỉ hỗ trợ xóa file .log và .json' });
+    }
+    
+    // Xóa file
+    fs.unlinkSync(filePath);
+    writeLog(`Đã xóa file log: ${filename}`, 'INFO');
+    
+    res.send({ success: true, message: `Đã xóa file log: ${filename}` });
+  } catch (error) {
+    console.error(`Error deleting log file: ${error.message}`);
+    res.status(500).send({ error: error.message });
+  }
+});
+
 app.listen(3000, () => {
-  console.log('Improved HTTP wrapper listening on port 3000');
+  writeLog('Improved HTTP wrapper listening on port 3000', 'INFO');
 });
