@@ -2,6 +2,7 @@
   "name": "ffmpeg-wrapper",
   "version": "1.0.0",
   "description": "HTTP wrapper for ffmpeg with extended workflow processing",
+  "type": "module",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
