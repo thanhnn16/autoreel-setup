@@ -211,14 +211,14 @@ async function processTask(task) {
           const filter_complex = [
             `scale=720:1280:force_original_aspect_ratio=increase`,
             `crop=720:1280`,
-            `zoompan=z='${zoom_start}+((${zoom_end}-${zoom_start})*t/${duration})':d=${fps*duration}:x='iw/2-(iw/zoom)/2+${x_expr}':y='ih/2-(ih/zoom)/2+${y_expr}':s=${video_width}x${video_height}:fps=${fps}`,
-            `rotate='${rotation}'`
+            `zoompan=z='${zoom_start}+((${zoom_end}-${zoom_start})*t/${duration})':d=${Math.round(fps*duration)}:x='iw/2-(iw/zoom)/2+${x_expr}':y='ih/2-(ih/zoom)/2+${y_expr}':s=${video_width}x${video_height}:fps=${fps}`,
+            `rotate=${rotation}`
           ].join(',');
 
           const args = [
             "-y", "-threads", "0",
             "-loop", "1", "-i", image,
-            "-t", duration,
+            "-t", duration.toString(),
             "-vf", filter_complex,
             "-c:v", "libx264",
             "-pix_fmt", "yuv420p",
