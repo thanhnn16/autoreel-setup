@@ -112,25 +112,6 @@ services:
             - driver: nvidia
               capabilities: [gpu]
 
-  ffmpeg:
-    image: linuxserver/ffmpeg:latest
-    hostname: ffmpeg
-    container_name: ffmpeg
-    networks: ["autoreel"]
-    restart: unless-stopped
-    volumes:
-      - ./storage:/storage
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Asia/Ho_Chi_Minh
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              capabilities: [gpu]
-
   comfyui:
     image: yanwk/comfyui-boot:cu124-slim
     hostname: comfyui
