@@ -209,15 +209,15 @@ async function processTask(task) {
 
           // Tạo hiệu ứng Ken Burns với rotation và position
           const filter_complex = [
-            `scale=${video_width}:${video_height}:force_original_aspect_ratio=increase`,
-            `crop=${video_width}:${video_height}`,
+            `scale=720:1280:force_original_aspect_ratio=increase`,
+            `crop=720:1280`,
             `zoompan=z='${zoom_start}+((${zoom_end}-${zoom_start})*t/${duration})':`,
             `d=${fps}*${duration}:`,
             `x='iw/2-(iw/zoom)/2+${x_expr}':`,
             `y='ih/2-(ih/zoom)/2+${y_expr}':`,
             `rotate='${rotation}':`,
             `s=${video_width}x${video_height}:fps=${fps}`
-          ].join('');
+          ].join(',');
 
           const args = [
             "-y", "-threads", "0",
