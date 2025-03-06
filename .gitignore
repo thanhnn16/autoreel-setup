@@ -1,2 +1,11 @@
 .env
 ffmpeg-wrapper/logs/
+ffmpeg-wrapper/temp*
+ffmpeg-wrapper/*.png
+ffmpeg-wrapper/*.mp4
+ffmpeg-wrapper/*.mp3
+ffmpeg-wrapper/*.srt
+ffmpeg-wrapper/*.ass
+ffmpeg-wrapper/*.json
+ffmpeg-wrapper/*.log
+ffmpeg-wrapper/*.txt
