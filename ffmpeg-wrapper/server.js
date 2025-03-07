@@ -859,11 +859,11 @@ async function processTask(task) {
         // --- Bước 2: Tạo video cho từng ảnh với hiệu ứng Ken Burns nâng cao ---
         for (let i = 0; i < images.length; i++) {
           const image = images[i];
-          let duration = durations[i];
+          let duration = parseFloat(durations[i]);
 
           // Kéo dài thời gian hiển thị của ảnh cuối cùng thêm 2 giây
           if (i === images.length - 1) {
-            duration = parseFloat(duration) + 2;
+            duration = duration + 2;
             writeLog(`[Task ${id}] Kéo dài thời gian hiển thị của ảnh cuối cùng thêm 2 giây: ${duration}s`, 'INFO');
           }
 
@@ -937,6 +937,23 @@ async function processTask(task) {
             console.log(`[Task ${id}] Xử lý ảnh ${index}: ${image}`);
             writeLog(`[Task ${id}] Bắt đầu xử lý ảnh ${index} với lệnh: ${args.join(' ')}`, 'INFO');
             await runFFmpeg(args);
+            
+            // Kiểm tra thời lượng video đã tạo
+            const probeArgs = [
+              "-v", "error",
+              "-show_entries", "format=duration",
+              "-of", "default=noprint_wrappers=1:nokey=1",
+              `${tempDir}/${index}.mp4`
+            ];
+            
+            const probeResult = await runFFprobe(probeArgs);
+            const actualDuration = parseFloat(probeResult.stdout.trim());
+            
+            // Kiểm tra nếu thời lượng thực tế khác nhiều so với dự kiến
+            if (Math.abs(actualDuration - duration) > 0.1) {
+              writeLog(`[Task ${id}] Cảnh báo: Thời lượng video ảnh ${index} (${actualDuration}s) khác so với dự kiến (${duration}s)`, 'WARNING');
+            }
+            
             console.log(`[Task ${id}] Đã xử lý xong ảnh ${index}`);
           } catch (error) {
             console.error(`[Task ${id}] Lỗi khi xử lý ảnh ${index}:`, error);
@@ -970,87 +987,164 @@ async function processTask(task) {
             // Xác định số lượng video cần xử lý
             const videoCount = Math.min(images.length, durations.length);
 
-            // Xử lý từng cặp video để tránh filter complex quá phức tạp
-            let currentOutput = `${tempDir}/temp_0.mp4`;
-            fs.copyFileSync(`${tempDir}/1.mp4`, currentOutput);
-
-            // Thời lượng chuyển cảnh (giây)
-            const transitionDuration = 0.3;
-
-            for (let i = 1; i < videoCount; i++) {
-              const nextVideo = `${tempDir}/${i + 1}.mp4`;
-              const outputVideo = `${tempDir}/temp_${i}.mp4`;
-              const transition = transitions[i % transitions.length];
-
-              // Lấy thông tin thời lượng video hiện tại
-              const probeArgs = [
-                "-v", "error",
-                "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1",
-                currentOutput
-              ];
-
-              const probeResult = await runFFprobe(probeArgs);
-              const duration = parseFloat(probeResult.stdout.trim());
-
-              // Lấy thông tin thời lượng video tiếp theo để log
-              const nextProbeArgs = [
-                "-v", "error",
-                "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1",
-                nextVideo
-              ];
-
-              const nextProbeResult = await runFFprobe(nextProbeArgs);
-              const nextDuration = parseFloat(nextProbeResult.stdout.trim());
-              
-              // Tính offset (thời điểm bắt đầu hiệu ứng chuyển cảnh)
-              // Đảm bảo offset không vượt quá thời lượng video
-              const offset = Math.max(0.5, Math.min(duration - transitionDuration, duration * 0.9));
-
-              // Log thông tin chi tiết
-              writeLog(`[Task ${id}] Video ${i}: Thời lượng=${duration}s, Video ${i+1}: Thời lượng=${nextDuration}s, Offset=${offset}s`, 'INFO');
-              writeLog(`[Task ${id}] Áp dụng hiệu ứng ${transition} giữa video ${i} và ${i+1} với thời lượng ${transitionDuration}s tại offset ${offset}s`, 'INFO');
-
-              // Tạo lệnh xfade
-              const xfadeArgs = [
-                "-y", "-threads", "0",
-                "-i", currentOutput,
-                "-i", nextVideo,
-                "-filter_complex", `xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}`,
-                "-c:v", "libx264",
-                "-pix_fmt", "yuv420p",
-                "-preset", preset,
-                "-crf", video_quality.toString(),
-                "-r", fps.toString(),
-                outputVideo
-              ];
-
-              await runFFmpeg(xfadeArgs);
-
-              // Log thông tin sau khi ghép
-              const outputProbeArgs = [
-                "-v", "error",
-                "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1",
-                outputVideo
-              ];
-
-              const outputProbeResult = await runFFprobe(outputProbeArgs);
-              const outputDuration = parseFloat(outputProbeResult.stdout.trim());
-              const expectedDuration = duration + nextDuration - transitionDuration;
-              writeLog(`[Task ${id}] Video sau khi ghép ${i} và ${i+1}: Thời lượng=${outputDuration}s (Dự kiến: ${expectedDuration}s)`, 'INFO');
-
-              // Cập nhật currentOutput cho vòng lặp tiếp theo
-              if (i > 1) {
-                // Xóa file tạm thời trước đó để tiết kiệm dung lượng
-                fs.unlinkSync(currentOutput);
-              }
-              currentOutput = outputVideo;
+            // Tạo danh sách tất cả các video để ghép
+            const videoList = [];
+            for (let i = 0; i < videoCount; i++) {
+              videoList.push(`${tempDir}/${i + 1}.mp4`);
             }
-
-            // Đổi tên file cuối cùng thành output
-            fs.copyFileSync(currentOutput, temp_video_no_audio);
+            
+            // Sử dụng concat filter thay vì concat demuxer
+            let filterComplex = '';
+            
+            // Tạo input cho mỗi video
+            const concatArgs = ["-y", "-threads", "0"];
+            for (const videoPath of videoList) {
+              concatArgs.push("-i", videoPath);
+            }
+            
+            // Tạo filter complex để ghép video
+            for (let i = 0; i < videoList.length; i++) {
+              filterComplex += `[${i}:v]`;
+            }
+            filterComplex += `concat=n=${videoList.length}:v=1:a=0[outv]`;
+            
+            // Thêm filter complex và output
+            concatArgs.push(
+              "-filter_complex", filterComplex,
+              "-map", "[outv]",
+              "-c:v", "libx264",
+              "-pix_fmt", "yuv420p",
+              "-preset", preset,
+              "-crf", video_quality.toString(),
+              "-r", fps.toString(),
+              temp_video_no_audio
+            );
+            
+            writeLog(`[Task ${id}] Bắt đầu ghép ${videoList.length} video với concat filter`, 'INFO');
+            await runFFmpeg(concatArgs);
+            
+            // Kiểm tra thời lượng video cuối cùng
+            const finalProbeArgs = [
+              "-v", "error",
+              "-show_entries", "format=duration",
+              "-of", "default=noprint_wrappers=1:nokey=1",
+              temp_video_no_audio
+            ];
+            
+            const finalProbeResult = await runFFprobe(finalProbeArgs);
+            const finalDuration = parseFloat(finalProbeResult.stdout.trim());
+            
+            // Tính tổng thời lượng dự kiến
+            let expectedTotalDuration = 0;
+            for (let i = 0; i < durations.length; i++) {
+              expectedTotalDuration += parseFloat(durations[i]);
+            }
+            // Cộng thêm 2 giây cho ảnh cuối
+            expectedTotalDuration += 2;
+            
+            writeLog(`[Task ${id}] Video cuối cùng: Thời lượng thực tế=${finalDuration}s (Dự kiến: ${expectedTotalDuration}s)`, 'INFO');
+            
+            // Kiểm tra nếu thời lượng thực tế khác nhiều so với dự kiến
+            if (Math.abs(finalDuration - expectedTotalDuration) > 1) {
+              writeLog(`[Task ${id}] Cảnh báo: Thời lượng video cuối cùng (${finalDuration}s) khác nhiều so với dự kiến (${expectedTotalDuration}s)`, 'WARNING');
+              
+              // Nếu thời lượng quá ngắn, có thể thử phương pháp khác
+              if (finalDuration < expectedTotalDuration * 0.8) {
+                writeLog(`[Task ${id}] Thời lượng quá ngắn, thử phương pháp ghép video khác`, 'WARNING');
+                
+                // Phương pháp sử dụng xfade với từng cặp video
+                // Lưu ý: Phương pháp này có hiệu ứng chuyển cảnh nhưng có thể không giữ đúng thời lượng
+                
+                // Xử lý từng cặp video để tránh filter complex quá phức tạp
+                let currentOutput = `${tempDir}/xfade_temp_0.mp4`;
+                fs.copyFileSync(`${tempDir}/1.mp4`, currentOutput);
+                
+                // Thời lượng chuyển cảnh (giây)
+                const transitionDuration = 0.3;
+                
+                for (let i = 1; i < videoCount; i++) {
+                  const nextVideo = `${tempDir}/${i + 1}.mp4`;
+                  const outputVideo = `${tempDir}/xfade_temp_${i}.mp4`;
+                  const transition = 'distance';
+                  
+                  // Lấy thông tin thời lượng video hiện tại
+                  const probeArgs = [
+                    "-v", "error",
+                    "-show_entries", "format=duration",
+                    "-of", "default=noprint_wrappers=1:nokey=1",
+                    currentOutput
+                  ];
+                  
+                  const probeResult = await runFFprobe(probeArgs);
+                  const duration = parseFloat(probeResult.stdout.trim());
+                  
+                  // Lấy thông tin thời lượng video tiếp theo
+                  const nextProbeArgs = [
+                    "-v", "error",
+                    "-show_entries", "format=duration",
+                    "-of", "default=noprint_wrappers=1:nokey=1",
+                    nextVideo
+                  ];
+                  
+                  const nextProbeResult = await runFFprobe(nextProbeArgs);
+                  const nextDuration = parseFloat(nextProbeResult.stdout.trim());
+                  
+                  // Tính offset (thời điểm bắt đầu hiệu ứng chuyển cảnh)
+                  // Đảm bảo offset không vượt quá thời lượng video
+                  // Sử dụng thời lượng dự kiến thay vì thời lượng thực tế
+                  const expectedDuration = parseFloat(durations[i-1]);
+                  const offset = Math.max(0.5, Math.min(expectedDuration - transitionDuration, expectedDuration * 0.9));
+                  
+                  writeLog(`[Task ${id}] Áp dụng hiệu ứng ${transition} giữa video ${i} và ${i+1} với thời lượng ${transitionDuration}s tại offset ${offset}s`, 'INFO');
+                  
+                  // Tạo lệnh xfade với setpts để đảm bảo thời lượng
+                  const xfadeArgs = [
+                    "-y", "-threads", "0",
+                    "-i", currentOutput,
+                    "-i", nextVideo,
+                    "-filter_complex", `xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}`,
+                    "-c:v", "libx264",
+                    "-pix_fmt", "yuv420p",
+                    "-preset", preset,
+                    "-crf", video_quality.toString(),
+                    "-r", fps.toString(),
+                    outputVideo
+                  ];
+                  
+                  await runFFmpeg(xfadeArgs);
+                  
+                  // Cập nhật currentOutput cho vòng lặp tiếp theo
+                  if (i > 1) {
+                    // Xóa file tạm thời trước đó để tiết kiệm dung lượng
+                    fs.unlinkSync(currentOutput);
+                  }
+                  currentOutput = outputVideo;
+                }
+                
+                // Đổi tên file cuối cùng thành output
+                fs.copyFileSync(currentOutput, `${tempDir}/xfade_final.mp4`);
+                
+                // Kiểm tra thời lượng video cuối cùng
+                const xfadeFinalProbeArgs = [
+                  "-v", "error",
+                  "-show_entries", "format=duration",
+                  "-of", "default=noprint_wrappers=1:nokey=1",
+                  `${tempDir}/xfade_final.mp4`
+                ];
+                
+                const xfadeFinalProbeResult = await runFFprobe(xfadeFinalProbeArgs);
+                const xfadeFinalDuration = parseFloat(xfadeFinalProbeResult.stdout.trim());
+                
+                writeLog(`[Task ${id}] Video xfade cuối cùng: Thời lượng thực tế=${xfadeFinalDuration}s (Dự kiến: ${expectedTotalDuration}s)`, 'INFO');
+                
+                // Nếu thời lượng xfade tốt hơn, sử dụng nó
+                if (Math.abs(xfadeFinalDuration - expectedTotalDuration) < Math.abs(finalDuration - expectedTotalDuration)) {
+                  writeLog(`[Task ${id}] Sử dụng video xfade vì thời lượng tốt hơn`, 'INFO');
+                  fs.copyFileSync(`${tempDir}/xfade_final.mp4`, temp_video_no_audio);
+                }
+              }
+            }
+            
             writeLog(`[Task ${id}] Nối video thành công: ${temp_video_no_audio}`, 'INFO');
 
             // Xóa các file tạm
@@ -1224,6 +1318,7 @@ async function processTask(task) {
           if (fs.existsSync(temp_video_no_audio)) fs.unlinkSync(temp_video_no_audio);
 
           // Xóa thư mục tạm và các file trong đó
+          /* Comment lại để kiểm tra output
           if (fs.existsSync(tempDir)) {
             const files = fs.readdirSync(tempDir);
             for (const file of files) {
@@ -1231,8 +1326,9 @@ async function processTask(task) {
             }
             fs.rmdirSync(tempDir);
           }
+          */
 
-          writeLog(`[Task ${id}] Đã xóa các file tạm`, 'INFO');
+          writeLog(`[Task ${id}] Đã giữ lại thư mục tạm để kiểm tra: ${tempDir}`, 'INFO');
         } catch (error) {
           writeLog(`[Task ${id}] Lỗi khi xóa file tạm: ${error.message}`, 'WARNING');
         }
