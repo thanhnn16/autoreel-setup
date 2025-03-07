@@ -955,7 +955,7 @@ async function processTask(task) {
           try {
             // Danh sách các hiệu ứng chuyển cảnh
             const transitions = [
-              'fade', 'distance', 'fadeblack', 'fadegrays', 'wipeleft', 'circleclose', 'rectcrop', 'circleopen', 'hblur', 'dissolve', 'pixelize', 'radial', 'slidedown'
+              'distance'
             ];
 
             // Kiểm tra số lượng ảnh và thời lượng
