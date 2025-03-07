@@ -12,48 +12,48 @@ wait_for_apt() {
 }
 
 # Hàm kiểm tra và cài đặt CUDA
-check_cuda_installation() {
-  echo "Kiểm tra cài đặt CUDA..."
+# check_cuda_installation() {
+#   echo "Kiểm tra cài đặt CUDA..."
   
-  # Kiểm tra trạng thái CUDA từ nvidia-smi trước
-  if command -v nvidia-smi &> /dev/null; then
-    cuda_version=$(nvidia-smi | grep "CUDA Version" | awk '{print $9}')
-    if [[ -n "$cuda_version" ]]; then
-      echo "✅ CUDA Runtime đã được cài đặt, phiên bản: $cuda_version (từ nvidia-smi)"
+#   # Kiểm tra trạng thái CUDA từ nvidia-smi trước
+#   if command -v nvidia-smi &> /dev/null; then
+#     cuda_version=$(nvidia-smi | grep "CUDA Version" | awk '{print $9}')
+#     if [[ -n "$cuda_version" ]]; then
+#       echo "✅ CUDA Runtime đã được cài đặt, phiên bản: $cuda_version (từ nvidia-smi)"
       
-      # Nếu phiên bản CUDA từ nvidia-smi đã là 12.2, không cần tiếp tục
-      if [[ "$cuda_version" == "12.2" ]]; then
-        echo "✅ CUDA Runtime phiên bản 12.2 đã được cài đặt. Không cần cài đặt lại."
-        return 0
-      fi
-    fi
-  fi
+#       # Nếu phiên bản CUDA từ nvidia-smi đã là 12.2, không cần tiếp tục
+#       if [[ "$cuda_version" == "12.2" ]]; then
+#         echo "✅ CUDA Runtime phiên bản 12.2 đã được cài đặt. Không cần cài đặt lại."
+#         return 0
+#       fi
+#     fi
+#   fi
   
-  # Kiểm tra nvcc (CUDA compiler)
-  if command -v nvcc &> /dev/null; then
-    nvcc_version=$(nvcc --version | grep "release" | awk '{print $6}' | cut -d',' -f1)
-    echo "✅ CUDA Toolkit đã được cài đặt, phiên bản: $nvcc_version (từ nvcc)"
+#   # Kiểm tra nvcc (CUDA compiler)
+#   if command -v nvcc &> /dev/null; then
+#     nvcc_version=$(nvcc --version | grep "release" | awk '{print $6}' | cut -d',' -f1)
+#     echo "✅ CUDA Toolkit đã được cài đặt, phiên bản: $nvcc_version (từ nvcc)"
     
-    # Nếu phiên bản CUDA từ nvcc cũng khác 12.2 thì mới thực hiện nâng cấp/downgrade
-    if [[ "$nvcc_version" != "12.2" ]]; then
-      echo "⚠️ Phiên bản CUDA Toolkit hiện tại khác 12.2. Đang cài đặt CUDA 12.2.0..."
-      install_cuda_12_2_0
-    else
-      echo "✅ CUDA Toolkit phiên bản 12.2 đã được cài đặt. Không cần cài đặt lại."
-    fi
-  else
-    # Nếu đã có CUDA Runtime 12.2 từ nvidia-smi nhưng không có nvcc
-    if [[ "$cuda_version" == "12.2" ]]; then
-      echo "⚠️ CUDA Runtime 12.2 đã cài đặt nhưng không tìm thấy CUDA Toolkit (nvcc)."
-      # Tự động cài đặt CUDA Toolkit mà không hỏi người dùng
-      echo "Tự động cài đặt đầy đủ CUDA Toolkit..."
-      install_cuda_12_2_0
-    else
-      echo "⚠️ CUDA chưa được cài đặt đầy đủ. Đang cài đặt CUDA 12.2.0..."
-      install_cuda_12_2_0
-    fi
-  fi
-}
+#     # Nếu phiên bản CUDA từ nvcc cũng khác 12.2 thì mới thực hiện nâng cấp/downgrade
+#     if [[ "$nvcc_version" != "12.2" ]]; then
+#       echo "⚠️ Phiên bản CUDA Toolkit hiện tại khác 12.2. Đang cài đặt CUDA 12.2.0..."
+#       install_cuda_12_2_0
+#     else
+#       echo "✅ CUDA Toolkit phiên bản 12.2 đã được cài đặt. Không cần cài đặt lại."
+#     fi
+#   else
+#     # Nếu đã có CUDA Runtime 12.2 từ nvidia-smi nhưng không có nvcc
+#     if [[ "$cuda_version" == "12.2" ]]; then
+#       echo "⚠️ CUDA Runtime 12.2 đã cài đặt nhưng không tìm thấy CUDA Toolkit (nvcc)."
+#       # Tự động cài đặt CUDA Toolkit mà không hỏi người dùng
+#       echo "Tự động cài đặt đầy đủ CUDA Toolkit..."
+#       install_cuda_12_2_0
+#     else
+#       echo "⚠️ CUDA chưa được cài đặt đầy đủ. Đang cài đặt CUDA 12.2.0..."
+#       install_cuda_12_2_0
+#     fi
+#   fi
+# }
 
 # Hàm riêng để cài đặt CUDA 12.2.0
 install_cuda_12_2_0() {
@@ -199,9 +199,9 @@ sudo curl -L "https://github.com/docker/compose/releases/download/v2.20.3/docker
 sudo chmod +x /usr/local/bin/docker-compose
 echo "--------- 🔴 Hoàn thành cài đặt Docker Compose -----------"
 
-echo "--------- 🟢 Kiểm tra và cài đặt CUDA -----------"
-check_cuda_installation
-echo "--------- 🔴 Hoàn thành kiểm tra CUDA -----------"
+# echo "--------- 🟢 Kiểm tra và cài đặt CUDA -----------"
+# check_cuda_installation
+# echo "--------- 🔴 Hoàn thành kiểm tra CUDA -----------"
 
 echo "--------- 🟢 Bắt đầu cài đặt NVIDIA support cho Docker -----------"
 curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey \
