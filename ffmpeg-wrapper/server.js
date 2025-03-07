@@ -769,7 +769,7 @@ function createHighlightDialogueLine(startTime, endTime, wordObjects, options) {
 
 // Hàm tạo dòng tiêu đề
 function createTitleLine(options) {
-  const { titleText, titleColor1, titleColor2, titleDuration } = options;
+  const { titleText, titleDuration } = options;
 
   // Nếu không có titleText, không tạo tiêu đề
   if (!titleText || titleText.trim() === "") {
@@ -782,29 +782,30 @@ function createTitleLine(options) {
   // Tạo tag vị trí ở giữa màn hình
   const posTag = "\\pos(960,540)";
 
-  // Tạo tag hiệu ứng gradient màu
-  const colorTag1 = `\\1c&H${titleColor1}`;
-  const colorTag2 = `\\2c&H${titleColor2}`;
+  // Màu chữ trắng đơn giản
+  const colorTag = "\\1c&HFFFFFF";
 
-  // Tạo tag viền và shadow
+  // Tạo tag viền và shadow đậm hơn
   const outlineTag = "\\3c&H000000"; // Viền đen
-  const blurTag = "\\blur0.8"; // Blur nhẹ
-  const borderTag = "\\bord2"; // Viền
-  const shadowTag = "\\shad1"; // Bóng
+  const blurTag = "\\blur0.6"; // Blur nhẹ
+  const borderTag = "\\bord3"; // Viền dày hơn
+  const shadowTag = "\\shad2"; // Bóng đậm hơn
+  const boldTag = "\\b1"; // In đậm
+  const scaleTag = "\\fscx120\\fscy120"; // Scale to lớn hơn 20%
 
-  // Tạo hiệu ứng transform đơn giản
-  const t1Start = `\\t(0,800,\\fscx110\\fscy110)`;
-  const t2Mid = `\\t(800,${titleDuration * 1000 - 800},\\fscx100\\fscy100)`;
+  // Tạo hiệu ứng nền đen mờ
+  // Sử dụng cùng vị trí với tiêu đề và thêm margin để nền rộng hơn chữ
+  const rectBgTag = `{\\an5\\pos(960,540)\\p1\\bord0\\shad0\\blur5\\c&H000000\\alpha&H99\\fad(800,800)\\fscx200\\fscy300}`;
+  // Sử dụng hình chữ nhật đơn giản với tọa độ tương đối
+  const rectPath = "m -50 -20 l 100 0 0 40 -100 0";
 
   // Kết hợp các tag cho tiêu đề chính
-  const allTags = `{${fadeTag}${posTag}${colorTag1}${colorTag2}${outlineTag}${blurTag}${borderTag}${shadowTag}${t1Start}${t2Mid}}`;
+  const allTags = `{${fadeTag}${posTag}${colorTag}${outlineTag}${blurTag}${borderTag}${shadowTag}${boldTag}${scaleTag}}`;
 
   // Tạo dòng dialogue hoàn chỉnh với thời gian hiển thị
   const titleLine = `Dialogue: 0,0:00:00.00,0:00:0${titleDuration}.00,Title,,0,0,0,,${allTags}${titleText}`;
 
-  // Tạo hiệu ứng nền mờ đơn giản
-  const rectBgTag = `{\\an5\\pos(960,540)\\p1\\bord0\\shad0\\blur5\\c&H101820\\alpha&HB0\\fad(800,800)}`;
-  const rectPath = "m -400 -60 l 800 0 b 20 0 20 0 20 20 l 0 100 b 0 20 0 20 -20 20 l -800 0 b -20 0 -20 0 -20 -20 l 0 -100 b 0 -20 0 -20 20 -20";
+  // Tạo dòng nền đen (đặt layer thấp hơn để hiển thị phía sau tiêu đề)
   const rectBgLine = `Dialogue: -1,0:00:00.00,0:00:0${titleDuration}.00,Title,,0,0,0,,${rectBgTag}${rectPath}`;
 
   return rectBgLine + "\n" + titleLine;
