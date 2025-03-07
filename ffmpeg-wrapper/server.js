@@ -246,6 +246,7 @@ function convertSrtToWhisperJson(srtContent) {
   const segments = [];
   let currentSegment = null;
   let allWords = [];
+  let wordIndex = 0;
   
   // Biểu thức chính quy để phân tích thời gian
   const timeRegex = /(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})/;
@@ -304,7 +305,10 @@ function convertSrtToWhisperJson(srtContent) {
       }
       
       // Phân tách văn bản thành các từ
-      const words = line.split(/\s+/);
+      // Sử dụng regex phức tạp hơn để phân tách từ tốt hơn
+      const wordRegex = /[\p{L}\p{N}]+|[^\p{L}\p{N}\s]+/gu;
+      const matches = [...line.matchAll(wordRegex)];
+      const words = matches.map(match => match[0]);
       
       if (words.length > 0) {
         const segmentDuration = currentSegment.end - currentSegment.start;
@@ -317,7 +321,19 @@ function convertSrtToWhisperJson(srtContent) {
           const trimmedWord = word.trim();
           if (trimmedWord) {
             // Độ dài của từ + 1 để đảm bảo từ ngắn vẫn có thời gian hiển thị
-            const wordLength = trimmedWord.length + 1;
+            // Điều chỉnh trọng số cho các từ tiếng Việt
+            let wordLength = trimmedWord.length + 1;
+            
+            // Tăng trọng số cho các từ dài
+            if (wordLength > 5) {
+              wordLength *= 1.2;
+            }
+            
+            // Giảm trọng số cho các dấu câu
+            if (/^[^\p{L}\p{N}]+$/u.test(trimmedWord)) {
+              wordLength = 1;
+            }
+            
             wordLengths.push({ word: trimmedWord, length: wordLength });
             totalLength += wordLength;
           }
@@ -330,9 +346,10 @@ function convertSrtToWhisperJson(srtContent) {
           // Tính thời gian cho từ này dựa trên độ dài tương đối
           const wordDuration = (wordInfo.length / totalLength) * segmentDuration;
           
-          // Đảm bảo thời gian tối thiểu cho mỗi từ
+          // Đảm bảo thời gian tối thiểu và tối đa cho mỗi từ
           const minWordDuration = 0.1; // 100ms
-          const actualWordDuration = Math.max(wordDuration, minWordDuration);
+          const maxWordDuration = 1.0; // 1000ms
+          const actualWordDuration = Math.min(maxWordDuration, Math.max(wordDuration, minWordDuration));
           
           const wordStart = currentTime;
           const wordEnd = Math.min(currentSegment.end, wordStart + actualWordDuration);
@@ -341,7 +358,8 @@ function convertSrtToWhisperJson(srtContent) {
             word: wordInfo.word,
             start: wordStart,
             end: wordEnd,
-            confidence: 0.9
+            confidence: 0.9,
+            index: wordIndex++
           };
           
           currentSegment.words.push(wordObj);
@@ -355,6 +373,12 @@ function convertSrtToWhisperJson(srtContent) {
             break;
           }
         }
+        
+        // Điều chỉnh thời gian kết thúc của từ cuối cùng trong segment
+        if (currentSegment.words.length > 0) {
+          const lastWord = currentSegment.words[currentSegment.words.length - 1];
+          lastWord.end = currentSegment.end;
+        }
       }
     }
   }
@@ -362,6 +386,23 @@ function convertSrtToWhisperJson(srtContent) {
   // Thêm segment cuối cùng nếu có
   if (currentSegment) {
     segments.push(currentSegment);
+  }
+  
+  // Điều chỉnh thời gian của các từ để đảm bảo không có khoảng trống
+  for (let i = 1; i < allWords.length; i++) {
+    const prevWord = allWords[i - 1];
+    const currentWord = allWords[i];
+    
+    // Nếu có khoảng trống giữa các từ, điều chỉnh thời gian kết thúc của từ trước
+    // và thời gian bắt đầu của từ hiện tại
+    if (currentWord.start > prevWord.end) {
+      const gap = currentWord.start - prevWord.end;
+      if (gap < 0.3) { // Nếu khoảng trống nhỏ hơn 300ms
+        const midPoint = prevWord.end + gap / 2;
+        prevWord.end = midPoint;
+        currentWord.start = midPoint;
+      }
+    }
   }
   
   // Tạo đối tượng JSON theo định dạng của Whisper
@@ -391,21 +432,46 @@ function createOutputJson(whisperData) {
       
       for (let i = 0; i < words.length; i++) {
         const word = words[i];
+        // Tìm từ đầu tiên trong segment
         if (word.start >= segment.start && startIndex === -1) {
           startIndex = i;
         }
+        // Tìm từ cuối cùng trong segment
         if (word.end <= segment.end) {
           endIndex = i;
+        } else if (word.start <= segment.end && word.end > segment.end) {
+          // Nếu từ bắt đầu trong segment nhưng kết thúc sau segment
+          endIndex = i;
+          break;
         }
       }
       
-      // Nếu không tìm thấy từ nào, sử dụng thời gian của segment
-      if (startIndex === -1 || endIndex === -1) {
-        startIndex = 0;
-        endIndex = words.length - 1;
+      // Kiểm tra và điều chỉnh các chỉ số
+      if (startIndex === -1) {
+        // Nếu không tìm thấy từ nào bắt đầu trong segment, tìm từ gần nhất
+        for (let i = 0; i < words.length; i++) {
+          if (words[i].end > segment.start) {
+            startIndex = i;
+            break;
+          }
+        }
       }
       
-      // Thêm tất cả các nhóm, không quan tâm đến số lượng từ
+      if (endIndex === -1 || endIndex < startIndex) {
+        // Nếu không tìm thấy từ nào kết thúc trong segment hoặc chỉ số không hợp lệ
+        for (let i = words.length - 1; i >= 0; i--) {
+          if (words[i].start < segment.end) {
+            endIndex = i;
+            break;
+          }
+        }
+      }
+      
+      // Nếu vẫn không tìm thấy, sử dụng giá trị mặc định
+      if (startIndex === -1) startIndex = 0;
+      if (endIndex === -1 || endIndex < startIndex) endIndex = Math.min(startIndex + 10, words.length - 1);
+      
+      // Thêm nhóm vào danh sách
       groups.push({
         start: segment.start,
         end: segment.end,
@@ -416,6 +482,7 @@ function createOutputJson(whisperData) {
   } else {
     // Nếu không có segments, tạo nhóm từ danh sách từ
     const maxWordsPerGroup = 10; // Số từ tối đa trong một nhóm
+    const maxGroupDuration = 5.0; // Thời lượng tối đa cho một nhóm (giây)
     
     if (words.length === 0) {
       return [{ groups: [] }];
@@ -432,10 +499,17 @@ function createOutputJson(whisperData) {
       const word = words[i];
       const previousWord = words[i - 1];
       const timeDiff = word.start - previousWord.end;
+      const currentDuration = word.end - currentGroup.start;
 
-      // Nếu khoảng cách thời gian giữa các từ lớn hoặc đã đủ số từ tối đa, tạo nhóm mới
-      if (timeDiff > 0.7 || (i - currentGroup.startIndex) >= maxWordsPerGroup) {
-        // Thêm nhóm hiện tại vào danh sách, không quan tâm đến số lượng từ
+      // Tạo nhóm mới nếu:
+      // 1. Khoảng cách thời gian giữa các từ lớn
+      // 2. Đã đủ số từ tối đa
+      // 3. Thời lượng nhóm vượt quá giới hạn
+      if (timeDiff > 0.7 || 
+          (i - currentGroup.startIndex) >= maxWordsPerGroup ||
+          currentDuration > maxGroupDuration) {
+        
+        // Thêm nhóm hiện tại vào danh sách
         groups.push({ ...currentGroup });
 
         // Bắt đầu nhóm mới
@@ -452,8 +526,32 @@ function createOutputJson(whisperData) {
       }
     }
 
-    // Thêm nhóm cuối cùng vào danh sách, không quan tâm đến số lượng từ
+    // Thêm nhóm cuối cùng vào danh sách
     groups.push({ ...currentGroup });
+  }
+
+  // Kiểm tra và điều chỉnh các nhóm
+  for (let i = 0; i < groups.length; i++) {
+    const group = groups[i];
+    
+    // Đảm bảo mỗi nhóm có thời lượng tối thiểu
+    const minDuration = 0.5; // 500ms
+    if (group.end - group.start < minDuration) {
+      group.end = group.start + minDuration;
+    }
+    
+    // Đảm bảo không có khoảng trống giữa các nhóm
+    if (i > 0) {
+      const prevGroup = groups[i - 1];
+      if (group.start > prevGroup.end) {
+        // Nếu có khoảng trống lớn, giữ nguyên
+        if (group.start - prevGroup.end > 1.0) {
+          continue;
+        }
+        // Nếu khoảng trống nhỏ, nối liền các nhóm
+        group.start = prevGroup.end;
+      }
+    }
   }
 
   return [{ groups }];
@@ -484,27 +582,64 @@ async function createAssSubtitle(whisperJsonPath, outputJsonPath, assFilePath, t
     const highlightColor = "0CF4FF"; // Màu highlight (định dạng: bbggrr)
     const outlineColor = "000000"; // Màu viền
     const shadowColor = "000000"; // Màu bóng đổ
-    const titleText = task && task.titleText ? task.titleText : "Auto Reel"; // Sử dụng titleText từ task nếu có
+    const titleText = task && task.titleText ? task.titleText : ""; // Sử dụng titleText từ task nếu có
     const titleColor1 = "00FFFF"; // Màu gradient 1 cho title (định dạng: bbggrr)
     const titleColor2 = "FF00FF"; // Màu gradient 2 cho title (định dạng: bbggrr)
     const titleDuration = 2; // Thời gian hiển thị title (giây)
-    const minWordCount = 3; // Số từ tối thiểu cho một phụ đề
+    const minWordCount = 1; // Số từ tối thiểu cho một phụ đề
     const maxCharsPerLine = 35; // Số ký tự tối đa trên mỗi dòng
     const maxSubtitleLines = 2; // Số dòng tối đa cho phụ đề
 
     // Log thông tin tiêu đề
-    writeLog(`Sử dụng tiêu đề: "${titleText}"`, 'INFO');
+    if (titleText && titleText.trim() !== "") {
+      writeLog(`Sử dụng tiêu đề: "${titleText}"`, 'INFO');
+    } else {
+      writeLog(`Không sử dụng tiêu đề`, 'INFO');
+    }
 
     // Tạo header cho file ASS
     const assHeader = createAssHeader();
     let assContent = assHeader;
 
     // Lấy dữ liệu từ whisper
+    if (!whisperData[0] || !whisperData[0].words) {
+      writeLog(`Dữ liệu whisper không hợp lệ`, 'ERROR');
+      return false;
+    }
+    
     const transcription = whisperData[0];
     const allWords = transcription.words;
 
     // Lấy dữ liệu từ output.json
+    if (!outputData[0] || !outputData[0].groups) {
+      writeLog(`Dữ liệu output không hợp lệ`, 'ERROR');
+      return false;
+    }
+    
     const groups = outputData[0].groups;
+    
+    // Kiểm tra nếu không có nhóm nào
+    if (groups.length === 0) {
+      writeLog(`Không có nhóm phụ đề nào được tìm thấy`, 'WARNING');
+      
+      // Tạo một nhóm mặc định nếu có từ
+      if (allWords.length > 0) {
+        const firstWord = allWords[0];
+        const lastWord = allWords[allWords.length - 1];
+        
+        groups.push({
+          start: firstWord.start,
+          end: lastWord.end,
+          startIndex: 0,
+          endIndex: allWords.length - 1
+        });
+        
+        writeLog(`Đã tạo một nhóm mặc định với ${allWords.length} từ`, 'INFO');
+      } else {
+        writeLog(`Không có từ nào để tạo phụ đề`, 'ERROR');
+        return false;
+      }
+    }
 
     // Xử lý từng nhóm phụ đề
     for (const group of groups) {
@@ -512,6 +647,12 @@ async function createAssSubtitle(whisperJsonPath, outputJsonPath, assFilePath, t
       const endTime = group.end;
       const startIndex = group.startIndex;
       const endIndex = group.endIndex;
+
+      // Kiểm tra tính hợp lệ của chỉ số
+      if (startIndex < 0 || endIndex < 0 || startIndex > endIndex || endIndex >= allWords.length) {
+        writeLog(`Chỉ số không hợp lệ: startIndex=${startIndex}, endIndex=${endIndex}, allWords.length=${allWords.length}`, 'WARNING');
+        continue;
+      }
 
       // Lấy các từ trong nhóm này từ whisper data
       const groupWords = allWords.slice(startIndex, endIndex + 1);
@@ -528,7 +669,7 @@ async function createAssSubtitle(whisperJsonPath, outputJsonPath, assFilePath, t
         shadowColor,
         maxCharsPerLine,
         maxSubtitleLines,
-        minWordCount: 1  // Đặt minWordCount = 1 để xử lý cả nhóm chỉ có 1 từ
+        minWordCount
       });
 
       if (dialogueLine !== "") {
@@ -546,6 +687,7 @@ async function createAssSubtitle(whisperJsonPath, outputJsonPath, assFilePath, t
       });
       
       if (titleLine !== "") {
+        // Thêm tiêu đề vào đầu file
         assContent = assContent + "\n" + titleLine;
       }
     }
@@ -742,8 +884,27 @@ function createHighlightDialogueLine(startTime, endTime, wordObjects, options) {
   const dialoguePrefix = `Dialogue: 0,${startTimeAss},${endTimeAss},Default,,0,0,0,,`;
   dialogueLines.push(dialoguePrefix + basicEffect + defaultText + formattedText);
 
+  // Tạo một map để theo dõi vị trí của từng từ trong văn bản đã định dạng
+  const wordPositions = new Map();
+  const formattedLines = formattedText.split("\\N");
+  let wordIndex = 0;
+
+  // Xử lý từng dòng để tìm vị trí của từng từ
+  for (let lineIdx = 0; lineIdx < formattedLines.length; lineIdx++) {
+    const lineWords = formattedLines[lineIdx].split(' ');
+    for (let i = 0; i < lineWords.length; i++) {
+      if (wordIndex < wordObjects.length) {
+        // Lưu vị trí của từ: dòng và vị trí trong dòng
+        wordPositions.set(wordIndex, { lineIdx, wordIdx: i });
+        wordIndex++;
+      }
+    }
+  }
+
   // Tạo các dòng phụ đề highlight cho từng từ (layer 1)
-  for (const wordObj of wordObjects) {
+  for (let i = 0; i < wordObjects.length; i++) {
+    const wordObj = wordObjects[i];
+    
     // Đảm bảo thời gian từ nằm trong khoảng thời gian của đoạn
     const wordStart = Math.max(startTime, Math.min(wordObj.start, endTime - 0.1));
     const wordEnd = Math.max(wordStart + 0.1, Math.min(wordObj.end, endTime));
@@ -764,38 +925,39 @@ function createHighlightDialogueLine(startTime, endTime, wordObjects, options) {
       const lines = formattedText.split("\\N");
       let highlightFormattedText = "";
 
-      for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-        const line = lines[lineIdx];
-        const lineWords = line.split(' ');
-        let highlightLine = "";
+      // Lấy vị trí của từ hiện tại
+      const position = wordPositions.get(i);
+      
+      if (position) {
+        for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+          const line = lines[lineIdx];
+          const lineWords = line.split(' ');
+          let highlightLine = "";
 
-        for (const lineWord of lineWords) {
-          // Chuẩn hóa từ để so sánh
-          const normalizedLineWord = lineWord.replace(/[.,!?;:'"()]/g, '').toLowerCase().trim();
-          const normalizedWordObj = wordObj.word.replace(/[.,!?;:'"()]/g, '').toLowerCase().trim();
-          
-          // So sánh từ đã chuẩn hóa
-          if (normalizedLineWord === normalizedWordObj || 
-              normalizedLineWord.includes(normalizedWordObj) || 
-              normalizedWordObj.includes(normalizedLineWord)) {
-            highlightLine += `{${highlightColorTag}${glowTag}}${lineWord}{${defaultColorTag}} `;
-          } else {
-            highlightLine += `${lineWord} `;
+          for (let wordIdx = 0; wordIdx < lineWords.length; wordIdx++) {
+            const lineWord = lineWords[wordIdx];
+            
+            // Kiểm tra xem đây có phải là từ cần highlight không
+            if (lineIdx === position.lineIdx && wordIdx === position.wordIdx) {
+              highlightLine += `{${highlightColorTag}${glowTag}}${lineWord}{${defaultColorTag}} `;
+            } else {
+              highlightLine += `${lineWord} `;
+            }
+          }
+
+          highlightFormattedText += highlightLine.trim();
+
+          // Thêm ngắt dòng nếu không phải dòng cuối
+          if (lineIdx < lines.length - 1) {
+            highlightFormattedText += "\\N";
           }
         }
 
-        highlightFormattedText += highlightLine.trim();
-
-        // Thêm ngắt dòng nếu không phải dòng cuối
-        if (lineIdx < lines.length - 1) {
-          highlightFormattedText += "\\N";
-        }
+        // Thêm dòng highlight cho từ này (layer 1)
+        const highlightPrefix = `Dialogue: 1,${wordStartAss},${wordEndAss},Default,,0,0,0,,`;
+        const highlightEffect = `{${blurTag}${borderTag}${shadowTag}${spacingTag}}`;
+        dialogueLines.push(highlightPrefix + highlightEffect + highlightText + highlightFormattedText);
       }
-
-      // Thêm dòng highlight cho từ này (layer 1)
-      const highlightPrefix = `Dialogue: 1,${wordStartAss},${wordEndAss},Default,,0,0,0,,`;
-      const highlightEffect = `{${blurTag}${borderTag}${shadowTag}${spacingTag}}`;
-      dialogueLines.push(highlightPrefix + highlightEffect + highlightText + highlightFormattedText);
     }
   }
 
