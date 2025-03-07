@@ -56,7 +56,7 @@ services:
       - PATH=/google-cloud-sdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       - CLOUDSDK_CONFIG=/home/node/.config/gcloud
       - GENERIC_TIMEZONE=Asia/Ho_Chi_Minh
-      - WEBHOOK_URL=https://stunning-clam-lightly.ngrok-free.app
+      - WEBHOOK_URL=https://n8n.autoreel.io.vn/
       - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
       - N8N_PUSH_BACKEND=websocket
       - N8N_RUNNERS_ENABLED=true
