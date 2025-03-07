@@ -305,27 +305,54 @@ function convertSrtToWhisperJson(srtContent) {
       
       // Phân tách văn bản thành các từ
       const words = line.split(/\s+/);
-      const wordCount = words.length;
       
-      if (wordCount > 0) {
+      if (words.length > 0) {
         const segmentDuration = currentSegment.end - currentSegment.start;
-        const wordDuration = segmentDuration / wordCount;
         
-        for (let j = 0; j < wordCount; j++) {
-          const word = words[j].trim();
-          if (word) {
-            const wordStart = currentSegment.start + j * wordDuration;
-            const wordEnd = wordStart + wordDuration;
-            
-            const wordObj = {
-              word: word,
-              start: wordStart,
-              end: wordEnd,
-              confidence: 0.9
-            };
-            
-            currentSegment.words.push(wordObj);
-            allWords.push(wordObj);
+        // Tính tổng độ dài của tất cả các từ để phân bổ thời gian tỷ lệ với độ dài
+        let totalLength = 0;
+        const wordLengths = [];
+        
+        for (const word of words) {
+          const trimmedWord = word.trim();
+          if (trimmedWord) {
+            // Độ dài của từ + 1 để đảm bảo từ ngắn vẫn có thời gian hiển thị
+            const wordLength = trimmedWord.length + 1;
+            wordLengths.push({ word: trimmedWord, length: wordLength });
+            totalLength += wordLength;
+          }
+        }
+        
+        // Phân bổ thời gian cho từng từ dựa trên độ dài tương đối
+        let currentTime = currentSegment.start;
+        
+        for (const wordInfo of wordLengths) {
+          // Tính thời gian cho từ này dựa trên độ dài tương đối
+          const wordDuration = (wordInfo.length / totalLength) * segmentDuration;
+          
+          // Đảm bảo thời gian tối thiểu cho mỗi từ
+          const minWordDuration = 0.1; // 100ms
+          const actualWordDuration = Math.max(wordDuration, minWordDuration);
+          
+          const wordStart = currentTime;
+          const wordEnd = Math.min(currentSegment.end, wordStart + actualWordDuration);
+          
+          const wordObj = {
+            word: wordInfo.word,
+            start: wordStart,
+            end: wordEnd,
+            confidence: 0.9
+          };
+          
+          currentSegment.words.push(wordObj);
+          allWords.push(wordObj);
+          
+          // Cập nhật thời gian cho từ tiếp theo
+          currentTime = wordEnd;
+          
+          // Đảm bảo không vượt quá thời gian kết thúc của segment
+          if (currentTime >= currentSegment.end) {
+            break;
           }
         }
       }
@@ -378,21 +405,17 @@ function createOutputJson(whisperData) {
         endIndex = words.length - 1;
       }
       
-      // Chỉ thêm nhóm nếu có đủ số từ tối thiểu
-      const minWordsPerGroup = 3;
-      if ((endIndex - startIndex + 1) >= minWordsPerGroup) {
-        groups.push({
-          start: segment.start,
-          end: segment.end,
-          startIndex: startIndex,
-          endIndex: endIndex
-        });
-      }
+      // Thêm tất cả các nhóm, không quan tâm đến số lượng từ
+      groups.push({
+        start: segment.start,
+        end: segment.end,
+        startIndex: startIndex,
+        endIndex: endIndex
+      });
     }
   } else {
     // Nếu không có segments, tạo nhóm từ danh sách từ
     const maxWordsPerGroup = 10; // Số từ tối đa trong một nhóm
-    const minWordsPerGroup = 3; // Số từ tối thiểu trong một nhóm
     
     if (words.length === 0) {
       return [{ groups: [] }];
@@ -412,10 +435,8 @@ function createOutputJson(whisperData) {
 
       // Nếu khoảng cách thời gian giữa các từ lớn hoặc đã đủ số từ tối đa, tạo nhóm mới
       if (timeDiff > 0.7 || (i - currentGroup.startIndex) >= maxWordsPerGroup) {
-        // Chỉ thêm nhóm nếu có đủ số từ tối thiểu
-        if ((currentGroup.endIndex - currentGroup.startIndex + 1) >= minWordsPerGroup) {
-          groups.push({ ...currentGroup });
-        }
+        // Thêm nhóm hiện tại vào danh sách, không quan tâm đến số lượng từ
+        groups.push({ ...currentGroup });
 
         // Bắt đầu nhóm mới
         currentGroup = {
@@ -431,10 +452,8 @@ function createOutputJson(whisperData) {
       }
     }
 
-    // Thêm nhóm cuối cùng nếu có đủ số từ tối thiểu
-    if ((currentGroup.endIndex - currentGroup.startIndex + 1) >= minWordsPerGroup) {
-      groups.push({ ...currentGroup });
-    }
+    // Thêm nhóm cuối cùng vào danh sách, không quan tâm đến số lượng từ
+    groups.push({ ...currentGroup });
   }
 
   return [{ groups }];
@@ -497,11 +516,9 @@ async function createAssSubtitle(whisperJsonPath, outputJsonPath, assFilePath, t
       // Lấy các từ trong nhóm này từ whisper data
       const groupWords = allWords.slice(startIndex, endIndex + 1);
 
-      // Bỏ qua nhóm chỉ có ít từ
-      if (groupWords.length < minWordCount) {
-        writeLog(`Bỏ qua phụ đề chỉ có ${groupWords.length} từ: ${groupWords[0].word}`, 'INFO');
-        continue;
-      }
+      // Không bỏ qua nhóm nào, xử lý tất cả các từ
+      // Ghi log số lượng từ để theo dõi
+      writeLog(`Xử lý phụ đề có ${groupWords.length} từ: ${groupWords.length > 0 ? groupWords[0].word : ''}`, 'INFO');
 
       // Tạo hiệu ứng highlight cho nhóm từ này
       const dialogueLine = createHighlightDialogueLine(startTime, endTime, groupWords, {
@@ -510,7 +527,8 @@ async function createAssSubtitle(whisperJsonPath, outputJsonPath, assFilePath, t
         outlineColor,
         shadowColor,
         maxCharsPerLine,
-        maxSubtitleLines
+        maxSubtitleLines,
+        minWordCount: 1  // Đặt minWordCount = 1 để xử lý cả nhóm chỉ có 1 từ
       });
 
       if (dialogueLine !== "") {
@@ -594,8 +612,22 @@ function formatAssTime(seconds) {
 
 // Hàm tạo dòng dialogue với hiệu ứng highlight từng từ
 function createHighlightDialogueLine(startTime, endTime, wordObjects, options) {
-  // Kiểm tra số lượng từ, bỏ qua nếu chỉ có ít từ
-  if (wordObjects.length < options.minWordCount || wordObjects.length < 3) {
+  // Đảm bảo options có đầy đủ các tham số cần thiết
+  const defaultOptions = {
+    defaultColor: "FFFFFF",
+    highlightColor: "0CF4FF",
+    outlineColor: "000000",
+    shadowColor: "000000",
+    maxCharsPerLine: 35,
+    maxSubtitleLines: 2,
+    minWordCount: 1  // Đặt giá trị mặc định là 1 để xử lý mọi nhóm từ
+  };
+  
+  // Kết hợp options mặc định với options được truyền vào
+  options = { ...defaultOptions, ...options };
+
+  // Kiểm tra nếu không có từ nào
+  if (wordObjects.length === 0) {
     return "";
   }
 
@@ -738,11 +770,14 @@ function createHighlightDialogueLine(startTime, endTime, wordObjects, options) {
         let highlightLine = "";
 
         for (const lineWord of lineWords) {
-          // So sánh từ không phân biệt chữ hoa/thường và dấu câu
-          const normalizedLineWord = lineWord.replace(/[.,!?;:'"()]/g, '').toLowerCase();
-          const normalizedWordObj = wordObj.word.replace(/[.,!?;:'"()]/g, '').toLowerCase();
+          // Chuẩn hóa từ để so sánh
+          const normalizedLineWord = lineWord.replace(/[.,!?;:'"()]/g, '').toLowerCase().trim();
+          const normalizedWordObj = wordObj.word.replace(/[.,!?;:'"()]/g, '').toLowerCase().trim();
           
-          if (normalizedLineWord === normalizedWordObj || lineWord === wordObj.word) {
+          // So sánh từ đã chuẩn hóa
+          if (normalizedLineWord === normalizedWordObj || 
+              normalizedLineWord.includes(normalizedWordObj) || 
+              normalizedWordObj.includes(normalizedLineWord)) {
             highlightLine += `{${highlightColorTag}${glowTag}}${lineWord}{${defaultColorTag}} `;
           } else {
             highlightLine += `${lineWord} `;
@@ -793,11 +828,20 @@ function createTitleLine(options) {
   const boldTag = "\\b1"; // In đậm
   const scaleTag = "\\fscx120\\fscy120"; // Scale to lớn hơn 20%
 
-  // Tạo hiệu ứng nền đen mờ
-  // Sử dụng cùng vị trí với tiêu đề và thêm margin để nền rộng hơn chữ
-  const rectBgTag = `{\\an5\\pos(960,540)\\p1\\bord0\\shad0\\blur5\\c&H000000\\alpha&H99\\fad(800,800)\\fscx200\\fscy300}`;
-  // Sử dụng hình chữ nhật đơn giản với tọa độ tương đối
-  const rectPath = "m -50 -20 l 100 0 0 40 -100 0";
+  // Tính toán kích thước nền dựa trên độ dài của văn bản
+  // Giả định mỗi ký tự chiếm khoảng 20 đơn vị chiều rộng (với font size và scale đã cho)
+  const textLength = titleText.length;
+  const estimatedWidth = Math.max(100, textLength * 15); // Đảm bảo chiều rộng tối thiểu là 100
+  const rectWidth = estimatedWidth;
+  const rectHeight = 40;
+
+  // Tạo hiệu ứng nền đen mờ với kích thước phù hợp
+  const rectBgTag = `{\\an5\\pos(960,540)\\p1\\bord0\\shad0\\blur5\\c&H000000\\alpha&H99\\fad(800,800)}`;
+  
+  // Tạo hình chữ nhật với kích thước dựa trên độ dài văn bản
+  const halfWidth = rectWidth / 2;
+  const halfHeight = rectHeight / 2;
+  const rectPath = `m -${halfWidth} -${halfHeight} l ${rectWidth} 0 0 ${rectHeight} -${rectWidth} 0`;
 
   // Kết hợp các tag cho tiêu đề chính
   const allTags = `{${fadeTag}${posTag}${colorTag}${outlineTag}${blurTag}${borderTag}${shadowTag}${boldTag}${scaleTag}}`;
