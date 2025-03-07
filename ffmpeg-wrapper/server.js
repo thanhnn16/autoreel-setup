@@ -427,7 +427,7 @@ async function createAssSubtitle(whisperJsonPath, outputJsonPath, assFilePath) {
     const titleText = "Auto Reel"; // Văn bản tiêu đề
     const titleColor1 = "00FFFF"; // Màu gradient 1 cho title (định dạng: bbggrr)
     const titleColor2 = "FF00FF"; // Màu gradient 2 cho title (định dạng: bbggrr)
-    const titleDuration = 7.0; // Thời gian hiển thị title (giây)
+    const titleDuration = 2; // Thời gian hiển thị title (giây)
     const minWordCount = 3; // Số từ tối thiểu cho một phụ đề
     const maxCharsPerLine = 35; // Số ký tự tối đa trên mỗi dòng
     const maxSubtitleLines = 2; // Số dòng tối đa cho phụ đề
@@ -1018,17 +1018,15 @@ async function processTask(task) {
             // Chuyển đổi SRT sang ASS với hiệu ứng karaoke
             const subtitle_ass = `subtitle_${id}.ass`;
             
-            // Kiểm tra xem có thể tạo file whisper-transcription.json và output.json không
-            const whisperJsonPath = `whisper_${id}.json`;
-            const outputJsonPath = `output_${id}.json`;
-            let useInternalAssCreator = false;
-            
-            // Kiểm tra xem có thể tạo file JSON từ SRT không
+            // Tạo file ASS từ SRT
             try {
               // Đọc nội dung file SRT
               const srtContent = fs.readFileSync(subtitle_file, 'utf8');
               
               // Chuyển đổi SRT thành định dạng JSON cho whisper
+              const whisperJsonPath = `whisper_${id}.json`;
+              const outputJsonPath = `output_${id}.json`;
+              
               const whisperData = convertSrtToWhisperJson(srtContent);
               fs.writeFileSync(whisperJsonPath, JSON.stringify(whisperData), 'utf8');
               
@@ -1039,96 +1037,60 @@ async function processTask(task) {
               // Sử dụng hàm createAssSubtitle để tạo file ASS
               const result = await createAssSubtitle(whisperJsonPath, outputJsonPath, subtitle_ass);
               
-              if (result) {
-                useInternalAssCreator = true;
-                writeLog(`[Task ${id}] Đã tạo file ASS thành công bằng hàm nội bộ`, 'INFO');
-              } else {
-                writeLog(`[Task ${id}] Không thể tạo file ASS bằng hàm nội bộ, thử phương pháp khác`, 'WARNING');
-              }
-              
               // Xóa các file JSON tạm
               fs.unlinkSync(whisperJsonPath);
               fs.unlinkSync(outputJsonPath);
-            } catch (error) {
-              writeLog(`[Task ${id}] Lỗi khi chuyển đổi SRT sang JSON: ${error.message}`, 'WARNING');
-            }
-            
-            // Nếu không thể tạo ASS bằng hàm nội bộ, thử sử dụng PowerShell script
-            if (!useInternalAssCreator) {
-              // Kiểm tra xem file basic-ass-creator.ps1 có tồn tại không
-              const scriptPath = "./ffmpeg-test/basic-ass-creator.ps1";
-              if (!fs.existsSync(scriptPath)) {
-                writeLog(`[Task ${id}] Không tìm thấy file script ${scriptPath}, sử dụng subtitle SRT trực tiếp`, 'WARNING');
-                
-                // Sử dụng subtitle SRT trực tiếp thay vì chuyển đổi sang ASS
-                const output_file = `output_${id}.mp4`;
-                const finalArgs = [
-                  "-y", "-threads", "0",
-                  "-i", temp_video_no_audio,
-                  "-i", temp_audio,
-                  "-i", subtitle_file,
-                  "-map", "0:v",
-                  "-map", "1:a",
-                  "-map", "2:s",
-                  "-c:v", "libx264",
-                  "-c:a", "aac",
-                  "-c:s", "mov_text",
-                  "-metadata:s:s:0", `language=vie`,
-                  output_file
-                ];
-                
-                await runFFmpeg(finalArgs);
-                
-                // Ghi log cho quá trình xử lý subtitle
-                writeLog(`[Task ${id}] Đã thêm subtitle SRT thành công`, 'INFO');
-                
-                // Xóa các file tạm nhưng giữ lại log
-                fs.unlinkSync(subtitle_file);
-              } else {
-                // Tạo file ASS từ PowerShell script
-                const createAssArgs = [
-                  "-File", scriptPath,
-                  subtitle_file,
-                  "output.json",
-                  subtitle_ass,
-                  titleText || "Video Title"
-                ];
-                
-                await new Promise((resolve, reject) => {
-                  const process = spawn("powershell", createAssArgs);
-                  process.on('close', (code) => {
-                    if (code === 0) resolve();
-                    else reject(new Error(`Failed to create ASS subtitle with code ${code}`));
-                  });
-                });
+              
+              if (!result) {
+                throw new Error("Không thể tạo file ASS từ SRT");
               }
-            }
-
-            // --- Bước 7: Kết hợp video, audio và subtitle ---
-            const output_file = `output_${id}.mp4`;
-            const finalArgs = [
-              "-y", "-threads", "0",
-              "-i", temp_video_no_audio,
-              "-i", temp_audio,
-              "-i", subtitle_ass,
-              "-map", "0:v",
-              "-map", "1:a",
-              "-c:v", "libx264",
-              "-c:a", "aac",
-              "-vf", `ass=${subtitle_ass}`,
-              "-metadata:s:v", `title="Video with burned subtitles"`,
-              output_file
-            ];
-            
-            await runFFmpeg(finalArgs);
-            
-            // Ghi log cho quá trình xử lý subtitle
-            writeLog(`[Task ${id}] Đã thêm subtitle ASS thành công`, 'INFO');
-            
-            // Xóa các file tạm nhưng giữ lại log
-            fs.unlinkSync(subtitle_file);
-            if (fs.existsSync(subtitle_ass)) {
-              fs.unlinkSync(subtitle_ass);
+              
+              writeLog(`[Task ${id}] Đã tạo file ASS thành công bằng hàm nội bộ`, 'INFO');
+              
+              // --- Bước 7: Kết hợp video, audio và subtitle ---
+              const output_file = `output_${id}.mp4`;
+              const finalArgs = [
+                "-y", "-threads", "0",
+                "-i", temp_video_no_audio,
+                "-i", temp_audio,
+                "-i", subtitle_ass,
+                "-map", "0:v",
+                "-map", "1:a",
+                "-c:v", "libx264",
+                "-c:a", "aac",
+                "-vf", `ass=${subtitle_ass}`,
+                "-metadata:s:v", `title="Video with burned subtitles"`,
+                output_file
+              ];
+              
+              await runFFmpeg(finalArgs);
+              
+              // Ghi log cho quá trình xử lý subtitle
+              writeLog(`[Task ${id}] Đã thêm subtitle ASS thành công`, 'INFO');
+              
+              // Xóa các file tạm nhưng giữ lại log
+              fs.unlinkSync(subtitle_file);
+              if (fs.existsSync(subtitle_ass)) {
+                fs.unlinkSync(subtitle_ass);
+              }
+            } catch (error) {
+              writeLog(`[Task ${id}] Lỗi khi xử lý subtitle: ${error.message}`, 'ERROR');
+              
+              // Nếu có lỗi khi xử lý subtitle, tạo video không có subtitle
+              const output_file = `output_${id}.mp4`;
+              const finalArgs = [
+                "-y", "-threads", "0",
+                "-i", temp_video_no_audio,
+                "-i", temp_audio,
+                "-map", "0:v",
+                "-map", "1:a",
+                "-c:v", "libx264",
+                "-c:a", "aac",
+                output_file
+              ];
+              
+              await runFFmpeg(finalArgs);
+              writeLog(`[Task ${id}] Đã tạo video không có subtitle do lỗi xử lý subtitle`, 'INFO');
             }
           } catch (error) {
             writeLog(`[Task ${id}] Lỗi khi xử lý subtitle: ${error.message}`, 'ERROR');

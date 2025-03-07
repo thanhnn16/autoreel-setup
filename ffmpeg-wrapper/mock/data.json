@@ -40,5 +40,6 @@
   ],
   "voiceUrl": "https://storage.googleapis.com/autoreel-n8n/test057/voice.mp3",
   "bgUrl": "https://storage.googleapis.com/autoreel-n8n/background-music.mp3",
-  "subtitleUrl": "https://storage.googleapis.com/autoreel-n8n/test057/subtitle.srt"
+  "subtitleUrl": "https://storage.googleapis.com/autoreel-n8n/test057/subtitle.srt",
+  "titleText": "Ngủ sớm có tốt?"
 }
