@@ -342,17 +342,34 @@ function convertSrtToWhisperJson(srtContent) {
         // Phân bổ thời gian cho từng từ dựa trên độ dài tương đối
         let currentTime = currentSegment.start;
         
-        for (const wordInfo of wordLengths) {
-          // Tính thời gian cho từ này dựa trên độ dài tương đối
-          const wordDuration = (wordInfo.length / totalLength) * segmentDuration;
+        // Tính toán thời gian hiển thị tối thiểu và tối đa cho mỗi từ
+        const minWordDuration = 0.1; // 100ms
+        const maxWordDuration = 1.0; // 1000ms
+        
+        // Tính toán thời gian hiển thị trung bình cho mỗi từ
+        const avgWordDuration = segmentDuration / wordLengths.length;
+        
+        // Điều chỉnh thời gian hiển thị cho từng từ
+        for (let i = 0; i < wordLengths.length; i++) {
+          const wordInfo = wordLengths[i];
           
-          // Đảm bảo thời gian tối thiểu và tối đa cho mỗi từ
-          const minWordDuration = 0.1; // 100ms
-          const maxWordDuration = 1.0; // 1000ms
+          // Tính thời gian cho từ này dựa trên độ dài tương đối
+          // Sử dụng công thức kết hợp giữa thời gian trung bình và độ dài tương đối
+          const relativeLength = wordInfo.length / totalLength;
+          const wordDuration = avgWordDuration * 0.5 + relativeLength * segmentDuration * 0.5;
+          
+          // Đảm bảo thời gian hiển thị nằm trong khoảng cho phép
           const actualWordDuration = Math.min(maxWordDuration, Math.max(wordDuration, minWordDuration));
           
+          // Đảm bảo từ cuối cùng kết thúc đúng thời điểm kết thúc của segment
+          let wordEnd;
+          if (i === wordLengths.length - 1) {
+            wordEnd = currentSegment.end;
+          } else {
+            wordEnd = Math.min(currentSegment.end, currentTime + actualWordDuration);
+          }
+          
           const wordStart = currentTime;
-          const wordEnd = Math.min(currentSegment.end, wordStart + actualWordDuration);
           
           const wordObj = {
             word: wordInfo.word,
@@ -551,6 +568,22 @@ function createOutputJson(whisperData) {
         // Nếu khoảng trống nhỏ, nối liền các nhóm
         group.start = prevGroup.end;
       }
+    }
+    
+    // Đảm bảo thời gian của nhóm khớp với thời gian của các từ trong nhóm
+    if (group.startIndex >= 0 && group.startIndex < words.length) {
+      // Cập nhật thời gian bắt đầu của nhóm theo từ đầu tiên
+      group.start = words[group.startIndex].start;
+    }
+    
+    if (group.endIndex >= 0 && group.endIndex < words.length) {
+      // Cập nhật thời gian kết thúc của nhóm theo từ cuối cùng
+      group.end = words[group.endIndex].end;
+    }
+    
+    // Đảm bảo thời gian hiển thị tối thiểu cho nhóm
+    if (group.end - group.start < minDuration) {
+      group.end = group.start + minDuration;
     }
   }
 
@@ -906,11 +939,27 @@ function createHighlightDialogueLine(startTime, endTime, wordObjects, options) {
     const wordObj = wordObjects[i];
     
     // Đảm bảo thời gian từ nằm trong khoảng thời gian của đoạn
-    const wordStart = Math.max(startTime, Math.min(wordObj.start, endTime - 0.1));
-    const wordEnd = Math.max(wordStart + 0.1, Math.min(wordObj.end, endTime));
+    // Sửa cách tính thời gian bắt đầu và kết thúc của từ
+    // Không điều chỉnh thời gian bắt đầu và kết thúc của từ nếu nằm trong khoảng thời gian của đoạn
+    let wordStart = wordObj.start;
+    let wordEnd = wordObj.end;
+    
+    // Chỉ điều chỉnh nếu từ nằm ngoài khoảng thời gian của đoạn
+    if (wordStart < startTime) {
+      wordStart = startTime;
+    }
+    
+    if (wordEnd > endTime) {
+      wordEnd = endTime;
+    }
+    
+    // Đảm bảo thời gian hiển thị tối thiểu cho từ
+    if (wordEnd - wordStart < 0.1) {
+      wordEnd = wordStart + 0.1;
+    }
 
     // Chỉ tạo highlight nếu từ nằm trong khoảng thời gian của đoạn
-    if ((wordStart >= startTime) && (wordEnd <= endTime)) {
+    if ((wordStart < endTime) && (wordEnd > startTime)) {
       // Định dạng thời gian bắt đầu và kết thúc cho từng từ
       const wordStartAss = formatAssTime(wordStart);
       const wordEndAss = formatAssTime(wordEnd);
