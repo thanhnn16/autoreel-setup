@@ -68,7 +68,6 @@ def get_model(force_cpu=False):
             _model = stable_whisper.load_hf_whisper(
                 'suzii/vi-whisper-large-v3-turbo', 
                 device=device, 
-                compute_type=compute_type,
                 dq=use_dq  # Kích hoạt dynamic quantization
             )
             logger.info("Đã tải mô hình tiếng Việt thành công!")
