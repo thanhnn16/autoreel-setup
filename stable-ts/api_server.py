@@ -465,9 +465,7 @@ def extract_sentence_segments(result):
             "id": i,
             "start": segment.start,
             "end": segment.end,
-            "text": cleaned_text,
-            "word_count": len(cleaned_text.split()),
-            "tokens": word_tokens
+            "text": cleaned_text
         })
     
     return sentence_segments
