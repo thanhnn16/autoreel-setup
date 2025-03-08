@@ -123,29 +123,37 @@ async def root():
         "endpoints": {
             "/transcribe": "POST - Phiên âm file âm thanh",
             "/download/{filename}": "GET - Tải file kết quả"
-        }
+        },
+        "features": {
+            "segment_by_sentence": "Tính năng ngắt theo câu để có context tốt nhất",
+            "supported_formats": ["txt", "srt", "vtt", "ass", "json", "sentence"],
+            "supported_audio": ["mp3", "wav", "m4a", "ogg", "flac", "mp4", "avi", "mkv"]
+        },
+        "version": "1.1.0"
     }
 
 @app.post("/transcribe")
 async def transcribe_audio(
     file: UploadFile = File(...),
     format: str = Form("txt"),
-    use_cpu: bool = Form(False)
+    use_cpu: bool = Form(False),
+    segment_by_sentence: bool = Form(True)
 ):
     """
-    API phiên âm file audio
+    API endpoint để phiên âm file audio thành văn bản.
     
-    Parameters:
-    - file: File audio cần phiên âm
-    - format: Định dạng đầu ra (txt, srt, vtt, ass, json)
-    - use_cpu: Có sử dụng CPU thay vì GPU không
-    
+    Args:
+        file (UploadFile): File audio cần phiên âm
+        format (str): Định dạng đầu ra (txt, srt, vtt, json, sentence)
+        use_cpu (bool): Sử dụng CPU thay vì GPU
+        segment_by_sentence (bool): Ngắt segment theo câu để có context tốt hơn
+        
     Returns:
-    - Thông tin kết quả và URL để tải file
+        Kết quả phiên âm theo định dạng yêu cầu
     """
     
     # Ghi log request
-    logger.info(f"Nhận yêu cầu phiên âm file: {file.filename}, format: {format}, use_cpu: {use_cpu}")
+    logger.info(f"Nhận yêu cầu phiên âm file: {file.filename}, format: {format}, use_cpu: {use_cpu}, segment_by_sentence: {segment_by_sentence}")
     
     # Kiểm tra định dạng file
     supported_formats = ["mp3", "wav", "m4a", "ogg", "flac", "mp4", "avi", "mkv"]
@@ -187,7 +195,12 @@ async def transcribe_audio(
         
         # Sử dụng phương pháp đơn giản theo hướng dẫn từ stable-ts
         try:
-            result = process_audio_with_attention_mask(model, temp_file, language="vi")
+            result = process_audio_with_attention_mask(
+                model, 
+                temp_file, 
+                language="vi", 
+                regroup=segment_by_sentence
+            )
         except Exception as e:
             logger.error(f"Không thể phiên âm: {str(e)}")
             raise
@@ -206,7 +219,10 @@ async def transcribe_audio(
                     "processing_time": f"{process_time:.2f} giây",
                     "device": _device,
                     "text": result.text,
-                    "segments": sentence_segments
+                    "segments": sentence_segments,
+                    "segment_count": len(sentence_segments),
+                    "segment_by_sentence": segment_by_sentence,
+                    "regroup_history": result.regroup_history if hasattr(result, 'regroup_history') else ""
                 }
             )
         
@@ -226,7 +242,8 @@ async def transcribe_audio(
             result.to_srt_vtt(str(output_path), output_format="vtt")
         elif format == "ass":
             # Sử dụng phương thức đơn giản theo hướng dẫn từ stable-ts
-            result.to_ass(str(output_path))
+            # Thêm tùy chọn word_level=True và segment_level=True để luôn hiển thị cả hai
+            result.to_ass(str(output_path), word_level=True, segment_level=True)
         elif format == "json":
             with open(output_path, "w", encoding="utf-8") as f:
                 import json
@@ -336,7 +353,7 @@ async def download_file(filename: str):
         filename=filename
     )
 
-def process_audio_with_attention_mask(model, audio_path, language="vi"):
+def process_audio_with_attention_mask(model, audio_path, language="vi", regroup=True):
     """
     Xử lý audio theo hướng dẫn đơn giản từ stable-ts.
     
@@ -344,11 +361,27 @@ def process_audio_with_attention_mask(model, audio_path, language="vi"):
         model: Mô hình stable-ts đã tải
         audio_path: Đường dẫn đến file audio
         language: Ngôn ngữ (mặc định là "vi")
+        regroup: Sử dụng thuật toán phân nhóm lại các từ (mặc định: True)
         
     Returns:
         WhisperResult: Kết quả phiên âm
     """
-    result = model.transcribe(str(audio_path), language=language)
+    result = model.transcribe(str(audio_path), language=language, regroup=regroup)
+    
+    # Nếu bật regroup, thực hiện thêm phân nhóm theo câu
+    if regroup:
+        # Thêm phân nhóm theo dấu câu tiếng Việt
+        result = (
+            result
+            .ignore_special_periods()
+            .clamp_max()
+            .split_by_punctuation([('.', ' '), '。', '?', '？', '!', '!'])
+            .split_by_gap(0.5)
+            .split_by_punctuation([(',', ' '), '،', '，'], min_chars=40)
+            .split_by_length(60)
+            .clamp_max()
+        )
+    
     return result
 
 def extract_sentence_segments(result):
@@ -365,11 +398,24 @@ def extract_sentence_segments(result):
     sentence_segments = []
     
     for i, segment in enumerate(result.segments):
+        # Loại bỏ các segment quá ngắn hoặc không có nội dung
+        if not segment.text.strip() or len(segment.text.strip()) < 2:
+            continue
+            
+        # Loại bỏ các khoảng trắng dư thừa ở đầu và cuối
+        cleaned_text = segment.text.strip()
+        
         sentence_segments.append({
             "id": i,
             "start": segment.start,
             "end": segment.end,
-            "text": segment.text
+            "text": cleaned_text,
+            "word_count": len(cleaned_text.split()),
+            # Thêm tokens nếu có
+            "tokens": [
+                {"text": word.text, "start": word.start, "end": word.end, "probability": word.probability}
+                for word in segment.words
+            ] if hasattr(segment, 'words') and segment.words else []
         })
     
     return sentence_segments
