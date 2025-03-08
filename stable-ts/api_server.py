@@ -5,11 +5,12 @@ import os
 import torch
 import tempfile
 import logging
+import time
+import gc
 from pathlib import Path
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import FileResponse
 import stable_whisper
-import gc
 
 # Cấu hình logging
 logging.basicConfig(level=logging.INFO)
@@ -64,10 +65,35 @@ def get_model(force_cpu=False):
         _device = device
         
         try:
-            # Sử dụng mô hình vi-whisper-large-v3-turbo từ HuggingFace với dynamic quantization khi chạy trên CPU
+            # Sử dụng mô hình vi-whisper-large-v3-turbo từ HuggingFace với optimizations
+            # Sử dụng HF Transformers cho tốc độ nhanh hơn (lên đến 9x)
+            logger.info("Sử dụng tối ưu hóa Hugging Face Transformers cho tốc độ nhanh hơn")
+            
             _model = stable_whisper.load_hf_whisper(
-                'suzii/vi-whisper-large-v3-turbo', 
+                'suzii/vi-whisper-large-v3-turbo',
+                device=device,
+                compute_type=compute_type,
+                download_root=None,
+                in_memory=False,  # Giảm sử dụng bộ nhớ
+                # Các tùy chọn tối ưu cho HF Transformers
+                use_better_transformer=True,   # Sử dụng BetterTransformer 
+                use_flash_attention=device == "cuda",  # Flash Attention chỉ khả dụng trên CUDA
+                beam_size=5,  # Giảm beam size để tiết kiệm bộ nhớ
             )
+            
+            logger.info("Lưu ý: Alignment và Refinement không được hỗ trợ trên các mô hình Hugging Face")
+            
+            # Nếu sử dụng CPU và dynamic quantization
+            if device == "cpu" and use_dq:
+                logger.info("Áp dụng dynamic quantization cho mô hình trên CPU")
+                # Sử dụng dynamic quantization cho CPU
+                try:
+                    torch.quantization.quantize_dynamic(
+                        _model, {torch.nn.Linear}, dtype=torch.qint8, inplace=True
+                    )
+                except Exception as q_err:
+                    logger.warning(f"Không thể áp dụng quantization: {str(q_err)}")
+                
             logger.info("Đã tải mô hình tiếng Việt thành công!")
             
         except Exception as e:
@@ -82,11 +108,19 @@ async def startup_event():
     Khởi tạo trước mô hình khi khởi động server
     """
     try:
+        # Cấu hình PyTorch để tối ưu việc sử dụng bộ nhớ
+        if torch.cuda.is_available():
+            # Thiết lập cấu hình để tránh phân mảnh bộ nhớ
+            os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+            logger.info(f"Phát hiện GPU: {torch.cuda.get_device_name(0)}")
+            logger.info(f"Bộ nhớ GPU khả dụng: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
+        else:
+            logger.info("Không phát hiện GPU, sẽ sử dụng CPU")
+        
         # Không khởi tạo trước mô hình để tránh sử dụng bộ nhớ GPU không cần thiết
         # get_model()
-        pass
     except Exception as e:
-        logger.error(f"Lỗi khi khởi tạo mô hình: {str(e)}")
+        logger.error(f"Lỗi khi khởi tạo: {str(e)}")
 
 @app.get("/")
 async def root():
@@ -135,17 +169,57 @@ async def transcribe_audio(
         try:
             # Thử sử dụng GPU nếu không yêu cầu CPU
             model = get_model(force_cpu=use_cpu)
-            result = model.transcribe(str(temp_file))
+            
+            # Đo thời gian xử lý
+            start_time = time.time()
+            
+            # Chạy transcribe với tham số tối ưu cho tốc độ
+            result = model.transcribe(
+                str(temp_file),
+                language="vi",  # Xác định ngôn ngữ tiếng Việt
+                beam_size=5,    # Giảm beam size để tăng tốc độ
+                best_of=5,      # Giảm số lượng mẫu để tăng tốc độ
+                temperature=0.0 # Giảm nhiệt độ để tăng tốc độ và độ chính xác
+            )
+            
+            process_time = time.time() - start_time
+            logger.info(f"Thời gian xử lý: {process_time:.2f} giây, với thiết bị: {_device}")
+            
         except RuntimeError as e:
             if "CUDA out of memory" in str(e) and not use_cpu:
                 # Nếu gặp lỗi CUDA OOM và đang dùng GPU, chuyển sang CPU
                 logger.warning("CUDA out of memory, chuyển sang sử dụng CPU với dynamic quantization...")
-                # Giải phóng bộ nhớ GPU
+                
+                # Giải phóng bộ nhớ GPU triệt để
+                if _model is not None:
+                    _model = None
+                
+                # Buộc PyTorch sử dụng CPU
+                os.environ["CUDA_VISIBLE_DEVICES"] = ""
                 torch.cuda.empty_cache()
                 gc.collect()
+                
+                # Đảm bảo tất cả tài nguyên GPU được giải phóng
+                time.sleep(1)
+                
                 # Tải lại mô hình trên CPU với dynamic quantization
                 model = get_model(force_cpu=True)
-                result = model.transcribe(str(temp_file))
+                
+                # Đo thời gian xử lý
+                start_time = time.time()
+                
+                # Chạy với các tham số tối ưu cho CPU
+                result = model.transcribe(
+                    str(temp_file),
+                    language="vi",
+                    beam_size=1,      # Giảm beam size nhiều hơn trên CPU để tăng tốc
+                    best_of=1,        # Chỉ lấy kết quả tốt nhất để tăng tốc
+                    temperature=0.0,
+                    fp16=False        # Sử dụng float32 trên CPU thay vì fp16
+                )
+                
+                process_time = time.time() - start_time
+                logger.info(f"Thời gian xử lý trên CPU: {process_time:.2f} giây")
             else:
                 # Nếu là lỗi khác, ném ngoại lệ
                 raise
