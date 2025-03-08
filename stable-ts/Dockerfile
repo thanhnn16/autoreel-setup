@@ -71,8 +71,7 @@ def download_model():\n\
         # Tải mô hình từ Hugging Face Hub\n\
         snapshot_download(\n\
             repo_id=model_id,\n\
-            local_dir=str(local_path),\n\
-            local_dir_use_symlinks=False\n\
+            local_dir=str(local_path)\n\
         )\n\
         logger.info(f"Đã tải mô hình {model_id} thành công")\n\
         return local_path\n\
