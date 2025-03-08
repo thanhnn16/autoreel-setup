@@ -23,12 +23,7 @@ WORKDIR /app
 RUN pip3 install --no-cache-dir uvicorn fastapi
 RUN pip3 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu124
 RUN pip3 install --no-cache-dir git+https://github.com/jianfch/stable-ts.git
-RUN pip3 install --no-cache-dir huggingface_hub
-
-# Tải model PhoWhisper‑Large từ Hugging Face về thư mục /models/PhoWhisper-large
-# Sử dụng snapshot_download của huggingface_hub để đảm bảo tải đầy đủ tập tin (model size khoảng 6+GB)[1]
-RUN mkdir -p /models && \
-    python3 -c "from huggingface_hub import snapshot_download; snapshot_download('vinai/PhoWhisper-large', local_dir='/models/PhoWhisper-large')"
+RUN pip3 install --no-cache-dir python-multipart
 
 # Copy mã nguồn FastAPI (api_server.py) vào image
 COPY api_server.py .
