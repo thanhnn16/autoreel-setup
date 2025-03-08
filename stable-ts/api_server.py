@@ -5,7 +5,7 @@ import tempfile
 app = FastAPI()
 
 # Tải PhoWhisper-Large từ thư mục đã tải về
-model = stable_whisper.load_model("/models/PhoWhisper-large", device="cuda")
+model = stable_whisper.load_model("large-v3", device="cuda")
 
 @app.post("/transcribe")
 async def transcribe(file: UploadFile = File(...)):
