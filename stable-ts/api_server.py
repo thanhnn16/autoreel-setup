@@ -235,7 +235,8 @@ async def transcribe_audio(
                 "processing_time": f"{process_time:.2f} giây",
                 "device": _device,
                 "download_url": download_url,
-                "format": format
+                "format": format,
+                "text": result.text
             }
         )
     
