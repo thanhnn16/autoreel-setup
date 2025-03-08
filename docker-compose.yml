@@ -143,6 +143,8 @@ services:
       - "8000:8000"
     volumes:
       - stable_ts_models:/models
+    environment:
+      - COMPOSE_BAKE=true
     deploy:
       resources:
         reservations:
