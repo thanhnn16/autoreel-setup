@@ -40,6 +40,6 @@
   ],
   "voiceUrl": "https://storage.googleapis.com/autoreel-n8n/test057/voice.mp3",
   "bgUrl": "https://cdn.pixabay.com/download/audio/2024/11/12/audio_d2db98b02b.mp3?filename=calm-acoustic-easy-time-263587.mp3",
-  "subtitleUrl": "http://n8n.autoreel.io.vn:8000/download/60ce3e7c-2b75-4de1-8619-e889660aa0b7.ass",
+  "subtitleUrl": "mock/subtitle.ass",
   "titleText": "Ngủ sớm có tốt?"
 }

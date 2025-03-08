@@ -1,0 +1,35 @@
+[Script Info]
+ScriptType: v4.00+
+PlayResX: 384
+PlayResY: 288
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,12,&H00ff00,&Hffffff,&H0,&H0,0,0,0,0,100,100,0,0,1,1,0,2,10,10,10,0
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+
+Dialogue: 0,0:00:0.08,0:00:3.68,Default,,0,0,0,,{\k18}Giấc {\k18}ngủ {\k16}là {\k22}yếu {\k14}tố {\k28}quan {\k26}trọng {\k12}giúp {\k12}cơ {\k16}thể {\k24}phục {\k18}hồi {\k22}và {\k16}duy {\k22}trì {\k20}sức {\k28}khỏe.
+Dialogue: 1,0:00:4.80,0:00:8.28,Default,,0,0,0,,{\k12}Để {\k14}cải {\k18}thiện {\k20}chất {\k18}lượng {\k20}giấc {\k24}ngủ, {\k12}bạn {\k10}có {\k12}thể {\k20}áp {\k20}dụng {\k16}5 {\k16}cách {\k12}sau {\k20}đây.
+Dialogue: 2,0:00:9.42,0:00:11.36,Default,,0,0,0,,{\k12}Thứ {\k16}nhất, {\k10}thiết {\k14}lập {\k22}thói {\k22}quen {\k20}ngủ {\k20}đúng {\k22}giờ.
+Dialogue: 3,0:00:12.48,0:00:16.62,Default,,0,0,0,,{\k10}Hãy {\k18}cố {\k18}gắng {\k18}đi {\k30}ngủ {\k10}và {\k18}thức {\k20}dậy {\k14}vào {\k18}cùng {\k16}một {\k20}khung {\k20}giờ {\k22}mỗi {\k26}ngày, {\k24}kể {\k14}cả {\k20}cuối {\k22}tuần.
+Dialogue: 4,0:00:17.26,0:00:19.24,Default,,0,0,0,,{\k14}Điều {\k14}này {\k20}giúp {\k18}đồng {\k14}hồ {\k24}sinh {\k10}học {\k16}của {\k16}bạn {\k14}hoạt {\k12}động {\k18}ổn
+Dialogue: 5,0:00:19.24,0:00:21.60,Default,,0,0,0,,{\k20}định, {\k12}tạo {\k16}cảm {\k20}giác {\k22}buồn {\k16}ngủ {\k22}tự {\k28}nhiên {\k18}khi {\k14}đến {\k22}giờ.
+Dialogue: 6,0:00:22.82,0:00:24.72,Default,,0,0,0,,{\k12}Thứ {\k22}hai, {\k16}tạo {\k10}không {\k22}gian {\k18}ngủ {\k20}lý {\k22}tưởng.
+Dialogue: 7,0:00:25.58,0:00:27.60,Default,,0,0,0,,{\k10}Phòng {\k20}ngủ {\k20}cần {\k20}yên {\k24}tĩnh, {\k14}tối {\k16}và {\k18}mát {\k22}mẻ.
+Dialogue: 8,0:00:28.12,0:00:32.16,Default,,0,0,0,,{\k14}Bạn {\k16}có {\k16}thể {\k22}sử {\k16}dụng {\k18}rem {\k26}cửa {\k20}chống {\k36}sáng, {\k14}máy {\k20}tạo {\k22}tiếng {\k20}ồn {\k30}trắng {\k56}hoặc
+Dialogue: 9,0:00:32.20,0:00:35.18,Default,,0,0,0,,{\k10}điều {\k24}trình {\k22}nhiệt {\k14}độ {\k10}phòng {\k24}phù {\k26}hợp {\k10}để {\k20}dễ {\k24}dàng {\k28}chìm {\k10}vào {\k18}giấc {\k24}ngủ.
+Dialogue: 10,0:00:36.22,0:00:38.70,Default,,0,0,0,,{\k12}Thứ {\k20}ba, {\k22}tránh {\k12}sử {\k18}dụng {\k18}thiết {\k10}bị {\k22}điện {\k14}tử {\k20}trước {\k10}khi {\k18}ngủ.
+Dialogue: 11,0:00:39.80,0:00:42.96,Default,,0,0,0,,{\k12}Ánh {\k22}sáng {\k26}xanh {\k16}từ {\k20}điện {\k28}thoại, {\k12}máy {\k22}tính {\k28}sẽ {\k14}ức {\k22}chế {\k24}sản {\k22}xuất {\k10}melatonin,
+Dialogue: 12,0:00:43.96,0:00:44.92,Default,,0,0,0,,{\k26}hormone {\k24}giúp {\k16}bạn {\k20}ngủ {\k10}ngon.
+Dialogue: 13,0:00:46.34,0:00:49.12,Default,,0,0,0,,{\k10}Hãy {\k18}tắt {\k14}các {\k18}thiết {\k12}bị {\k24}này {\k28}ít {\k18}nhất {\k26}30 {\k30}phút {\k10}trước {\k16}khi {\k14}lên {\k26}giường.
+Dialogue: 14,0:00:50.08,0:00:54.96,Default,,0,0,0,,{\k12}Thứ {\k24}tư, {\k10}thực {\k20}hành {\k24}kỹ {\k18}thuật {\k22}thư {\k30}giãn {\k24}như {\k20}hít {\k12}thở {\k36}sâu, {\k12}thiền {\k20}định {\k38}hoặc {\k10}nghe {\k26}nhạc {\k22}nhẹ.
+Dialogue: 15,0:00:55.18,0:00:57.76,Default,,0,0,0,,{\k16}Những {\k18}phương {\k20}pháp {\k20}này {\k26}giúp {\k26}giảm {\k16}căng {\k30}thẳng, {\k16}đưa {\k18}tâm {\k22}trí
+Dialogue: 16,0:00:57.76,0:01:0.48,Default,,0,0,0,,{\k20}vào {\k22}trạng {\k20}thái {\k22}bình {\k10}tĩnh, {\k14}chuẩn {\k16}bị {\k22}cho {\k18}giấc {\k16}ngủ {\k30}sâu.
+Dialogue: 17,0:01:1.42,0:01:6.04,Default,,0,0,0,,{\k14}Cuối {\k24}cùng, {\k16}hạn {\k14}chế {\k22}chất {\k18}kích {\k12}thích {\k18}như {\k24}cà {\k28}phê, {\k26}rượu {\k26}bia, {\k38}đặc {\k16}biệt {\k16}vào {\k18}buổi {\k28}tối.
+Dialogue: 18,0:01:6.96,0:01:9.38,Default,,0,0,0,,{\k16}Những {\k16}chất {\k18}này {\k20}có {\k14}thể {\k20}khiến {\k16}bạn {\k26}tỉnh {\k34}táo, {\k10}khó {\k28}ngủ.
+Dialogue: 19,0:01:9.90,0:01:15.32,Default,,0,0,0,,{\k10}Thay {\k14}vào {\k24}đó, {\k10}hãy {\k20}uống {\k24}trà {\k20}thảo {\k24}mộc {\k22}như {\k26}trà {\k26}hoa {\k18}cúc {\k68}hoặc {\k18}sữa {\k32}ấm {\k42}để {\k20}thư {\k20}giãn {\k20}cơ {\k18}thể.
+Dialogue: 20,0:01:16.42,0:01:19.96,Default,,0,0,0,,{\k14}Bằng {\k16}cách {\k22}áp {\k18}dụng {\k14}những {\k26}phương {\k20}pháp {\k24}này, {\k16}bạn {\k16}sẽ {\k26}từng {\k20}bước {\k30}cải {\k22}thiện {\k10}chất
+Dialogue: 21,0:01:19.96,0:01:24.18,Default,,0,0,0,,{\k20}lượng {\k14}giấc {\k24}ngủ, {\k18}đem {\k14}lại {\k20}sự {\k24}cân {\k28}bằng {\k10}và {\k22}năng {\k26}lượng {\k16}tích {\k18}cực {\k10}cho {\k16}cuộc {\k30}sống.
