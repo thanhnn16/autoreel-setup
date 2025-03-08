@@ -4,16 +4,16 @@ import tempfile
 
 app = FastAPI()
 
-# Tải mô hình PhoWhisper-Large từ thư mục /models/PhoWhisper-large đã được download sẵn
-model = stable_whisper.load_model("PhoWhisper-Large", device="cuda", download_root="/models/PhoWhisper-large")
+# Tải PhoWhisper-Large từ thư mục đã tải về
+model = stable_whisper.load_model("/models/PhoWhisper-large", device="cuda")
 
 @app.post("/transcribe")
 async def transcribe(file: UploadFile = File(...)):
-    # Lưu file audio tạm vào đĩa để truyền cho model xử lý
+    # Lưu file audio tạm thời trên đĩa
     with tempfile.NamedTemporaryFile(delete=False) as tmp:
         tmp.write(await file.read())
         tmp.flush()
-        # Chuyển giọng nói sang văn bản với tiếng Việt
+        # Chuyển đổi giọng nói sang văn bản với tiếng Việt
         result = model.transcribe(tmp.name, language="vi")
         # Xuất kết quả ở định dạng ASS
         ass_output = result.to_ass()
