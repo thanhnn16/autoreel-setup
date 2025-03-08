@@ -241,8 +241,6 @@ async def transcribe_audio(
         elif format == "vtt":
             result.to_srt_vtt(str(output_path), output_format="vtt")
         elif format == "ass":
-            # Sử dụng phương thức đơn giản theo hướng dẫn từ stable-ts
-            # Hàm to_ass() mặc định đã hỗ trợ hiển thị cả segment và word-level
             result.to_ass(str(output_path))
         elif format == "json":
             with open(output_path, "w", encoding="utf-8") as f:
@@ -405,17 +403,33 @@ def extract_sentence_segments(result):
         # Loại bỏ các khoảng trắng dư thừa ở đầu và cuối
         cleaned_text = segment.text.strip()
         
+        # Xử lý tokens/words
+        word_tokens = []
+        if hasattr(segment, 'words') and segment.words:
+            for word in segment.words:
+                word_text = None
+                # Ưu tiên sử dụng thuộc tính text nếu có
+                if hasattr(word, 'text') and word.text:
+                    word_text = word.text
+                # Nếu không có text, thử dùng thuộc tính word
+                elif hasattr(word, 'word') and word.word:
+                    word_text = word.word
+                
+                if word_text:
+                    word_tokens.append({
+                        "text": word_text,
+                        "start": word.start,
+                        "end": word.end,
+                        "probability": word.probability if hasattr(word, 'probability') else 1.0
+                    })
+        
         sentence_segments.append({
             "id": i,
             "start": segment.start,
             "end": segment.end,
             "text": cleaned_text,
             "word_count": len(cleaned_text.split()),
-            # Thêm tokens nếu có
-            "tokens": [
-                {"text": word.text, "start": word.start, "end": word.end, "probability": word.probability}
-                for word in segment.words
-            ] if hasattr(segment, 'words') and segment.words else []
+            "tokens": word_tokens
         })
     
     return sentence_segments
