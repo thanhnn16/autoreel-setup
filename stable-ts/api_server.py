@@ -9,6 +9,7 @@ from tempfile import NamedTemporaryFile
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 import stable_whisper
+from stable_whisper import WhisperResult
 from typing import Optional
 import tempfile
 
@@ -143,16 +144,20 @@ async def transcribe_audio(
     use_cpu: bool = Form(False)
 ):
     """
-    Nhận file âm thanh và trả về kết quả phiên âm.
+    API phiên âm file audio
     
-    Args:
-        file (UploadFile): File âm thanh cần phiên âm
-        format (str): Định dạng output (txt, srt, vtt, ass, json)
-        use_cpu (bool): Nếu True, sẽ sử dụng CPU ngay cả khi có GPU
-        
+    Parameters:
+    - file: File audio cần phiên âm
+    - format: Định dạng đầu ra (txt, srt, vtt, ass, json)
+    - use_cpu: Có sử dụng CPU thay vì GPU không
+    
     Returns:
-        JSONResponse với URL download file kết quả hoặc văn bản trực tiếp
+    - Thông tin kết quả và URL để tải file
     """
+    
+    # Ghi log request
+    logger.info(f"Nhận yêu cầu phiên âm file: {file.filename}, format: {format}, use_cpu: {use_cpu}")
+    
     # Kiểm tra định dạng file
     supported_formats = ["mp3", "wav", "m4a", "ogg", "flac", "mp4", "avi", "mkv"]
     file_ext = file.filename.split(".")[-1].lower()
@@ -165,7 +170,10 @@ async def transcribe_audio(
             }
         )
     
-    # Kiểm tra định dạng đầu ra
+    # Chuẩn hóa và kiểm tra định dạng đầu ra
+    format = format.lower().strip()
+    logger.info(f"Định dạng đầu ra sau khi chuẩn hóa: {format}")
+    
     if format not in ["txt", "srt", "vtt", "ass", "json"]:
         return JSONResponse(
             status_code=400,
@@ -222,6 +230,8 @@ async def transcribe_audio(
         output_filename = f"{uuid.uuid4()}.{format}"
         output_path = OUTPUTS_DIR / output_filename
         
+        logger.info(f"Tạo file đầu ra: {output_path} với định dạng {format}")
+        
         # Lưu kết quả theo định dạng yêu cầu
         if format == "txt":
             with open(output_path, "w", encoding="utf-8") as f:
@@ -231,28 +241,103 @@ async def transcribe_audio(
         elif format == "vtt":
             result.to_srt_vtt(str(output_path), output_format="vtt")
         elif format == "ass":
-            try:
-                result.to_ass(str(output_path))
-                if not output_path.exists() or output_path.stat().st_size == 0:
-                    raise FileNotFoundError("File ASS không được tạo hoặc kích thước bằng 0")
-                logger.info(f"Đã tạo thành công file ASS: {output_path}")
-            except Exception as e:
-                logger.error(f"Lỗi khi xuất sang định dạng ASS: {str(e)}")
-                # Thử lại với tham số rõ ràng
-                logger.info("Thử lại với các tham số mặc định...")
+            # Kiểm tra xem kết quả có thuộc tính words không
+            has_words = False
+            if hasattr(result, 'segments'):
+                if result.segments and len(result.segments) > 0:
+                    if hasattr(result.segments[0], 'words') and result.segments[0].words:
+                        has_words = True
+
+            if not has_words:
+                logger.warning("Kết quả không chứa thông tin từng từ, không thể tạo file ASS")
+                # Tạo SRT thay thế
+                srt_path = output_path.with_suffix('.srt')
+                result.to_srt_vtt(str(srt_path))
+                shutil.copy(str(srt_path), str(output_path))
                 try:
+                    srt_path.unlink()
+                except:
+                    pass
+                logger.info(f"Tạo SRT thay thế: {output_path}")
+            else:
+                try:
+                    # Tạo thư mục đầu ra nếu chưa tồn tại
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    
+                    # Thử với nhiều tham số rõ ràng ngay từ đầu
+                    logger.info(f"Bắt đầu tạo file ASS với output_path: {output_path}")
                     result.to_ass(
                         str(output_path),
                         segment_level=True,
                         word_level=True,
                         min_dur=0.2,
                         font="Arial",
-                        font_size=48
+                        font_size=48,
+                        highlight_color="00ff00"
                     )
-                    logger.info(f"Đã tạo thành công file ASS (phương pháp thay thế): {output_path}")
-                except Exception as e2:
-                    logger.error(f"Vẫn không thể tạo file ASS: {str(e2)}")
-                    raise e2
+                    
+                    if not output_path.exists() or output_path.stat().st_size == 0:
+                        raise FileNotFoundError("File ASS không được tạo hoặc kích thước bằng 0")
+                    logger.info(f"Đã tạo thành công file ASS: {output_path}")
+                except Exception as e:
+                    logger.error(f"Lỗi khi xuất sang định dạng ASS: {str(e)}")
+                    # Thử lại với phương pháp thứ hai
+                    logger.info("Thử lại với phương pháp thứ hai...")
+                    try:
+                        # Lưu JSON tạm thời
+                        json_path = output_path.with_suffix('.json')
+                        logger.info(f"Lưu file JSON tạm thời: {json_path}")
+                        with open(json_path, "w", encoding="utf-8") as f:
+                            import json
+                            json.dump(result.to_dict(), f, ensure_ascii=False, indent=2)
+                        
+                        # Kiểm tra file JSON có được tạo thành công không
+                        if not json_path.exists():
+                            raise FileNotFoundError("Không thể tạo file JSON tạm thời")
+                        
+                        # Tạo lại đối tượng WhisperResult từ JSON và thử xuất ASS
+                        logger.info("Tạo lại đối tượng WhisperResult từ file JSON")
+                        new_result = WhisperResult(str(json_path))
+                        logger.info("Bắt đầu tạo file ASS từ đối tượng mới")
+                        new_result.to_ass(
+                            str(output_path),
+                            segment_level=True,
+                            word_level=True,
+                            min_dur=0.2,
+                            font="Arial",
+                            font_size=48
+                        )
+                        
+                        # Xóa file JSON tạm
+                        try:
+                            json_path.unlink()
+                            logger.info(f"Đã xóa file JSON tạm thời: {json_path}")
+                        except Exception as e3:
+                            logger.warning(f"Không thể xóa file JSON tạm thời: {str(e3)}")
+                            
+                        logger.info(f"Đã tạo thành công file ASS (phương pháp thứ hai): {output_path}")
+                    except Exception as e2:
+                        logger.error(f"Vẫn không thể tạo file ASS: {str(e2)}")
+                        # Phương pháp thứ ba: tạo ASS trực tiếp từ thông tin segment
+                        logger.info("Thử phương pháp thứ ba: tạo ASS trực tiếp...")
+                        try:
+                            # Tạo nội dung ASS cơ bản
+                            ass_content = create_basic_ass_content(result)
+                            with open(output_path, "w", encoding="utf-8") as f:
+                                f.write(ass_content)
+                            logger.info(f"Đã tạo file ASS đơn giản: {output_path}")
+                        except Exception as e3:
+                            logger.error(f"Phương pháp thứ ba cũng thất bại: {str(e3)}")
+                            # Nếu vẫn không thể tạo ASS, tạo SRT thay thế
+                            logger.info("Tạo SRT thay thế...")
+                            srt_path = output_path.with_suffix('.srt')
+                            result.to_srt_vtt(str(srt_path), word_level=True, segment_level=True)
+                            # Đổi tên SRT thành ASS
+                            shutil.copy(str(srt_path), str(output_path))
+                            try:
+                                srt_path.unlink()
+                            except:
+                                pass
         elif format == "json":
             with open(output_path, "w", encoding="utf-8") as f:
                 import json
@@ -266,6 +351,8 @@ async def transcribe_audio(
         
         # Trả về URL để tải file kết quả
         download_url = f"/download/{output_filename}"
+        
+        logger.info(f"Hoàn thành phiên âm. URL tải xuống: {download_url}, định dạng: {format}")
         
         return JSONResponse(
             content={
@@ -330,7 +417,14 @@ async def download_file(filename: str):
     file_path = OUTPUTS_DIR / filename
     
     if not file_path.exists():
+        logger.error(f"File không tồn tại: {file_path}")
         raise HTTPException(status_code=404, detail="File không tồn tại")
+    
+    # Kiểm tra kích thước file
+    file_size = file_path.stat().st_size
+    if file_size == 0:
+        logger.error(f"File trống: {file_path}, kích thước: {file_size}")
+        raise HTTPException(status_code=404, detail="File trống, vui lòng thử lại")
     
     # Xác định content_type dựa trên phần mở rộng
     content_type_map = {
@@ -341,8 +435,17 @@ async def download_file(filename: str):
         "json": "application/json"
     }
     
-    extension = filename.split(".")[-1]
+    extension = filename.split(".")[-1].lower()
+    logger.info(f"Tải xuống file: {filename}, định dạng: {extension}")
     content_type = content_type_map.get(extension, "application/octet-stream")
+    
+    # Nếu file yêu cầu là ASS nhưng thực tế là txt
+    if extension == "ass" and filename.endswith(".ass"):
+        # Đọc nội dung file để kiểm tra
+        with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
+            content = f.read(100)  # Đọc 100 ký tự đầu tiên để kiểm tra
+            if not content.startswith("[Script Info]") and not "Style: Default" in content:
+                logger.warning(f"File ASS không hợp lệ: {file_path}, nội dung: {content}")
     
     return FileResponse(
         path=file_path,
@@ -432,6 +535,53 @@ def process_audio_with_attention_mask(model, audio_path, language="vi"):
         
         # Nếu không phải lỗi tùy chọn hoặc không thể xử lý, ném lại ngoại lệ
         raise e
+
+def create_basic_ass_content(result):
+    """
+    Tạo nội dung ASS cơ bản từ đối tượng kết quả.
+    Hàm này tạo file ASS đơn giản nhất có thể từ thông tin segment.
+    """
+    ass_header = """[Script Info]
+Title: Auto-generated ASS file
+ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1
+Style: Hilight,Arial,48,&H0000FF00,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    
+    events = []
+    
+    # Thêm events từ segments
+    for i, segment in enumerate(result.segments):
+        start_time = format_ass_time(segment.start)
+        end_time = format_ass_time(segment.end)
+        text = segment.text.strip()
+        
+        event_line = f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{text}"
+        events.append(event_line)
+    
+    # Kết hợp header và events
+    ass_content = ass_header + "\n".join(events)
+    return ass_content
+
+def format_ass_time(seconds):
+    """Format thời gian từ giây sang định dạng ASS (h:mm:ss.cc)"""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    seconds = seconds % 60
+    centiseconds = int((seconds % 1) * 100)
+    seconds = int(seconds)
+    
+    return f"{hours}:{minutes:02d}:{seconds:02d}.{centiseconds:02d}"
 
 if __name__ == "__main__":
     import uvicorn
