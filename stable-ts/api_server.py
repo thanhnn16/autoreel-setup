@@ -5,13 +5,10 @@ import os
 import torch
 import tempfile
 import logging
-import shutil
-from typing import List, Optional
 from pathlib import Path
-from pydub import AudioSegment
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.responses import FileResponse
 import stable_whisper
-from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks, HTTPException
-from fastapi.responses import FileResponse, JSONResponse
 
 # Cấu hình logging
 logging.basicConfig(level=logging.INFO)
@@ -21,13 +18,10 @@ logger = logging.getLogger(__name__)
 TEMP_DIR = Path("/tmp/stable_ts_tmp")
 TEMP_DIR.mkdir(exist_ok=True, parents=True)
 
-# Đường dẫn đến mô hình đã tải
-MODEL_PATH = "/app/models/vinai/PhoWhisper-large"
-
 # Khởi tạo FastAPI app
 app = FastAPI(
-    title="PhoWhisper-large API with Stable-ts",
-    description="API để chuyển đổi âm thanh tiếng Việt thành văn bản sử dụng PhoWhisper-large và Stable-ts",
+    title="Stable-ts API",
+    description="API để chuyển đổi âm thanh thành văn bản sử dụng Stable-ts",
     version="1.0.0"
 )
 
@@ -40,7 +34,7 @@ def get_model():
     """
     global _model
     if _model is None:
-        logger.info("Tải mô hình PhoWhisper-large...")
+        logger.info("Tải mô hình...")
         # Sử dụng GPU nếu có sẵn, nếu không thì sử dụng CPU
         device = "cuda" if torch.cuda.is_available() else "cpu"
         compute_type = "float16" if torch.cuda.is_available() else "float32"
@@ -48,115 +42,15 @@ def get_model():
         logger.info(f"Sử dụng thiết bị: {device}, compute_type: {compute_type}")
         
         try:
-            # Phương thức 1: Tải trực tiếp với stable_whisper
-            try:
-                _model = stable_whisper.load_hf_whisper(
-                    MODEL_PATH,
-                    device=device,
-                    compute_type=compute_type,
-                    no_safetensors=True  # Bỏ qua tìm kiếm model.safetensors
-                )
-                logger.info("Đã tải mô hình thành công với stable_whisper.load_hf_whisper!")
-                return _model
-            except Exception as e:
-                logger.warning(f"Lỗi khi tải mô hình với stable_whisper.load_hf_whisper: {str(e)}")
-                logger.info("Thử phương pháp tải thay thế...")
+            # Đơn giản hóa quy trình tải mô hình
+            _model = stable_whisper.load_model('large-v3')
+            logger.info("Đã tải mô hình thành công!")
             
-            # Phương thức 2: Tải qua transformers trước, sau đó chuyển sang stable_whisper
-            from transformers import WhisperForConditionalGeneration, WhisperProcessor
-            
-            # Tải processor và model riêng biệt
-            logger.info("Tải mô hình qua transformers...")
-            processor = WhisperProcessor.from_pretrained(MODEL_PATH)
-            model = WhisperForConditionalGeneration.from_pretrained(MODEL_PATH)
-            
-            # Chuyển sang device (GPU nếu có)
-            model = model.to(device)
-            
-            # Chuyển đổi sang định dạng mà stable_whisper có thể sử dụng
-            logger.info("Chuyển đổi mô hình transformers sang định dạng stable_whisper...")
-            _model = stable_whisper.WhisperModel(model, processor, device=device, compute_type=compute_type)
-            
-            logger.info("Đã tải và chuyển đổi mô hình thành công!")
         except Exception as e:
             logger.error(f"Lỗi khi tải mô hình: {str(e)}")
             raise RuntimeError(f"Không thể tải mô hình: {str(e)}")
     
     return _model
-
-def clean_old_files():
-    """
-    Xóa các tệp tạm cũ trong thư mục tạm
-    """
-    import time
-    now = time.time()
-    for file_path in TEMP_DIR.glob("*"):
-        # Xóa các tệp cũ hơn 1 giờ
-        if now - file_path.stat().st_mtime > 3600:
-            if file_path.is_file():
-                file_path.unlink()
-            elif file_path.is_dir():
-                shutil.rmtree(file_path)
-
-def process_audio(audio_path: str, output_formats: List[str], 
-                 word_level: bool = True, segment_level: bool = True,
-                 language: Optional[str] = None):
-    """
-    Xử lý file audio và tạo các loại đầu ra theo yêu cầu
-    """
-    model = get_model()
-    
-    # Thêm tham số language nếu được cung cấp
-    transcribe_params = {}
-    if language:
-        transcribe_params["language"] = language
-    
-    # Thực hiện chuyển đổi giọng nói thành văn bản
-    result = model.transcribe(audio_path, **transcribe_params)
-    
-    # Tạo dictionary để lưu đường dẫn đến các tệp đầu ra
-    output_files = {}
-    output_text = ""
-    
-    # Tạo các tệp đầu ra theo định dạng yêu cầu
-    filename = Path(audio_path).stem
-    
-    if "txt" in output_formats:
-        txt_path = TEMP_DIR / f"{filename}.txt"
-        # Lưu văn bản đơn thuần
-        with open(txt_path, "w", encoding="utf-8") as f:
-            f.write(result.text)
-        output_files["txt"] = str(txt_path)
-        output_text = result.text
-    
-    if "srt" in output_formats:
-        srt_path = TEMP_DIR / f"{filename}.srt"
-        result.to_srt(str(srt_path))
-        output_files["srt"] = str(srt_path)
-        
-    if "vtt" in output_formats:
-        vtt_path = TEMP_DIR / f"{filename}.vtt"
-        result.to_vtt(str(vtt_path))
-        output_files["vtt"] = str(vtt_path)
-    
-    if "ass" in output_formats:
-        ass_path = TEMP_DIR / f"{filename}.ass"
-        result.to_ass(
-            str(ass_path),
-            word_level=word_level,
-            segment_level=segment_level
-        )
-        output_files["ass"] = str(ass_path)
-    
-    if "json" in output_formats:
-        json_path = TEMP_DIR / f"{filename}.json"
-        result.save_as_json(str(json_path))
-        output_files["json"] = str(json_path)
-        
-    return {
-        "text": output_text,
-        "output_files": output_files
-    }
 
 @app.on_event("startup")
 async def startup_event():
@@ -175,7 +69,7 @@ async def root():
     """
     device = "cuda" if torch.cuda.is_available() else "cpu"
     return {
-        "name": "PhoWhisper-large Stable-ts API",
+        "name": "Stable-ts API",
         "status": "online",
         "device": device,
         "usage": "POST /transcribe với file âm thanh để chuyển đổi thành văn bản"
@@ -183,21 +77,14 @@ async def root():
 
 @app.post("/transcribe")
 async def transcribe_audio(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    formats: str = Form("txt,srt,ass"),
-    word_level: bool = Form(True),
-    segment_level: bool = Form(True),
-    language: Optional[str] = Form(None)
+    format: str = Form("txt")
 ):
     """
     Endpoint chuyển đổi âm thanh thành văn bản
     
     - **file**: File âm thanh cần chuyển đổi
-    - **formats**: Các định dạng đầu ra, phân cách bằng dấu phẩy (txt,srt,vtt,ass,json)
-    - **word_level**: Có hiển thị timestamp cấp từ trong ASS hay không
-    - **segment_level**: Có hiển thị timestamp cấp đoạn trong ASS hay không
-    - **language**: Ngôn ngữ của âm thanh (mặc định: tự động phát hiện)
+    - **format**: Định dạng đầu ra (txt, srt, vtt, ass)
     """
     # Kiểm tra định dạng file
     if not file.filename.lower().endswith(('.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac')):
@@ -212,27 +99,33 @@ async def transcribe_audio(
         with open(temp_file, "wb") as f:
             f.write(await file.read())
         
-        # Chuyển đổi các định dạng đầu ra thành list
-        output_formats = [fmt.strip().lower() for fmt in formats.split(",")]
-        valid_formats = ["txt", "srt", "vtt", "ass", "json"]
-        output_formats = [fmt for fmt in output_formats if fmt in valid_formats]
-        
-        if not output_formats:
-            output_formats = ["txt"]  # Mặc định là văn bản thuần
+        # Kiểm tra định dạng đầu ra
+        if format not in ["txt", "srt", "vtt", "ass"]:
+            format = "txt"  # Mặc định là văn bản thuần
         
         # Xử lý file âm thanh
-        result = process_audio(
-            str(temp_file), 
-            output_formats,
-            word_level=word_level,
-            segment_level=segment_level,
-            language=language
-        )
+        model = get_model()
+        result = model.transcribe(str(temp_file))
         
-        # Thêm nhiệm vụ dọn dẹp tệp cũ
-        background_tasks.add_task(clean_old_files)
+        # Tạo file output
+        output_file = TEMP_DIR / f"{temp_file.stem}.{format}"
         
-        return result
+        # Xuất file theo định dạng
+        if format == "txt":
+            with open(output_file, "w", encoding="utf-8") as f:
+                f.write(result.text)
+        elif format == "srt":
+            result.to_srt(str(output_file))
+        elif format == "vtt":
+            result.to_vtt(str(output_file))
+        elif format == "ass":
+            result.to_ass(str(output_file))
+        
+        # Trả về nội dung văn bản và đường dẫn đến file
+        return {
+            "text": result.text,
+            "file_path": str(output_file)
+        }
         
     except Exception as e:
         logger.error(f"Lỗi khi xử lý file âm thanh: {str(e)}")
@@ -241,21 +134,14 @@ async def transcribe_audio(
             detail=f"Lỗi khi xử lý: {str(e)}"
         )
 
-@app.get("/download/{file_format}/{filename}")
-async def download_file(file_format: str, filename: str):
+@app.get("/download/{filename}")
+async def download_file(filename: str):
     """
     Endpoint tải xuống file kết quả
     
-    - **file_format**: Định dạng file (txt, srt, vtt, ass, json)
-    - **filename**: Tên file không có phần mở rộng
+    - **filename**: Tên file có phần mở rộng
     """
-    if file_format not in ["txt", "srt", "vtt", "ass", "json"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Định dạng file không hợp lệ"
-        )
-    
-    file_path = TEMP_DIR / f"{filename}.{file_format}"
+    file_path = TEMP_DIR / filename
     
     if not file_path.exists():
         raise HTTPException(
@@ -266,7 +152,7 @@ async def download_file(file_format: str, filename: str):
     return FileResponse(
         path=file_path,
         media_type="application/octet-stream",
-        filename=f"{filename}.{file_format}"
+        filename=filename
     )
 
 if __name__ == "__main__":
