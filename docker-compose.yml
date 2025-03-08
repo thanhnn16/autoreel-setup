@@ -3,6 +3,7 @@ volumes:
   postgres_storage:
   qdrant_storage:
   localai_storage:
+  stable_ts_models:
 
 networks:
   autoreel:
@@ -125,6 +126,24 @@ services:
     environment:
       - WANTED_UID=1000
       - WANTED_GID=1000
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              capabilities: [gpu]
+
+  stable_ts:
+    build:
+      context: ./stable-ts
+      dockerfile: Dockerfile
+    container_name: stable_ts
+    networks: ["autoreel"]
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - stable_ts_models:/models
     deploy:
       resources:
         reservations:
