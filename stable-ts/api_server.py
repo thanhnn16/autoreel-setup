@@ -243,16 +243,24 @@ async def transcribe_audio(
         
         logger.info(f"Hoàn thành phiên âm. URL tải xuống: {download_url}, định dạng: {format}")
         
+        # Trích xuất segments để trả về trong response nếu định dạng là ass
+        response_content = {
+            "success": True,
+            "message": f"Đã phiên âm thành công file {file.filename}",
+            "processing_time": f"{process_time:.2f} giây",
+            "device": _device,
+            "download_url": download_url,
+            "format": format,
+            "text": result.text  # Thêm nội dung text vào response cho tất cả các định dạng
+        }
+        
+        # Thêm segments vào response nếu định dạng là ass
+        if format == "ass":
+            sentence_segments = extract_sentence_segments(result)
+            response_content["segments"] = sentence_segments
+        
         return JSONResponse(
-            content={
-                "success": True,
-                "message": f"Đã phiên âm thành công file {file.filename}",
-                "processing_time": f"{process_time:.2f} giây",
-                "device": _device,
-                "download_url": download_url,
-                "format": format,
-                "text": result.text
-            }
+            content=response_content
         )
     
     except RuntimeError as e:
