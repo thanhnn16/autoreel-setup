@@ -252,35 +252,33 @@ function formatAssTime(seconds) {
 
 // Hàm tạo dòng tiêu đề
 function createTitleLine(options) {
-  const {
-    titleText,
-    titleColor1 = "FFFFFF", // Default: Màu chữ (trắng tinh khiết)
-    titleColor2 = "FFFFFF", // Không sử dụng nữa
-    titleDuration = 3       // Default: Thời gian hiển thị (giây)
-  } = options;
+  const { startTime, endTime, titleText, titleColor1, centerX, centerY } = options;
 
-  // Không tạo tiêu đề nếu không có text
-  if (!titleText || titleText.trim() === '') {
-    return '';
-  }
-
-  // Thời gian hiển thị
-  const startTime = 0;
-  const endTime = titleDuration;
-
-  // Phong cách 2025: Tối giản, thanh lịch, tinh tế
-  // Sử dụng cú pháp ASS đơn giản nhưng hiệu quả
-  // Đặt tiêu đề ở giữa video 512x768
+  // Sử dụng font hỗ trợ tốt tiếng Việt
+  const fontName = "Arial"; // Hoặc "Noto Sans" nếu có sẵn trên hệ thống
   
-  // Tạo hai dòng ASS - một dòng cho nền mờ và một dòng cho văn bản
-  // Dòng 1: Box nền tối để nổi bật chữ
-  const backgroundLine = `Dialogue: 0,${formatAssTime(startTime)},${formatAssTime(endTime)},Title,,0,0,0,,{\\an5\\pos(256,384)\\bord0\\shad0\\1c&H000000&\\1a&HD0&\\p1}m -160 -30 l 160 -30 l 160 30 l -160 30{\\p0}`;
+  // Tăng kích thước chữ để dễ đọc hơn - Tăng từ 46 lên 60
+  const fontSize = 60;
   
-  // Dòng 2: Văn bản tiêu đề với hiệu ứng fade
-  const textLine = `Dialogue: 1,${formatAssTime(startTime)},${formatAssTime(endTime)},Title,,0,0,0,,{\\fad(300,300)\\an5\\pos(256,384)\\fs26\\bord1.5\\1c&H${titleColor1}&\\3c&H000000&\\fn@Arial Unicode MS}${titleText}`;
+  // Kích thước hình chữ nhật nền - tăng kích thước để đảm bảo bao phủ đầy đủ
+  const rectWidth = 850; // Tăng từ 650 lên 850
+  const rectHeight = 220; // Tăng từ 150 lên 220
   
-  // Trả về cả 2 dòng, mỗi dòng trên một hàng riêng biệt
-  return backgroundLine + '\n' + textLine;
+  // Thay vì trực tiếp vẽ phức tạp như trước, chúng ta sẽ sử dụng cách đơn giản hơn
+  // Nền đen căn giữa sử dụng \an5 để đảm bảo căn giữa chính xác
+  // Sử dụng đồ họa ASS hiệu quả hơn cho nền
+  const backgroundLine = `Dialogue: 0,${formatAssTime(startTime)},${formatAssTime(endTime)},Title,,0,0,0,,{\\an5\\pos(${centerX},${centerY})\\bord0\\shad0\\fscx${rectWidth}\\fscy${rectHeight}\\1c&H000000&\\1a&HB0&\\t(0,300,\\1a&HC0&)\\t(${(endTime-0.3)*1000},${endTime*1000},\\1a&HFF&)}▬`;
+  
+  // Văn bản tiêu đề với hiệu ứng fade nhẹ và bóng mềm
+  const textLine = `Dialogue: 1,${formatAssTime(startTime)},${formatAssTime(endTime)},Title,,0,0,0,,{\\fad(400,400)\\an5\\pos(${centerX},${centerY})\\fs${fontSize}\\bord1\\blur0.8\\1c&H${titleColor1}&\\3c&H000000&\\3a&HDD&\\fn${fontName}\\b1}${titleText}`;
+  
+  // Phần viền mỏng bên dưới tiêu đề
+  // Sử dụng ký tự '▬' với kích thước và màu sắc được cài đặt thông qua các tag
+  const underlineWidth = Math.min(rectWidth - 100, 700); // Tăng giới hạn đường gạch chân từ 500 lên 700
+  const underlineLine = `Dialogue: 0,${formatAssTime(startTime+0.2)},${formatAssTime(endTime-0.2)},Title,,0,0,0,,{\\an5\\pos(${centerX},${centerY+70})\\bord0\\shad0\\fscx${underlineWidth}\\fscy2\\1c&H${titleColor1}&\\alpha&H60&\\fad(300,300)}▬`;
+  
+  // Trả về tất cả các dòng, mỗi dòng trên một hàng riêng biệt
+  return backgroundLine + '\n' + textLine + '\n' + underlineLine;
 }
 
 // Hàm xử lý toàn bộ workflow cho 1 task
@@ -1242,10 +1240,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
   // Tạo dòng tiêu đề
   const titleLine = createTitleLine({
+    startTime: 0,
+    endTime: titleDuration,
     titleText,
     titleColor1,
-    titleColor2,
-    titleDuration
+    centerX: 256,
+    centerY: 384
   });
   
   if (titleLine) {
