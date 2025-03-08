@@ -67,8 +67,6 @@ def get_model(force_cpu=False):
             # Sử dụng mô hình vi-whisper-large-v3-turbo từ HuggingFace với dynamic quantization khi chạy trên CPU
             _model = stable_whisper.load_hf_whisper(
                 'suzii/vi-whisper-large-v3-turbo', 
-                device=device, 
-                dq=use_dq  # Kích hoạt dynamic quantization
             )
             logger.info("Đã tải mô hình tiếng Việt thành công!")
             

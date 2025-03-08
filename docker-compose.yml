@@ -4,6 +4,7 @@ volumes:
   qdrant_storage:
   localai_storage:
   stable_ts_models:
+  comfyui_storage:
 
 networks:
   autoreel:
@@ -121,7 +122,7 @@ services:
     ports:
       - 8188:8188
     volumes:
-      - ./storage:/storage
+      - comfyui_storage:/app/ComfyUI
     environment:
       - WANTED_UID=1000
       - WANTED_GID=1000
