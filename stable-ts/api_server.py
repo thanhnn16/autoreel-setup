@@ -221,7 +221,7 @@ async def transcribe_audio(
         # Xử lý đặc biệt cho định dạng sentence
         if format == "sentence":
             # Trả về JSON trực tiếp với các segment câu, sử dụng phiên bản đã regroup nếu có
-            display_result = result_regrouped if result_regrouped else result
+            display_result = result_regrouped if result_regrouped is not None else result
             sentence_segments = extract_sentence_segments(display_result)
             return JSONResponse(
                 content={
@@ -246,7 +246,7 @@ async def transcribe_audio(
         # Quyết định dùng phiên bản kết quả nào dựa vào định dạng đầu ra
         # (giữ nguyên các segments gốc cho ASS, dùng phiên bản regroup cho các định dạng khác nếu có)
         output_result = result  # Mặc định dùng kết quả không regroup cho ASS
-        if format != "ass" and result_regrouped:  # Với các định dạng khác, dùng regroup nếu có
+        if format != "ass" and result_regrouped is not None:  # Với các định dạng khác, dùng regroup nếu có
             output_result = result_regrouped
         
         # Lưu kết quả theo định dạng yêu cầu
@@ -317,7 +317,7 @@ async def transcribe_audio(
         }
         
         # Với định dạng ASS, luôn trả về cả segments dạng câu (từ kết quả regroup) trong response
-        if format == "ass" and result_regrouped:
+        if format == "ass" and result_regrouped is not None:
             sentence_segments = extract_sentence_segments(result_regrouped)
             response_content["segments"] = sentence_segments
         # Với các định dạng khác, trả về segments từ kết quả đã được sử dụng
@@ -413,32 +413,37 @@ def process_audio_with_attention_mask(model, audio_path, language="vi", regroup=
         regroup: Sử dụng thuật toán phân nhóm lại các từ (mặc định: True)
         
     Returns:
-        WhisperResult: Kết quả phiên âm
+        WhisperResult: Kết quả phiên âm gốc và kết quả đã gộp thành câu (nếu regroup=True)
     """
     # Thực hiện phiên âm với word_timestamps=True để có timestamps cho từng từ
+    # Luôn thực hiện phiên âm với regroup=False để giữ nguyên segments gốc cho ASS
     result = model.transcribe(str(audio_path), language=language, regroup=False)
     
-    # Nếu bật regroup, tạo bản sao và thực hiện các bước nhóm theo câu hoàn chỉnh
+    # Biến lưu kết quả đã regroup
     result_regrouped = None
+    
+    # Nếu bật regroup, thực hiện phiên âm lần hai với regroup=True hoặc 
+    # áp dụng các phương thức regrouping lên kết quả
     if regroup:
-        # Tạo bản sao của kết quả
-        result_regrouped = result.copy()
-        
-        # Đầu tiên, gộp tất cả các segments lại
-        result_regrouped = result_regrouped.merge_all_segments()
-        
-        # Kết hợp các segments thành các câu hoàn chỉnh theo các dấu câu tiếng Việt
-        # Các dấu câu kết thúc câu: dấu chấm, dấu chấm hỏi, dấu chấm than
-        result_regrouped = (
-            result_regrouped
-            .ignore_special_periods()  # Bỏ qua các dấu chấm đặc biệt (viết tắt, số,...)
-            .split_by_punctuation([('.', ' '), '。', '?', '？', '!', '!'])  # Tách theo dấu câu kết thúc
-            .split_by_gap(0.8)  # Tách nếu khoảng cách giữa các từ quá lớn
-            .split_by_length(100)  # Giới hạn độ dài tối đa của mỗi segment
-        )
+        try:
+            # Tạo kết quả regrouped bằng cách áp dụng các phương thức regrouping
+            # Kết hợp các segments thành các câu hoàn chỉnh theo các dấu câu tiếng Việt
+            # Các dấu câu kết thúc câu: dấu chấm, dấu chấm hỏi, dấu chấm than
+            result_regrouped = (
+                result
+                .merge_all_segments()
+                .ignore_special_periods()  # Bỏ qua các dấu chấm đặc biệt (viết tắt, số,...)
+                .split_by_punctuation([('.', ' '), '。', '?', '？', '!', '!'])  # Tách theo dấu câu kết thúc
+                .split_by_gap(0.8)  # Tách nếu khoảng cách giữa các từ quá lớn
+                .split_by_length(100)  # Giới hạn độ dài tối đa của mỗi segment
+            )
+        except Exception as e:
+            # Nếu có lỗi khi regrouping, ghi log và tiếp tục mà không có kết quả regrouped
+            logger.warning(f"Không thể thực hiện regrouping: {str(e)}")
+            result_regrouped = None
     
     # Trả về cả kết quả gốc (không regroup) và kết quả đã regroup
-    return result, result_regrouped if regroup else None
+    return result, result_regrouped
 
 def extract_sentence_segments(result):
     """
