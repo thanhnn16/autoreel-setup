@@ -240,502 +240,6 @@ app.post('/ffmpeg', (req, res) => {
   });
 });
 
-// Hàm chuyển đổi SRT sang định dạng JSON cho Whisper
-function convertSrtToWhisperJson(srtContent) {
-  const lines = srtContent.split(/\r?\n/);
-  const segments = [];
-  let currentSegment = null;
-  let allWords = [];
-  let wordIndex = 0;
-  
-  // Biểu thức chính quy để phân tích thời gian
-  const timeRegex = /(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})/;
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    
-    // Bỏ qua dòng trống
-    if (line === '') {
-      if (currentSegment) {
-        segments.push(currentSegment);
-        currentSegment = null;
-      }
-      continue;
-    }
-    
-    // Bỏ qua số thứ tự
-    if (/^\d+$/.test(line)) {
-      continue;
-    }
-    
-    // Xử lý dòng thời gian
-    const timeMatch = line.match(timeRegex);
-    if (timeMatch) {
-      // Chuyển đổi thời gian sang giây
-      const startHours = parseInt(timeMatch[1]);
-      const startMinutes = parseInt(timeMatch[2]);
-      const startSeconds = parseInt(timeMatch[3]);
-      const startMilliseconds = parseInt(timeMatch[4]);
-      
-      const endHours = parseInt(timeMatch[5]);
-      const endMinutes = parseInt(timeMatch[6]);
-      const endSeconds = parseInt(timeMatch[7]);
-      const endMilliseconds = parseInt(timeMatch[8]);
-      
-      const startTime = startHours * 3600 + startMinutes * 60 + startSeconds + startMilliseconds / 1000;
-      const endTime = endHours * 3600 + endMinutes * 60 + endSeconds + endMilliseconds / 1000;
-      
-      currentSegment = {
-        id: segments.length,
-        start: startTime,
-        end: endTime,
-        text: '',
-        words: []
-      };
-      continue;
-    }
-    
-    // Xử lý dòng văn bản
-    if (currentSegment) {
-      // Thêm khoảng trắng nếu đã có văn bản
-      if (currentSegment.text) {
-        currentSegment.text += ' ' + line;
-      } else {
-        currentSegment.text = line;
-      }
-      
-      // Phân tách văn bản thành các từ
-      // Sử dụng regex phức tạp hơn để phân tách từ tốt hơn
-      const wordRegex = /[\p{L}\p{N}]+|[^\p{L}\p{N}\s]+/gu;
-      const matches = [...line.matchAll(wordRegex)];
-      const words = matches.map(match => match[0]);
-      
-      if (words.length > 0) {
-        const segmentDuration = currentSegment.end - currentSegment.start;
-        
-        // Tính tổng độ dài của tất cả các từ để phân bổ thời gian tỷ lệ với độ dài
-        let totalLength = 0;
-        const wordLengths = [];
-        
-        for (const word of words) {
-          const trimmedWord = word.trim();
-          if (trimmedWord) {
-            // Độ dài của từ + 1 để đảm bảo từ ngắn vẫn có thời gian hiển thị
-            // Điều chỉnh trọng số cho các từ tiếng Việt
-            let wordLength = trimmedWord.length + 1;
-            
-            // Tăng trọng số cho các từ dài
-            if (wordLength > 5) {
-              wordLength *= 1.2;
-            }
-            
-            // Giảm trọng số cho các dấu câu
-            if (/^[^\p{L}\p{N}]+$/u.test(trimmedWord)) {
-              wordLength = 1;
-            }
-            
-            wordLengths.push({ word: trimmedWord, length: wordLength });
-            totalLength += wordLength;
-          }
-        }
-        
-        // Phân bổ thời gian cho từng từ dựa trên độ dài tương đối
-        let currentTime = currentSegment.start;
-        
-        // Tính toán thời gian hiển thị tối thiểu và tối đa cho mỗi từ
-        const minWordDuration = 0.1; // 100ms
-        const maxWordDuration = 1.0; // 1000ms
-        
-        // Tính toán thời gian hiển thị trung bình cho mỗi từ
-        const avgWordDuration = segmentDuration / wordLengths.length;
-        
-        // Điều chỉnh thời gian hiển thị cho từng từ
-        for (let i = 0; i < wordLengths.length; i++) {
-          const wordInfo = wordLengths[i];
-          
-          // Tính thời gian cho từ này dựa trên độ dài tương đối
-          // Sử dụng công thức kết hợp giữa thời gian trung bình và độ dài tương đối
-          const relativeLength = wordInfo.length / totalLength;
-          const wordDuration = avgWordDuration * 0.5 + relativeLength * segmentDuration * 0.5;
-          
-          // Đảm bảo thời gian hiển thị nằm trong khoảng cho phép
-          const actualWordDuration = Math.min(maxWordDuration, Math.max(wordDuration, minWordDuration));
-          
-          // Đảm bảo từ cuối cùng kết thúc đúng thời điểm kết thúc của segment
-          let wordEnd;
-          if (i === wordLengths.length - 1) {
-            wordEnd = currentSegment.end;
-          } else {
-            wordEnd = Math.min(currentSegment.end, currentTime + actualWordDuration);
-          }
-          
-          const wordStart = currentTime;
-          
-          const wordObj = {
-            word: wordInfo.word,
-            start: wordStart,
-            end: wordEnd,
-            confidence: 0.9,
-            index: wordIndex++
-          };
-          
-          currentSegment.words.push(wordObj);
-          allWords.push(wordObj);
-          
-          // Cập nhật thời gian cho từ tiếp theo
-          currentTime = wordEnd;
-          
-          // Đảm bảo không vượt quá thời gian kết thúc của segment
-          if (currentTime >= currentSegment.end) {
-            break;
-          }
-        }
-        
-        // Điều chỉnh thời gian kết thúc của từ cuối cùng trong segment
-        if (currentSegment.words.length > 0) {
-          const lastWord = currentSegment.words[currentSegment.words.length - 1];
-          lastWord.end = currentSegment.end;
-        }
-      }
-    }
-  }
-  
-  // Thêm segment cuối cùng nếu có
-  if (currentSegment) {
-    segments.push(currentSegment);
-  }
-  
-  // Điều chỉnh thời gian của các từ để đảm bảo không có khoảng trống
-  for (let i = 1; i < allWords.length; i++) {
-    const prevWord = allWords[i - 1];
-    const currentWord = allWords[i];
-    
-    // Nếu có khoảng trống giữa các từ, điều chỉnh thời gian kết thúc của từ trước
-    // và thời gian bắt đầu của từ hiện tại
-    if (currentWord.start > prevWord.end) {
-      const gap = currentWord.start - prevWord.end;
-      if (gap < 0.3) { // Nếu khoảng trống nhỏ hơn 300ms
-        const midPoint = prevWord.end + gap / 2;
-        prevWord.end = midPoint;
-        currentWord.start = midPoint;
-      }
-    }
-  }
-  
-  // Tạo đối tượng JSON theo định dạng của Whisper
-  return [{
-    text: allWords.map(w => w.word).join(' '),
-    segments: segments,
-    words: allWords
-  }];
-}
-
-// Hàm tạo file output.json từ whisper data
-function createOutputJson(whisperData) {
-  if (!whisperData || !whisperData[0] || !whisperData[0].segments || whisperData[0].segments.length === 0) {
-    return [{ groups: [] }];
-  }
-
-  const segments = whisperData[0].segments;
-  const words = whisperData[0].words || [];
-  const groups = [];
-
-  // Nếu có sẵn segments từ file SRT, sử dụng chúng làm nhóm
-  if (segments.length > 0) {
-    for (const segment of segments) {
-      // Tìm chỉ số của từ đầu tiên và cuối cùng trong segment
-      let startIndex = -1;
-      let endIndex = -1;
-      
-      for (let i = 0; i < words.length; i++) {
-        const word = words[i];
-        // Tìm từ đầu tiên trong segment
-        if (word.start >= segment.start && startIndex === -1) {
-          startIndex = i;
-        }
-        // Tìm từ cuối cùng trong segment
-        if (word.end <= segment.end) {
-          endIndex = i;
-        } else if (word.start <= segment.end && word.end > segment.end) {
-          // Nếu từ bắt đầu trong segment nhưng kết thúc sau segment
-          endIndex = i;
-          break;
-        }
-      }
-      
-      // Kiểm tra và điều chỉnh các chỉ số
-      if (startIndex === -1) {
-        // Nếu không tìm thấy từ nào bắt đầu trong segment, tìm từ gần nhất
-        for (let i = 0; i < words.length; i++) {
-          if (words[i].end > segment.start) {
-            startIndex = i;
-            break;
-          }
-        }
-      }
-      
-      if (endIndex === -1 || endIndex < startIndex) {
-        // Nếu không tìm thấy từ nào kết thúc trong segment hoặc chỉ số không hợp lệ
-        for (let i = words.length - 1; i >= 0; i--) {
-          if (words[i].start < segment.end) {
-            endIndex = i;
-            break;
-          }
-        }
-      }
-      
-      // Nếu vẫn không tìm thấy, sử dụng giá trị mặc định
-      if (startIndex === -1) startIndex = 0;
-      if (endIndex === -1 || endIndex < startIndex) endIndex = Math.min(startIndex + 10, words.length - 1);
-      
-      // Thêm nhóm vào danh sách
-      groups.push({
-        start: segment.start,
-        end: segment.end,
-        startIndex: startIndex,
-        endIndex: endIndex
-      });
-    }
-  } else {
-    // Nếu không có segments, tạo nhóm từ danh sách từ
-    const maxWordsPerGroup = 10; // Số từ tối đa trong một nhóm
-    const maxGroupDuration = 5.0; // Thời lượng tối đa cho một nhóm (giây)
-    
-    if (words.length === 0) {
-      return [{ groups: [] }];
-    }
-
-    let currentGroup = {
-      start: words[0].start,
-      end: words[0].end,
-      startIndex: 0,
-      endIndex: 0
-    };
-
-    for (let i = 1; i < words.length; i++) {
-      const word = words[i];
-      const previousWord = words[i - 1];
-      const timeDiff = word.start - previousWord.end;
-      const currentDuration = word.end - currentGroup.start;
-
-      // Tạo nhóm mới nếu:
-      // 1. Khoảng cách thời gian giữa các từ lớn
-      // 2. Đã đủ số từ tối đa
-      // 3. Thời lượng nhóm vượt quá giới hạn
-      if (timeDiff > 0.7 || 
-          (i - currentGroup.startIndex) >= maxWordsPerGroup ||
-          currentDuration > maxGroupDuration) {
-        
-        // Thêm nhóm hiện tại vào danh sách
-        groups.push({ ...currentGroup });
-
-        // Bắt đầu nhóm mới
-        currentGroup = {
-          start: word.start,
-          end: word.end,
-          startIndex: i,
-          endIndex: i
-        };
-      } else {
-        // Cập nhật thời gian kết thúc và chỉ số kết thúc của nhóm hiện tại
-        currentGroup.end = word.end;
-        currentGroup.endIndex = i;
-      }
-    }
-
-    // Thêm nhóm cuối cùng vào danh sách
-    groups.push({ ...currentGroup });
-  }
-
-  // Kiểm tra và điều chỉnh các nhóm
-  for (let i = 0; i < groups.length; i++) {
-    const group = groups[i];
-    
-    // Đảm bảo mỗi nhóm có thời lượng tối thiểu
-    const minDuration = 0.5; // 500ms
-    if (group.end - group.start < minDuration) {
-      group.end = group.start + minDuration;
-    }
-    
-    // Đảm bảo không có khoảng trống giữa các nhóm
-    if (i > 0) {
-      const prevGroup = groups[i - 1];
-      if (group.start > prevGroup.end) {
-        // Nếu có khoảng trống lớn, giữ nguyên
-        if (group.start - prevGroup.end > 1.0) {
-          continue;
-        }
-        // Nếu khoảng trống nhỏ, nối liền các nhóm
-        group.start = prevGroup.end;
-      }
-    }
-    
-    // Đảm bảo thời gian của nhóm khớp với thời gian của các từ trong nhóm
-    if (group.startIndex >= 0 && group.startIndex < words.length) {
-      // Cập nhật thời gian bắt đầu của nhóm theo từ đầu tiên
-      group.start = words[group.startIndex].start;
-    }
-    
-    if (group.endIndex >= 0 && group.endIndex < words.length) {
-      // Cập nhật thời gian kết thúc của nhóm theo từ cuối cùng
-      group.end = words[group.endIndex].end;
-    }
-    
-    // Đảm bảo thời gian hiển thị tối thiểu cho nhóm
-    if (group.end - group.start < minDuration) {
-      group.end = group.start + minDuration;
-    }
-  }
-
-  return [{ groups }];
-}
-
-// Hàm tạo phụ đề ASS từ file JSON của Whisper
-async function createAssSubtitle(whisperJsonPath, outputJsonPath, assFilePath, task) {
-  writeLog(`Bắt đầu tạo phụ đề ASS từ ${whisperJsonPath} và ${outputJsonPath}`, 'INFO');
-
-  // Kiểm tra file JSON có tồn tại không
-  if (!fs.existsSync(whisperJsonPath)) {
-    writeLog(`File ${whisperJsonPath} không tồn tại.`, 'ERROR');
-    return false;
-  }
-
-  if (!fs.existsSync(outputJsonPath)) {
-    writeLog(`File ${outputJsonPath} không tồn tại.`, 'ERROR');
-    return false;
-  }
-
-  try {
-    // Đọc dữ liệu từ file JSON
-    const whisperData = JSON.parse(fs.readFileSync(whisperJsonPath, 'utf8'));
-    const outputData = JSON.parse(fs.readFileSync(outputJsonPath, 'utf8'));
-
-    // Thiết lập các biến cấu hình
-    const defaultColor = "FFFFFF"; // Màu chữ mặc định (định dạng: bbggrr)
-    const highlightColor = "0CF4FF"; // Màu highlight (định dạng: bbggrr)
-    const outlineColor = "000000"; // Màu viền
-    const shadowColor = "000000"; // Màu bóng đổ
-    const titleText = task && task.titleText ? task.titleText : ""; // Sử dụng titleText từ task nếu có
-    const titleColor1 = "00FFFF"; // Màu gradient 1 cho title (định dạng: bbggrr)
-    const titleColor2 = "FF00FF"; // Màu gradient 2 cho title (định dạng: bbggrr)
-    const titleDuration = 2; // Thời gian hiển thị title (giây)
-    const minWordCount = 1; // Số từ tối thiểu cho một phụ đề
-    const maxCharsPerLine = 35; // Số ký tự tối đa trên mỗi dòng
-    const maxSubtitleLines = 2; // Số dòng tối đa cho phụ đề
-
-    // Log thông tin tiêu đề
-    if (titleText && titleText.trim() !== "") {
-      writeLog(`Sử dụng tiêu đề: "${titleText}"`, 'INFO');
-    } else {
-      writeLog(`Không sử dụng tiêu đề`, 'INFO');
-    }
-
-    // Tạo header cho file ASS
-    const assHeader = createAssHeader();
-    let assContent = assHeader;
-
-    // Lấy dữ liệu từ whisper
-    if (!whisperData[0] || !whisperData[0].words) {
-      writeLog(`Dữ liệu whisper không hợp lệ`, 'ERROR');
-      return false;
-    }
-    
-    const transcription = whisperData[0];
-    const allWords = transcription.words;
-
-    // Lấy dữ liệu từ output.json
-    if (!outputData[0] || !outputData[0].groups) {
-      writeLog(`Dữ liệu output không hợp lệ`, 'ERROR');
-      return false;
-    }
-    
-    const groups = outputData[0].groups;
-    
-    // Kiểm tra nếu không có nhóm nào
-    if (groups.length === 0) {
-      writeLog(`Không có nhóm phụ đề nào được tìm thấy`, 'WARNING');
-      
-      // Tạo một nhóm mặc định nếu có từ
-      if (allWords.length > 0) {
-        const firstWord = allWords[0];
-        const lastWord = allWords[allWords.length - 1];
-        
-        groups.push({
-          start: firstWord.start,
-          end: lastWord.end,
-          startIndex: 0,
-          endIndex: allWords.length - 1
-        });
-        
-        writeLog(`Đã tạo một nhóm mặc định với ${allWords.length} từ`, 'INFO');
-      } else {
-        writeLog(`Không có từ nào để tạo phụ đề`, 'ERROR');
-        return false;
-      }
-    }
-
-    // Xử lý từng nhóm phụ đề
-    for (const group of groups) {
-      const startTime = group.start;
-      const endTime = group.end;
-      const startIndex = group.startIndex;
-      const endIndex = group.endIndex;
-
-      // Kiểm tra tính hợp lệ của chỉ số
-      if (startIndex < 0 || endIndex < 0 || startIndex > endIndex || endIndex >= allWords.length) {
-        writeLog(`Chỉ số không hợp lệ: startIndex=${startIndex}, endIndex=${endIndex}, allWords.length=${allWords.length}`, 'WARNING');
-        continue;
-      }
-
-      // Lấy các từ trong nhóm này từ whisper data
-      const groupWords = allWords.slice(startIndex, endIndex + 1);
-
-      // Không bỏ qua nhóm nào, xử lý tất cả các từ
-      // Ghi log số lượng từ để theo dõi
-      writeLog(`Xử lý phụ đề có ${groupWords.length} từ: ${groupWords.length > 0 ? groupWords[0].word : ''}`, 'INFO');
-
-      // Tạo hiệu ứng highlight cho nhóm từ này
-      const dialogueLine = createHighlightDialogueLine(startTime, endTime, groupWords, {
-        defaultColor,
-        highlightColor,
-        outlineColor,
-        shadowColor,
-        maxCharsPerLine,
-        maxSubtitleLines,
-        minWordCount
-      });
-
-      if (dialogueLine !== "") {
-        assContent += "\n" + dialogueLine;
-      }
-    }
-
-    // Thêm dòng tiêu đề nếu cần
-    if (titleText && titleText.trim() !== "") {
-      const titleLine = createTitleLine({
-        titleText,
-        titleColor1,
-        titleColor2,
-        titleDuration
-      });
-      
-      if (titleLine !== "") {
-        // Thêm tiêu đề vào đầu file
-        assContent = assContent + "\n" + titleLine;
-      }
-    }
-
-    // Ghi nội dung ASS vào file
-    fs.writeFileSync(assFilePath, assContent, 'utf8');
-    writeLog(`Đã tạo thành công file phụ đề ASS: ${assFilePath}`, 'INFO');
-
-    return true;
-  } catch (error) {
-    writeLog(`Lỗi khi chuyển đổi file: ${error.message}`, 'ERROR');
-    return false;
-  }
-}
-
 // Hàm tạo header cho file ASS
 function createAssHeader() {
   // Script Info
@@ -773,297 +277,36 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text`
 
 // Hàm định dạng thời gian cho ASS
 function formatAssTime(seconds) {
-  const totalCentiseconds = Math.floor(seconds * 100);
-  const cs = totalCentiseconds % 100;
-  const totalSeconds = Math.floor(totalCentiseconds / 100);
-  const s = totalSeconds % 60;
-  const totalMinutes = Math.floor(totalSeconds / 60);
-  const m = totalMinutes % 60;
-  const h = Math.floor(totalMinutes / 60);
-
-  // Định dạng H:MM:SS.cs
-  return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`;
-}
-
-// Hàm tạo dòng dialogue với hiệu ứng highlight từng từ
-function createHighlightDialogueLine(startTime, endTime, wordObjects, options) {
-  // Đảm bảo options có đầy đủ các tham số cần thiết
-  const defaultOptions = {
-    defaultColor: "FFFFFF",
-    highlightColor: "0CF4FF",
-    outlineColor: "000000",
-    shadowColor: "000000",
-    maxCharsPerLine: 35,
-    maxSubtitleLines: 2,
-    minWordCount: 1  // Đặt giá trị mặc định là 1 để xử lý mọi nhóm từ
-  };
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  const ms = Math.floor((seconds % 1) * 100);
   
-  // Kết hợp options mặc định với options được truyền vào
-  options = { ...defaultOptions, ...options };
-
-  // Kiểm tra nếu không có từ nào
-  if (wordObjects.length === 0) {
-    return "";
-  }
-
-  // Định dạng thời gian bắt đầu và kết thúc
-  const startTimeAss = formatAssTime(startTime);
-  const endTimeAss = formatAssTime(endTime);
-
-  // Tạo tag fade đẹp hơn với thời gian fade in/out
-  const fadeTag = "\\fad(200,200)";
-
-  // Tạo các tag hiệu ứng cơ bản
-  const blurTag = "\\blur0.6";
-  const borderTag = "\\bord1.8";
-  const shadowTag = "\\shad1.2";
-  const spacingTag = "\\fsp0.5";
-
-  // Tạo tag hiệu ứng cơ bản
-  const basicEffect = `{${fadeTag}${blurTag}${borderTag}${shadowTag}${spacingTag}}`;
-
-  // Tạo tag màu mặc định và highlight
-  const defaultColorTag = `\\c&H${options.defaultColor}`;
-  const highlightColorTag = `\\c&H${options.highlightColor}`;
-  const outlineTag = `\\3c&H${options.outlineColor}`;
-  const shadowColorTag = `\\4c&H${options.shadowColor}`;
-
-  // Xây dựng chuỗi phụ đề với hiệu ứng highlight
-  const dialogueLines = [];
-
-  // Tạo một dòng phụ đề với màu mặc định cho tất cả các từ (layer 0)
-  const defaultText = `{${defaultColorTag}${outlineTag}${shadowColorTag}}`;
-  let fullText = "";
-  for (const wordObj of wordObjects) {
-    fullText += `${wordObj.word} `;
-  }
-  fullText = fullText.trim();
-
-  // Xử lý chia văn bản thành tối đa 2 dòng
-  const words = fullText.split(' ');
-  let formattedText = "";
-  let currentLine = "";
-  let lineCount = 0;
-
-  // Tính toán tổng số ký tự và phân phối đều cho 2 dòng
-  const totalChars = fullText.length;
-  const idealCharsPerLine = Math.ceil(totalChars / options.maxSubtitleLines);
-  const effectiveMaxChars = Math.min(options.maxCharsPerLine, Math.max(idealCharsPerLine, 20));
-
-  // Đảm bảo luôn có 2 dòng phụ đề nếu văn bản đủ dài
-  const forceNewLine = totalChars > 30 && words.length > 3;
-
-  // Xử lý trường hợp có từ quá dài
-  const longWordThreshold = 20;
-  const processedWords = [];
-  for (const word of words) {
-    if (word.length > longWordThreshold) {
-      // Chia từ dài thành các phần nhỏ hơn
-      for (let i = 0; i < word.length; i += longWordThreshold) {
-        const length = Math.min(longWordThreshold, word.length - i);
-        processedWords.push(word.substring(i, i + length));
-      }
-    } else {
-      processedWords.push(word);
-    }
-  }
-
-  for (const word of processedWords) {
-    // Nếu đã có đủ số dòng tối đa, thêm từ vào dòng cuối
-    if (lineCount >= (options.maxSubtitleLines - 1)) {
-      if (currentLine.length > 0) {
-        currentLine += " ";
-      }
-      currentLine += word;
-    }
-    // Nếu thêm từ này vào dòng hiện tại sẽ vượt quá giới hạn, tạo dòng mới
-    else if ((currentLine.length + word.length + 1) > effectiveMaxChars ||
-      (forceNewLine && lineCount === 0 && currentLine.length > (totalChars / 2))) {
-      formattedText += currentLine;
-      currentLine = word;
-      lineCount++;
-
-      // Thêm ký tự ngắt dòng
-      if (lineCount < options.maxSubtitleLines) {
-        formattedText += "\\N";
-      }
-    }
-    // Thêm từ vào dòng hiện tại
-    else {
-      if (currentLine.length > 0) {
-        currentLine += " ";
-      }
-      currentLine += word;
-    }
-  }
-
-  // Thêm dòng cuối cùng vào văn bản đã định dạng
-  if (currentLine.length > 0) {
-    // Nếu chưa có dòng nào, thêm trực tiếp
-    if (formattedText.length === 0) {
-      formattedText = currentLine;
-    }
-    // Nếu đã có dòng và chưa đạt số dòng tối đa, thêm ngắt dòng
-    else if (lineCount < (options.maxSubtitleLines - 1)) {
-      formattedText += "\\N" + currentLine;
-    }
-    // Nếu không, nối vào dòng cuối cùng
-    else {
-      formattedText += currentLine;
-    }
-  }
-
-  // Thêm dòng phụ đề mặc định (layer 0)
-  const dialoguePrefix = `Dialogue: 0,${startTimeAss},${endTimeAss},Default,,0,0,0,,`;
-  dialogueLines.push(dialoguePrefix + basicEffect + defaultText + formattedText);
-
-  // Tạo một map để theo dõi vị trí của từng từ trong văn bản đã định dạng
-  const wordPositions = new Map();
-  const formattedLines = formattedText.split("\\N");
-  let wordIndex = 0;
-
-  // Xử lý từng dòng để tìm vị trí của từng từ
-  for (let lineIdx = 0; lineIdx < formattedLines.length; lineIdx++) {
-    const lineWords = formattedLines[lineIdx].split(' ');
-    for (let i = 0; i < lineWords.length; i++) {
-      if (wordIndex < wordObjects.length) {
-        // Lưu vị trí của từ: dòng và vị trí trong dòng
-        wordPositions.set(wordIndex, { lineIdx, wordIdx: i });
-        wordIndex++;
-      }
-    }
-  }
-
-  // Tạo các dòng phụ đề highlight cho từng từ (layer 1)
-  for (let i = 0; i < wordObjects.length; i++) {
-    const wordObj = wordObjects[i];
-    
-    // Đảm bảo thời gian từ nằm trong khoảng thời gian của đoạn
-    // Sửa cách tính thời gian bắt đầu và kết thúc của từ
-    // Không điều chỉnh thời gian bắt đầu và kết thúc của từ nếu nằm trong khoảng thời gian của đoạn
-    let wordStart = wordObj.start;
-    let wordEnd = wordObj.end;
-    
-    // Chỉ điều chỉnh nếu từ nằm ngoài khoảng thời gian của đoạn
-    if (wordStart < startTime) {
-      wordStart = startTime;
-    }
-    
-    if (wordEnd > endTime) {
-      wordEnd = endTime;
-    }
-    
-    // Đảm bảo thời gian hiển thị tối thiểu cho từ
-    if (wordEnd - wordStart < 0.1) {
-      wordEnd = wordStart + 0.1;
-    }
-
-    // Chỉ tạo highlight nếu từ nằm trong khoảng thời gian của đoạn
-    if ((wordStart < endTime) && (wordEnd > startTime)) {
-      // Định dạng thời gian bắt đầu và kết thúc cho từng từ
-      const wordStartAss = formatAssTime(wordStart);
-      const wordEndAss = formatAssTime(wordEnd);
-
-      // Tạo hiệu ứng glow cho từ được highlight
-      const glowTag = "\\4a&H30";
-
-      // Tạo văn bản với từ được highlight
-      const highlightText = `{${defaultColorTag}${outlineTag}${shadowColorTag}}`;
-
-      // Tạo văn bản highlight với cùng định dạng dòng như văn bản gốc
-      const lines = formattedText.split("\\N");
-      let highlightFormattedText = "";
-
-      // Lấy vị trí của từ hiện tại
-      const position = wordPositions.get(i);
-      
-      if (position) {
-        for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
-          const line = lines[lineIdx];
-          const lineWords = line.split(' ');
-          let highlightLine = "";
-
-          for (let wordIdx = 0; wordIdx < lineWords.length; wordIdx++) {
-            const lineWord = lineWords[wordIdx];
-            
-            // Kiểm tra xem đây có phải là từ cần highlight không
-            if (lineIdx === position.lineIdx && wordIdx === position.wordIdx) {
-              highlightLine += `{${highlightColorTag}${glowTag}}${lineWord}{${defaultColorTag}} `;
-            } else {
-              highlightLine += `${lineWord} `;
-            }
-          }
-
-          highlightFormattedText += highlightLine.trim();
-
-          // Thêm ngắt dòng nếu không phải dòng cuối
-          if (lineIdx < lines.length - 1) {
-            highlightFormattedText += "\\N";
-          }
-        }
-
-        // Thêm dòng highlight cho từ này (layer 1)
-        const highlightPrefix = `Dialogue: 1,${wordStartAss},${wordEndAss},Default,,0,0,0,,`;
-        const highlightEffect = `{${blurTag}${borderTag}${shadowTag}${spacingTag}}`;
-        dialogueLines.push(highlightPrefix + highlightEffect + highlightText + highlightFormattedText);
-      }
-    }
-  }
-
-  return dialogueLines.join("\n");
+  return `${hours}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}.${ms.toString().padStart(2, '0')}`;
 }
 
 // Hàm tạo dòng tiêu đề
 function createTitleLine(options) {
-  const { titleText, titleDuration } = options;
+  const {
+    titleText,
+    titleColor1 = "00FFFF", // Default: Màu gradient 1
+    titleColor2 = "FF00FF", // Default: Màu gradient 2
+    titleDuration = 2       // Default: Thời gian hiển thị (giây)
+  } = options;
 
-  // Nếu không có titleText, không tạo tiêu đề
-  if (!titleText || titleText.trim() === "") {
-    return "";
+  // Không tạo tiêu đề nếu không có text
+  if (!titleText || titleText.trim() === '') {
+    return '';
   }
 
-  // Tạo tag fade với hiệu ứng fade in/out mượt mà
-  const fadeTag = "\\fad(800,800)";
+  // Thời gian hiển thị
+  const startTime = 0;
+  const endTime = titleDuration;
 
-  // Tạo tag vị trí ở giữa màn hình
-  const posTag = "\\pos(960,540)";
+  // Tạo dòng tiêu đề với hiệu ứng hiển thị và gradient
+  const dialogueLine = `Dialogue: 0,${formatAssTime(startTime)},${formatAssTime(endTime)},Title,,0,0,0,,{\\fad(300,300)\\blur2\\bord2\\1c&H${titleColor1}&\\2c&H000000&\\3c&H000000&\\4c&H000000&\\t(0,${Math.round(titleDuration * 1000)},\\1c&H${titleColor2}&)\\pos(256,100)\\fs50\\b1}${titleText}`;
 
-  // Màu chữ trắng đơn giản
-  const colorTag = "\\1c&HFFFFFF";
-
-  // Tạo tag viền và shadow đậm hơn
-  const outlineTag = "\\3c&H000000"; // Viền đen
-  const blurTag = "\\blur0.6"; // Blur nhẹ
-  const borderTag = "\\bord3"; // Viền dày hơn
-  const shadowTag = "\\shad2"; // Bóng đậm hơn
-  const boldTag = "\\b1"; // In đậm
-  const scaleTag = "\\fscx120\\fscy120"; // Scale to lớn hơn 20%
-
-  // Tính toán kích thước nền dựa trên độ dài của văn bản
-  // Giả định mỗi ký tự chiếm khoảng 20 đơn vị chiều rộng (với font size và scale đã cho)
-  const textLength = titleText.length;
-  const estimatedWidth = Math.max(100, textLength * 15); // Đảm bảo chiều rộng tối thiểu là 100
-  const rectWidth = estimatedWidth;
-  const rectHeight = 40;
-
-  // Tạo hiệu ứng nền đen mờ với kích thước phù hợp
-  const rectBgTag = `{\\an5\\pos(960,540)\\p1\\bord0\\shad0\\blur5\\c&H000000\\alpha&H99\\fad(800,800)}`;
-  
-  // Tạo hình chữ nhật với kích thước dựa trên độ dài văn bản
-  const halfWidth = rectWidth / 2;
-  const halfHeight = rectHeight / 2;
-  const rectPath = `m -${halfWidth} -${halfHeight} l ${rectWidth} 0 0 ${rectHeight} -${rectWidth} 0`;
-
-  // Kết hợp các tag cho tiêu đề chính
-  const allTags = `{${fadeTag}${posTag}${colorTag}${outlineTag}${blurTag}${borderTag}${shadowTag}${boldTag}${scaleTag}}`;
-
-  // Tạo dòng dialogue hoàn chỉnh với thời gian hiển thị
-  const titleLine = `Dialogue: 0,0:00:00.00,0:00:0${titleDuration}.00,Title,,0,0,0,,${allTags}${titleText}`;
-
-  // Tạo dòng nền đen (đặt layer thấp hơn để hiển thị phía sau tiêu đề)
-  const rectBgLine = `Dialogue: -1,0:00:00.00,0:00:0${titleDuration}.00,Title,,0,0,0,,${rectBgTag}${rectPath}`;
-
-  return rectBgLine + "\n" + titleLine;
+  return dialogueLine;
 }
 
 // Hàm xử lý toàn bộ workflow cho 1 task
@@ -1449,86 +692,47 @@ async function processTask(task) {
         // --- Bước 6: Tạo subtitle ASS ---
         if (subtitleUrl) {
           try {
-            const subtitle_file = `subtitle_${id}.srt`;
-            await downloadFile(subtitleUrl, subtitle_file);
-
-            // Chuyển đổi SRT sang ASS với hiệu ứng karaoke
-            const subtitle_ass = `subtitle_${id}.ass`;
-
-            // Tạo file ASS từ SRT
-            try {
-              // Đọc nội dung file SRT
-              const srtContent = fs.readFileSync(subtitle_file, 'utf8');
-
-              // Chuyển đổi SRT thành định dạng JSON cho whisper
-              const whisperJsonPath = `whisper_${id}.json`;
-              const outputJsonPath = `output_${id}.json`;
-
-              const whisperData = convertSrtToWhisperJson(srtContent);
-              fs.writeFileSync(whisperJsonPath, JSON.stringify(whisperData), 'utf8');
-
-              // Tạo file output.json từ whisper data
-              const outputData = createOutputJson(whisperData);
-              fs.writeFileSync(outputJsonPath, JSON.stringify(outputData), 'utf8');
-
-              // Truyền task vào hàm createAssSubtitle để sử dụng titleText
-              const result = await createAssSubtitle(whisperJsonPath, outputJsonPath, subtitle_ass, task);
-
-              // Xóa các file JSON tạm
-              fs.unlinkSync(whisperJsonPath);
-              fs.unlinkSync(outputJsonPath);
-
-              if (!result) {
-                throw new Error("Không thể tạo file ASS từ SRT");
-              }
-
-              writeLog(`[Task ${id}] Đã tạo file ASS thành công bằng hàm nội bộ`, 'INFO');
-
-              // --- Bước 7: Kết hợp video, audio và subtitle ---
-              const output_file = `output_${id}.mp4`;
-              const finalArgs = [
-                "-y", "-threads", "0",
-                "-i", temp_video_no_audio,
-                "-i", temp_audio,
-                "-i", subtitle_ass,
-                "-map", "0:v",
-                "-map", "1:a",
-                "-c:v", "libx264",
-                "-c:a", "aac",
-                "-vf", `ass=${subtitle_ass}`,
-                "-metadata:s:v", `title="Video with burned subtitles"`,
-                output_file
-              ];
-
-              await runFFmpeg(finalArgs);
-
-              // Ghi log cho quá trình xử lý subtitle
-              writeLog(`[Task ${id}] Đã thêm subtitle ASS thành công`, 'INFO');
-
-              // Xóa các file tạm nhưng giữ lại log
-              fs.unlinkSync(subtitle_file);
-              if (fs.existsSync(subtitle_ass)) {
-                fs.unlinkSync(subtitle_ass);
-              }
-            } catch (error) {
-              writeLog(`[Task ${id}] Lỗi khi xử lý subtitle: ${error.message}`, 'ERROR');
-
-              // Nếu có lỗi khi xử lý subtitle, tạo video không có subtitle
-              const output_file = `output_${id}.mp4`;
-              const finalArgs = [
-                "-y", "-threads", "0",
-                "-i", temp_video_no_audio,
-                "-i", temp_audio,
-                "-map", "0:v",
-                "-map", "1:a",
-                "-c:v", "libx264",
-                "-c:a", "aac",
-                output_file
-              ];
-
-              await runFFmpeg(finalArgs);
-              writeLog(`[Task ${id}] Đã tạo video không có subtitle do lỗi xử lý subtitle`, 'INFO');
+            // Đảm bảo URL phải là file ASS
+            if (!subtitleUrl.toLowerCase().endsWith('.ass')) {
+              throw new Error("Chỉ hỗ trợ file ASS cho subtitleUrl");
             }
+            
+            // Tải file ASS về
+            const subtitle_ass = `subtitle_${id}.ass`;
+            await downloadFile(subtitleUrl, subtitle_ass);
+            
+            // Xử lý trực tiếp file ASS và thêm tiêu đề
+            const result = await processAssSubtitle(subtitle_ass, task);
+            
+            if (!result) {
+              throw new Error("Không thể xử lý file ASS");
+            }
+            
+            writeLog(`[Task ${id}] Đã xử lý file ASS thành công`, 'INFO');
+
+            // --- Bước 7: Kết hợp video, audio và subtitle ---
+            const output_file = `output_${id}.mp4`;
+            const finalArgs = [
+              "-y", "-threads", "0",
+              "-i", temp_video_no_audio,
+              "-i", temp_audio,
+              "-i", subtitle_ass,
+              "-map", "0:v",
+              "-map", "1:a",
+              "-c:v", "libx264",
+              "-c:a", "aac",
+              "-vf", `ass=${subtitle_ass}`,
+              "-metadata:s:v", `title="Video with burned subtitles"`,
+              output_file
+            ];
+
+            await runFFmpeg(finalArgs);
+
+            // Ghi log cho quá trình xử lý subtitle
+            writeLog(`[Task ${id}] Đã thêm subtitle ASS thành công`, 'INFO');
+
+            // Xóa các file tạm
+            fs.unlinkSync(subtitle_ass);
           } catch (error) {
             writeLog(`[Task ${id}] Lỗi khi xử lý subtitle: ${error.message}`, 'ERROR');
 
@@ -1866,3 +1070,82 @@ app.delete('/logs/:filename', (req, res) => {
 app.listen(3000, () => {
   writeLog('Improved HTTP wrapper listening on port 3000', 'INFO');
 });
+
+// Hàm trực tiếp xử lý file ASS và thêm tiêu đề
+async function processAssSubtitle(assFilePath, task) {
+  writeLog(`Bắt đầu xử lý và thêm tiêu đề vào file ASS: ${assFilePath}`, 'INFO');
+
+  try {
+    // Kiểm tra file ASS có tồn tại không
+    if (!fs.existsSync(assFilePath)) {
+      writeLog(`File ${assFilePath} không tồn tại.`, 'ERROR');
+      return false;
+    }
+
+    // Đọc nội dung file ASS
+    const assContent = fs.readFileSync(assFilePath, 'utf8');
+    
+    // Tách phần header và dialogue
+    const headerEndIndex = assContent.indexOf('[Events]');
+    if (headerEndIndex === -1) {
+      writeLog(`File ASS không hợp lệ: không tìm thấy phần [Events]`, 'ERROR');
+      return false;
+    }
+    
+    // Lấy phần header bao gồm cả [Events] và Format line
+    let headerPart = assContent.substring(0, headerEndIndex);
+    const formatLineStart = assContent.indexOf('Format:', headerEndIndex);
+    const dialogueStart = assContent.indexOf('Dialogue:', formatLineStart);
+    
+    if (formatLineStart === -1 || dialogueStart === -1) {
+      writeLog(`File ASS không hợp lệ: không tìm thấy Format hoặc Dialogue`, 'ERROR');
+      return false;
+    }
+    
+    headerPart = assContent.substring(0, dialogueStart);
+    const dialoguePart = assContent.substring(dialogueStart);
+    
+    // Thiết lập thông tin tiêu đề
+    const titleText = task && task.titleText ? task.titleText : "";
+    const titleColor1 = "00FFFF"; // Màu gradient 1 cho title (định dạng: bbggrr)
+    const titleColor2 = "FF00FF"; // Màu gradient 2 cho title (định dạng: bbggrr)
+    const titleDuration = 2; // Thời gian hiển thị title (giây)
+    
+    // Log thông tin tiêu đề
+    if (titleText && titleText.trim() !== "") {
+      writeLog(`Sử dụng tiêu đề: "${titleText}"`, 'INFO');
+    } else {
+      writeLog(`Không sử dụng tiêu đề`, 'INFO');
+    }
+    
+    // Tạo nội dung mới cho file ASS
+    let newAssContent = headerPart;
+    
+    // Thêm dòng tiêu đề nếu cần
+    if (titleText && titleText.trim() !== "") {
+      const titleLine = createTitleLine({
+        titleText,
+        titleColor1,
+        titleColor2,
+        titleDuration
+      });
+      
+      if (titleLine !== "") {
+        // Thêm tiêu đề vào trước các dialogue hiện có
+        newAssContent += titleLine + "\n";
+      }
+    }
+    
+    // Thêm phần dialogue gốc
+    newAssContent += dialoguePart;
+    
+    // Ghi đè file ASS
+    fs.writeFileSync(assFilePath, newAssContent, 'utf8');
+    writeLog(`Đã xử lý thành công file phụ đề ASS: ${assFilePath}`, 'INFO');
+    
+    return true;
+  } catch (error) {
+    writeLog(`Lỗi khi xử lý file ASS: ${error.message}`, 'ERROR');
+    return false;
+  }
+}
