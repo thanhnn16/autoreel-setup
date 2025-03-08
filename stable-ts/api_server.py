@@ -363,16 +363,37 @@ def process_audio_with_attention_mask(model, audio_path, language="vi"):
     Returns:
         WhisperResult: Kết quả phiên âm
     """
-    # Các tùy chọn transcribe cụ thể cho tiếng Việt
+    # Các tùy chọn transcribe cơ bản
     transcribe_options = {
         "language": language,
-        "vad": True,                 # Sử dụng Voice Activity Detection
         "word_timestamps": True,     # Bắt buộc có timestamp ở cấp độ từng từ
+    }
+    
+    # Kiểm tra các tùy chọn nâng cao được hỗ trợ trong phiên bản stable-ts đang sử dụng
+    advanced_options = {
+        "vad": True,                 # Sử dụng Voice Activity Detection
         "suppress_silence": True,    # Loại bỏ khoảng im lặng
-        "suppress_nonspeech": True,  # Loại bỏ âm thanh không phải giọng nói
         "vad_threshold": 0.5,        # Threshold cho VAD
         "repetition_penalty": 1.2,   # Giảm khả năng lặp từ
     }
+    
+    # Kiểm tra tính năng suppress_nonspeech (có thể không được hỗ trợ trong mọi phiên bản)
+    try:
+        # Thử mẫu với một vài tùy chọn nâng cao trước
+        test_result = model.transcribe(
+            str(audio_path),
+            language=language,
+            suppress_nonspeech=True,
+            _skip_processing=True,  # Tránh thực sự phiên âm, chỉ kiểm tra tùy chọn
+            max_initial_timestamp=0.01,  # Giảm thiểu thời gian xử lý cho việc kiểm tra
+        )
+        # Nếu không lỗi thì thêm tùy chọn này
+        advanced_options["suppress_nonspeech"] = True
+    except Exception as e:
+        logger.info(f"Tùy chọn 'suppress_nonspeech' không được hỗ trợ trong phiên bản này: {str(e)}")
+    
+    # Thêm tất cả tùy chọn nâng cao được hỗ trợ
+    transcribe_options.update(advanced_options)
     
     # Nếu có GPU, thêm tùy chọn tối ưu
     if _device == "cuda":
@@ -380,18 +401,37 @@ def process_audio_with_attention_mask(model, audio_path, language="vi"):
         
         # Kiểm tra nếu mô hình là HF pipeline, thêm attn_implementation
         if hasattr(model, 'pipeline') and hasattr(model.pipeline, 'model'):
-            if not "generate_kwargs" in transcribe_options:
+            if "generate_kwargs" not in transcribe_options:
                 transcribe_options["generate_kwargs"] = {}
             transcribe_options["generate_kwargs"]["attn_implementation"] = "eager"
     
     # Thực hiện phiên âm
     logger.debug(f"Sử dụng các tùy chọn phiên âm: {transcribe_options}")
-    result = model.transcribe(
-        str(audio_path),
-        **transcribe_options
-    )
     
-    return result
+    try:
+        result = model.transcribe(
+            str(audio_path),
+            **transcribe_options
+        )
+        return result
+    except TypeError as e:
+        # Xử lý trường hợp các tùy chọn không được hỗ trợ
+        if "got an unexpected keyword argument" in str(e):
+            # Tách tên tùy chọn gây lỗi từ thông báo lỗi
+            invalid_option = str(e).split("'")[1] if "'" in str(e) else None
+            
+            if invalid_option and invalid_option in transcribe_options:
+                logger.warning(f"Loại bỏ tùy chọn không được hỗ trợ: {invalid_option}")
+                transcribe_options.pop(invalid_option, None)
+                
+                # Thử lại với tùy chọn đã lược bỏ
+                return model.transcribe(
+                    str(audio_path),
+                    **transcribe_options
+                )
+        
+        # Nếu không phải lỗi tùy chọn hoặc không thể xử lý, ném lại ngoại lệ
+        raise e
 
 if __name__ == "__main__":
     import uvicorn
