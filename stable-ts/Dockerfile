@@ -30,8 +30,21 @@ RUN pip3 install --no-cache-dir 'accelerate>=0.26.0'
 RUN pip3 install --no-cache-dir huggingface_hub
 RUN pip3 install --no-cache-dir librosa soundfile
 
-# Thêm biến môi trường cho Hugging Face token
-ENV HUGGINGFACE_HUB_TOKEN=""
+# Cài đặt các gói bổ sung cho PhoWhisper
+RUN pip3 install --no-cache-dir sentencepiece
+RUN pip3 install --no-cache-dir datasets
+RUN pip3 install --no-cache-dir safetensors
+
+# Cấu hình PyTorch để tối ưu bộ nhớ
+ENV PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
+
+# Tạo thư mục cho mô hình
+RUN mkdir -p /app/models/vinai/PhoWhisper-large
+
+# Lưu ý: Bạn cần đặt thư mục chứa mô hình PhoWhisper-large đã tải xuống 
+# vào cùng thư mục với Dockerfile trước khi build
+# Thư mục này nên có cấu trúc: ./models/vinai/PhoWhisper-large/...
+COPY ./models/vinai/PhoWhisper-large /app/models/vinai/PhoWhisper-large
 
 # Copy mã nguồn FastAPI (api_server.py) vào image
 COPY api_server.py .

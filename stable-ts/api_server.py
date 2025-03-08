@@ -12,6 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 from collections import deque
 import time
+from huggingface_hub import snapshot_download, HfFolder
+from pathlib import Path
 
 # Cấu hình logging
 logging.basicConfig(level=logging.INFO, 
@@ -51,14 +53,60 @@ app.add_middleware(
 # Cấu hình PyTorch để tối ưu bộ nhớ
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
 
-# Tải PhoWhisper-Large từ thư mục đã tải về
+# Hàm tải mô hình từ local hoặc Hugging Face
+def load_model_from_local_or_download(model_id, local_dir, device="cuda", compute_type="int8"):
+    local_path = Path(local_dir)
+    
+    # Kiểm tra xem mô hình đã tồn tại ở local chưa
+    if local_path.exists() and any(local_path.iterdir()):
+        logger.info(f"Sử dụng mô hình đã tải trước tại: {local_path}")
+        return stable_whisper.load_hf_whisper(str(local_path), device=device, compute_type=compute_type)
+    
+    # Nếu chưa có, tải từ Hugging Face
+    logger.info(f"Tải mô hình {model_id} từ Hugging Face Hub")
+    try:
+        # Tải mô hình từ Hugging Face Hub
+        snapshot_download(
+            repo_id=model_id,
+            local_dir=str(local_path),
+            local_dir_use_symlinks=False
+        )
+        logger.info(f"Đã tải mô hình {model_id} thành công")
+        return stable_whisper.load_hf_whisper(str(local_path), device=device, compute_type=compute_type)
+    except Exception as e:
+        logger.error(f"Lỗi khi tải mô hình từ Hugging Face: {str(e)}")
+        # Thử tải trực tiếp bằng stable_whisper
+        return stable_whisper.load_hf_whisper(model_id, device=device, compute_type=compute_type)
+
+# Tải PhoWhisper-Large
 try:
-    # Sử dụng load_hf_whisper để tải mô hình PhoWhisper-large từ VINAI
-    model = stable_whisper.load_hf_whisper("vinai/PhoWhisper-large", device="cuda", compute_type="int8")
-    logger.info("Đã tải model PhoWhisper-large từ VINAI thành công")
+    # Đường dẫn đến thư mục lưu mô hình
+    local_model_path = "/app/models/vinai/PhoWhisper-large"
+    
+    # Tải mô hình
+    model = load_model_from_local_or_download(
+        model_id="vinai/PhoWhisper-large",
+        local_dir=local_model_path,
+        device="cuda",
+        compute_type="int8"
+    )
+    
+    logger.info("Đã tải model PhoWhisper-large thành công")
 except Exception as e:
     logger.error(f"Lỗi khi tải model: {str(e)}")
-    model = None
+    # Thử tải lại với CPU nếu CUDA gặp vấn đề
+    try:
+        logger.info("Thử tải model với CPU")
+        model = load_model_from_local_or_download(
+            model_id="vinai/PhoWhisper-large",
+            local_dir=local_model_path,
+            device="cpu",
+            compute_type="float32"
+        )
+        logger.info("Đã tải model PhoWhisper-large với CPU thành công")
+    except Exception as cpu_e:
+        logger.error(f"Không thể tải model ngay cả với CPU: {str(cpu_e)}")
+        model = None
 
 # Middleware để log request body
 @app.middleware("http")
