@@ -48,12 +48,36 @@ def get_model():
         logger.info(f"Sử dụng thiết bị: {device}, compute_type: {compute_type}")
         
         try:
-            _model = stable_whisper.load_hf_whisper(
-                MODEL_PATH,
-                device=device,
-                compute_type=compute_type
-            )
-            logger.info("Đã tải mô hình thành công!")
+            # Phương thức 1: Tải trực tiếp với stable_whisper
+            try:
+                _model = stable_whisper.load_hf_whisper(
+                    MODEL_PATH,
+                    device=device,
+                    compute_type=compute_type,
+                    no_safetensors=True  # Bỏ qua tìm kiếm model.safetensors
+                )
+                logger.info("Đã tải mô hình thành công với stable_whisper.load_hf_whisper!")
+                return _model
+            except Exception as e:
+                logger.warning(f"Lỗi khi tải mô hình với stable_whisper.load_hf_whisper: {str(e)}")
+                logger.info("Thử phương pháp tải thay thế...")
+            
+            # Phương thức 2: Tải qua transformers trước, sau đó chuyển sang stable_whisper
+            from transformers import WhisperForConditionalGeneration, WhisperProcessor
+            
+            # Tải processor và model riêng biệt
+            logger.info("Tải mô hình qua transformers...")
+            processor = WhisperProcessor.from_pretrained(MODEL_PATH)
+            model = WhisperForConditionalGeneration.from_pretrained(MODEL_PATH)
+            
+            # Chuyển sang device (GPU nếu có)
+            model = model.to(device)
+            
+            # Chuyển đổi sang định dạng mà stable_whisper có thể sử dụng
+            logger.info("Chuyển đổi mô hình transformers sang định dạng stable_whisper...")
+            _model = stable_whisper.WhisperModel(model, processor, device=device, compute_type=compute_type)
+            
+            logger.info("Đã tải và chuyển đổi mô hình thành công!")
         except Exception as e:
             logger.error(f"Lỗi khi tải mô hình: {str(e)}")
             raise RuntimeError(f"Không thể tải mô hình: {str(e)}")
