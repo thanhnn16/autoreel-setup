@@ -132,6 +132,10 @@ async def startup_event():
         else:
             logger.info("Không phát hiện GPU, sẽ sử dụng CPU")
         
+        # Bỏ qua cảnh báo từ thư viện transformers về inputs/input_features
+        import warnings
+        warnings.filterwarnings("ignore", message="The input name `inputs` is deprecated")
+        
         # Tải mô hình ngay khi khởi động server
         logger.info("Bắt đầu tải mô hình khi khởi động server...")
         get_model()
@@ -192,14 +196,19 @@ async def transcribe_audio(
             start_time = time.time()
             
             # Chạy transcribe với tham số tối ưu cho tốc độ
-            result = model.transcribe(
-                str(temp_file),
-                language="vi",  # Xác định ngôn ngữ tiếng Việt
-                beam_size=5,    # Giảm beam size để tăng tốc độ
-                best_of=5,      # Giảm số lượng mẫu để tăng tốc độ
-                temperature=0.0, # Giảm nhiệt độ để tăng tốc độ và độ chính xác
-                fp16=_device == "cuda"  # Sử dụng fp16 cho GPU, fp32 cho CPU
-            )
+            try:
+                logger.info(f"Transcribing with Hugging Face Whisper (suzii/vi-whisper-large-v3-turbo)...")
+                result = model.transcribe(
+                    str(temp_file),
+                    language="vi",      # Xác định ngôn ngữ tiếng Việt
+                    temperature=0.0     # Giảm nhiệt độ để tăng tốc độ và độ chính xác
+                    # Đã loại bỏ các tham số không hợp lệ: beam_size, best_of, fp16
+                )
+            except TypeError as type_err:
+                # Nếu vẫn có lỗi về tham số, thử lại với tham số tối thiểu
+                logger.warning(f"Lỗi tham số khi gọi transcribe: {str(type_err)}")
+                logger.info("Thử lại với tham số tối thiểu...")
+                result = model.transcribe(str(temp_file))
             
             process_time = time.time() - start_time
             logger.info(f"Thời gian xử lý: {process_time:.2f} giây, với thiết bị: {_device}")
@@ -219,30 +228,26 @@ async def transcribe_audio(
                 torch.cuda.empty_cache()
                 gc.collect()
                 
-                # Đảm bảo tất cả tài nguyên GPU được giải phóng
-                time.sleep(1)
-                
-                # Tải lại mô hình trên CPU với dynamic quantization
-                model = get_model(force_cpu=True)
-                
-                # Đo thời gian xử lý
-                start_time = time.time()
-                
-                # Chạy với các tham số tối ưu cho CPU
-                result = model.transcribe(
-                    str(temp_file),
-                    language="vi",
-                    beam_size=1,      # Giảm beam size nhiều hơn trên CPU để tăng tốc
-                    best_of=1,        # Chỉ lấy kết quả tốt nhất để tăng tốc
-                    temperature=0.0,
-                    fp16=False        # Sử dụng float32 trên CPU thay vì fp16
-                )
-                
-                process_time = time.time() - start_time
-                logger.info(f"Thời gian xử lý trên CPU: {process_time:.2f} giây")
+                try:
+                    # Thử lại với CPU
+                    model = get_model(force_cpu=True)
+                    result = model.transcribe(
+                        str(temp_file),
+                        language="vi"  # Chỉ giữ lại tham số cần thiết
+                    )
+                except Exception as cpu_err:
+                    logger.error(f"Lỗi khi thử lại trên CPU: {str(cpu_err)}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Không thể xử lý file âm thanh, ngay cả khi sử dụng CPU: {str(cpu_err)}"
+                    )
             else:
-                # Nếu là lỗi khác, ném ngoại lệ
-                raise
+                # Lỗi khác không phải OOM
+                logger.error(f"Lỗi khi xử lý file âm thanh: {str(e)}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Không thể xử lý file âm thanh: {str(e)}"
+                )
         
         # Tạo file output
         output_file = TEMP_DIR / f"{temp_file.stem}.{format}"
@@ -267,10 +272,11 @@ async def transcribe_audio(
         }
         
     except Exception as e:
+        # Các lỗi khác
         logger.error(f"Lỗi khi xử lý file âm thanh: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail=f"Lỗi khi xử lý: {str(e)}"
+            detail=f"Không thể xử lý file âm thanh: {str(e)}"
         )
 
 @app.get("/download/{filename}")
