@@ -33,7 +33,9 @@ RUN pip3 install --no-cache-dir librosa soundfile
 # Cài đặt các gói bổ sung cho PhoWhisper
 RUN pip3 install --no-cache-dir sentencepiece
 RUN pip3 install --no-cache-dir datasets
-RUN pip3 install --no-cache-dir safetensors
+
+# Cài đặt các thư viện hỗ trợ PhoWhisper-large và Stable-ts
+RUN pip3 install --no-cache-dir "stable-ts[hf]" pydub
 
 # Cấu hình PyTorch để tối ưu bộ nhớ
 ENV PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
@@ -85,8 +87,8 @@ def test_model_loading():\n\
         logger.info("Kiểm tra tải mô hình với stable_whisper...")\n\
         model = stable_whisper.load_hf_whisper(\n\
             str(model_path),\n\
-            device="cpu",  # Sử dụng CPU để kiểm tra\n\
-            compute_type="float32"\n\
+            device="cuda" if torch.cuda.is_available() else "cpu",\n\
+            compute_type="float16" if torch.cuda.is_available() else "float32"\n\
         )\n\
         logger.info("Tải mô hình thành công!")\n\
         return True\n\
@@ -95,6 +97,7 @@ def test_model_loading():\n\
         return False\n\
 \n\
 if __name__ == "__main__":\n\
+    import torch\n\
     download_model()\n\
     test_model_loading()\n\
 ' > /app/download_model.py && chmod +x /app/download_model.py

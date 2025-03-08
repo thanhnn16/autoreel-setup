@@ -1,544 +1,250 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request, Form, Query, Response
-import stable_whisper
-import tempfile
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 import os
-import logging
 import torch
-import gc
-import random
-import json
-from fastapi.responses import JSONResponse, FileResponse
-from fastapi.middleware.cors import CORSMiddleware
+import tempfile
+import logging
+import shutil
 from typing import List, Optional
-from collections import deque
-import time
-from huggingface_hub import snapshot_download, HfFolder
 from pathlib import Path
+from pydub import AudioSegment
+import stable_whisper
+from fastapi import FastAPI, UploadFile, File, Form, BackgroundTasks, HTTPException
+from fastapi.responses import FileResponse, JSONResponse
 
 # Cấu hình logging
-logging.basicConfig(level=logging.INFO, 
-                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Lưu trữ logs trong bộ nhớ
-memory_logs = deque(maxlen=1000)  # Giữ tối đa 1000 log gần nhất
+# Tạo thư mục tạm cho các file
+TEMP_DIR = Path("/tmp/stable_ts_tmp")
+TEMP_DIR.mkdir(exist_ok=True, parents=True)
 
-# Handler tùy chỉnh để lưu logs vào bộ nhớ
-class MemoryLogHandler(logging.Handler):
-    def emit(self, record):
-        log_entry = {
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(record.created)),
-            'level': record.levelname,
-            'message': record.getMessage(),
-            'module': record.module
-        }
-        memory_logs.append(log_entry)
+# Đường dẫn đến mô hình đã tải
+MODEL_PATH = "/app/models/vinai/PhoWhisper-large"
 
-# Thêm handler vào logger
-memory_handler = MemoryLogHandler()
-logger.addHandler(memory_handler)
-
-app = FastAPI(title="Stable-TS API Server", 
-             description="API server cho Stable-TS với PhoWhisper-large")
-
-# Thêm CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+# Khởi tạo FastAPI app
+app = FastAPI(
+    title="PhoWhisper-large API with Stable-ts",
+    description="API để chuyển đổi âm thanh tiếng Việt thành văn bản sử dụng PhoWhisper-large và Stable-ts",
+    version="1.0.0"
 )
 
-# Cấu hình PyTorch để tối ưu bộ nhớ
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+# Biến toàn cục để lưu trữ mô hình đã tải
+_model = None
 
-# Thư mục lưu trữ tạm thời cho các file phụ đề
-SUBTITLE_DIR = "/app/subtitles"
-os.makedirs(SUBTITLE_DIR, exist_ok=True)
+def get_model():
+    """
+    Hàm lazy-loading để khởi tạo mô hình một lần duy nhất
+    """
+    global _model
+    if _model is None:
+        logger.info("Tải mô hình PhoWhisper-large...")
+        # Sử dụng GPU nếu có sẵn, nếu không thì sử dụng CPU
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        compute_type = "float16" if torch.cuda.is_available() else "float32"
+        
+        logger.info(f"Sử dụng thiết bị: {device}, compute_type: {compute_type}")
+        
+        try:
+            _model = stable_whisper.load_hf_whisper(
+                MODEL_PATH,
+                device=device,
+                compute_type=compute_type
+            )
+            logger.info("Đã tải mô hình thành công!")
+        except Exception as e:
+            logger.error(f"Lỗi khi tải mô hình: {str(e)}")
+            raise RuntimeError(f"Không thể tải mô hình: {str(e)}")
+    
+    return _model
 
-# Hàm tải mô hình từ local hoặc Hugging Face
-def load_model_from_local_or_download(model_id, local_dir, device="cuda", compute_type="int8"):
-    local_path = Path(local_dir)
+def clean_old_files():
+    """
+    Xóa các tệp tạm cũ trong thư mục tạm
+    """
+    import time
+    now = time.time()
+    for file_path in TEMP_DIR.glob("*"):
+        # Xóa các tệp cũ hơn 1 giờ
+        if now - file_path.stat().st_mtime > 3600:
+            if file_path.is_file():
+                file_path.unlink()
+            elif file_path.is_dir():
+                shutil.rmtree(file_path)
+
+def process_audio(audio_path: str, output_formats: List[str], 
+                 word_level: bool = True, segment_level: bool = True,
+                 language: Optional[str] = None):
+    """
+    Xử lý file audio và tạo các loại đầu ra theo yêu cầu
+    """
+    model = get_model()
     
-    # Kiểm tra xem mô hình đã tồn tại ở local chưa
-    if local_path.exists() and any(local_path.iterdir()):
-        logger.info(f"Sử dụng mô hình đã tải trước tại: {local_path}")
-        return stable_whisper.load_hf_whisper(str(local_path), device=device, compute_type=compute_type)
+    # Thêm tham số language nếu được cung cấp
+    transcribe_params = {}
+    if language:
+        transcribe_params["language"] = language
     
-    # Nếu chưa có, tải từ Hugging Face
-    logger.info(f"Tải mô hình {model_id} từ Hugging Face Hub")
-    try:
-        # Tải mô hình từ Hugging Face Hub
-        snapshot_download(
-            repo_id=model_id,
-            local_dir=str(local_path),
-            local_dir_use_symlinks=False
+    # Thực hiện chuyển đổi giọng nói thành văn bản
+    result = model.transcribe(audio_path, **transcribe_params)
+    
+    # Tạo dictionary để lưu đường dẫn đến các tệp đầu ra
+    output_files = {}
+    output_text = ""
+    
+    # Tạo các tệp đầu ra theo định dạng yêu cầu
+    filename = Path(audio_path).stem
+    
+    if "txt" in output_formats:
+        txt_path = TEMP_DIR / f"{filename}.txt"
+        # Lưu văn bản đơn thuần
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(result.text)
+        output_files["txt"] = str(txt_path)
+        output_text = result.text
+    
+    if "srt" in output_formats:
+        srt_path = TEMP_DIR / f"{filename}.srt"
+        result.to_srt(str(srt_path))
+        output_files["srt"] = str(srt_path)
+        
+    if "vtt" in output_formats:
+        vtt_path = TEMP_DIR / f"{filename}.vtt"
+        result.to_vtt(str(vtt_path))
+        output_files["vtt"] = str(vtt_path)
+    
+    if "ass" in output_formats:
+        ass_path = TEMP_DIR / f"{filename}.ass"
+        result.to_ass(
+            str(ass_path),
+            word_level=word_level,
+            segment_level=segment_level
         )
-        logger.info(f"Đã tải mô hình {model_id} thành công")
-        return stable_whisper.load_hf_whisper(str(local_path), device=device, compute_type=compute_type)
+        output_files["ass"] = str(ass_path)
+    
+    if "json" in output_formats:
+        json_path = TEMP_DIR / f"{filename}.json"
+        result.save_as_json(str(json_path))
+        output_files["json"] = str(json_path)
+        
+    return {
+        "text": output_text,
+        "output_files": output_files
+    }
+
+@app.on_event("startup")
+async def startup_event():
+    """
+    Khởi tạo trước mô hình khi khởi động server
+    """
+    try:
+        get_model()
     except Exception as e:
-        logger.error(f"Lỗi khi tải mô hình từ Hugging Face: {str(e)}")
-        # Thử tải trực tiếp bằng stable_whisper
-        return stable_whisper.load_hf_whisper(model_id, device=device, compute_type=compute_type)
+        logger.error(f"Lỗi khi khởi tạo mô hình: {str(e)}")
 
-# Tải PhoWhisper-Large
-try:
-    # Đường dẫn đến thư mục lưu mô hình
-    local_model_path = "/app/models/vinai/PhoWhisper-large"
-    
-    # Tải mô hình
-    model = load_model_from_local_or_download(
-        model_id="vinai/PhoWhisper-large",
-        local_dir=local_model_path,
-        device="cuda",
-        compute_type="int8"
-    )
-    
-    logger.info("Đã tải model PhoWhisper-large thành công")
-except Exception as e:
-    logger.error(f"Lỗi khi tải model: {str(e)}")
-    # Thử tải lại với CPU nếu CUDA gặp vấn đề
-    try:
-        logger.info("Thử tải model với CPU")
-        model = load_model_from_local_or_download(
-            model_id="vinai/PhoWhisper-large",
-            local_dir=local_model_path,
-            device="cpu",
-            compute_type="float32"
-        )
-        logger.info("Đã tải model PhoWhisper-large với CPU thành công")
-    except Exception as cpu_e:
-        logger.error(f"Không thể tải model ngay cả với CPU: {str(cpu_e)}")
-        model = None
-
-# Middleware để log request body
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    logger.info(f"Nhận request {request.method} {request.url}")
-    start_time = time.time()
-    try:
-        response = await call_next(request)
-        process_time = time.time() - start_time
-        logger.info(f"Trả về response với status code: {response.status_code} trong {process_time:.2f} giây")
-        return response
-    except Exception as e:
-        logger.error(f"Lỗi xử lý request: {str(e)}")
-        return JSONResponse(
-            status_code=500,
-            content={"error": str(e), "detail": "Lỗi server khi xử lý request"}
-        )
+@app.get("/")
+async def root():
+    """
+    Endpoint thông tin
+    """
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    return {
+        "name": "PhoWhisper-large Stable-ts API",
+        "status": "online",
+        "device": device,
+        "usage": "POST /transcribe với file âm thanh để chuyển đổi thành văn bản"
+    }
 
 @app.post("/transcribe")
-async def transcribe(
-    file: UploadFile = File(...), 
-    device: str = Form("cuda"),
-    vad: bool = Form(True),
-    denoiser: Optional[str] = Form(None),
-    vad_threshold: float = Form(0.35),
-    batch_size: int = Form(8),
-    word_timestamps: bool = Form(True),
-    compute_type: str = Form("int8"),
-    return_file: bool = Form(False),
-    output_format: str = Form("ass")  # Mặc định là ASS
+async def transcribe_audio(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    formats: str = Form("txt,srt,ass"),
+    word_level: bool = Form(True),
+    segment_level: bool = Form(True),
+    language: Optional[str] = Form(None)
 ):
     """
-    Chuyển đổi giọng nói thành văn bản với PhoWhisper-large.
+    Endpoint chuyển đổi âm thanh thành văn bản
     
     - **file**: File âm thanh cần chuyển đổi
-    - **device**: Thiết bị xử lý (cuda hoặc cpu)
-    - **vad**: Sử dụng Silero VAD để phát hiện giọng nói chính xác hơn
-    - **denoiser**: Sử dụng denoiser để lọc nhiễu (demucs hoặc None)
-    - **vad_threshold**: Ngưỡng phát hiện giọng nói với Silero VAD
-    - **batch_size**: Kích thước batch để tiết kiệm bộ nhớ
-    - **word_timestamps**: Tạo timestamp cho từng từ
-    - **compute_type**: Loại tính toán (int8, float16, float32)
-    - **return_file**: Trả về file phụ đề thay vì JSON
-    - **output_format**: Định dạng phụ đề (ass, srt, word_srt)
+    - **formats**: Các định dạng đầu ra, phân cách bằng dấu phẩy (txt,srt,vtt,ass,json)
+    - **word_level**: Có hiển thị timestamp cấp từ trong ASS hay không
+    - **segment_level**: Có hiển thị timestamp cấp đoạn trong ASS hay không
+    - **language**: Ngôn ngữ của âm thanh (mặc định: tự động phát hiện)
     """
-    # Kiểm tra model đã được tải chưa
-    if model is None:
-        logger.error("Model chưa được tải, không thể xử lý transcribe")
-        raise HTTPException(status_code=500, detail="Model chưa được tải")
-    
-    # Kiểm tra file có tồn tại không
-    if not file:
-        logger.error("Không tìm thấy file trong request")
-        raise HTTPException(status_code=400, detail="Không tìm thấy file trong request")
-    
-    # Kiểm tra file có phải là audio không
-    audio_extensions = ['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac']
-    file_ext = os.path.splitext(file.filename)[1].lower() if file.filename else ""
-    if file_ext not in audio_extensions:
-        logger.error(f"File không phải định dạng audio hỗ trợ: {file.filename}")
-        raise HTTPException(
-            status_code=400, 
-            detail=f"File phải là định dạng audio ({', '.join(audio_extensions)})"
-        )
-    
-    # Kiểm tra định dạng phụ đề
-    if output_format not in ["ass", "srt", "word_srt"]:
-        logger.error(f"Định dạng phụ đề không hỗ trợ: {output_format}")
+    # Kiểm tra định dạng file
+    if not file.filename.lower().endswith(('.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac')):
         raise HTTPException(
             status_code=400,
-            detail="Định dạng phụ đề phải là 'ass', 'srt' hoặc 'word_srt'"
+            detail="Định dạng file không được hỗ trợ. Vui lòng tải lên file âm thanh (.mp3, .wav, .ogg, .flac, .m4a, .aac)"
         )
     
     try:
-        # Dọn dẹp bộ nhớ CUDA trước khi xử lý
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-            gc.collect()
-            logger.info(f"Bộ nhớ CUDA trước khi xử lý: {torch.cuda.memory_allocated()/1024**2:.2f} MB / {torch.cuda.get_device_properties(0).total_memory/1024**3:.2f} GB")
+        # Lưu file tải lên vào thư mục tạm
+        temp_file = TEMP_DIR / file.filename
+        with open(temp_file, "wb") as f:
+            f.write(await file.read())
         
-        # Chọn thiết bị xử lý (CPU nếu GPU hết bộ nhớ)
-        use_device = device
-        if device == "cuda" and torch.cuda.is_available():
-            # Kiểm tra bộ nhớ GPU còn trống
-            free_memory = torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated()
-            if free_memory < 500 * 1024 * 1024:  # Nếu còn ít hơn 500MB
-                logger.warning("GPU memory is low, switching to CPU")
-                use_device = "cpu"
+        # Chuyển đổi các định dạng đầu ra thành list
+        output_formats = [fmt.strip().lower() for fmt in formats.split(",")]
+        valid_formats = ["txt", "srt", "vtt", "ass", "json"]
+        output_formats = [fmt for fmt in output_formats if fmt in valid_formats]
         
-        # Lưu file audio tạm thời trên đĩa
-        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
-            logger.info(f"Đang lưu file tạm: {tmp.name}")
-            content = await file.read()
-            if not content:
-                logger.error("File rỗng")
-                raise HTTPException(status_code=400, detail="File rỗng")
-            
-            tmp.write(content)
-            tmp.flush()
-            
-            # Log kích thước file
-            file_size = os.path.getsize(tmp.name)
-            logger.info(f"Kích thước file: {file_size} bytes")
-            
-            try:
-                # Thiết lập seed cố định nếu sử dụng demucs để có kết quả nhất quán
-                if denoiser == "demucs":
-                    random.seed(0)
-                    logger.info("Đã thiết lập random seed=0 cho demucs")
-                
-                # Chuyển đổi giọng nói sang văn bản với tiếng Việt
-                logger.info(f"Bắt đầu transcribe trên thiết bị: {use_device} với vad={vad}, denoiser={denoiser}")
-                
-                # Thiết lập các tham số để giảm sử dụng bộ nhớ
-                result = model.transcribe(
-                    tmp.name, 
-                    language="vi",
-                    vad_filter=vad,  # Lọc các đoạn không có giọng nói
-                    vad_threshold=vad_threshold,  # Ngưỡng phát hiện giọng nói
-                    batch_size=batch_size,  # Giảm batch size để tiết kiệm bộ nhớ
-                    word_timestamps=word_timestamps,  # Tạo timestamp cho từng từ
-                    compute_type=compute_type,  # Sử dụng int8 để tiết kiệm bộ nhớ
-                    denoiser=denoiser  # Sử dụng denoiser nếu được chỉ định
-                )
-                logger.info("Transcribe thành công")
-                
-                # Tạo tên file gốc không có phần mở rộng
-                base_filename = os.path.splitext(os.path.basename(file.filename))[0]
-                
-                # Tạo các file phụ đề
-                ass_path = os.path.join(SUBTITLE_DIR, f"{base_filename}_{int(time.time())}.ass")
-                srt_path = os.path.join(SUBTITLE_DIR, f"{base_filename}_{int(time.time())}.srt")
-                word_srt_path = os.path.join(SUBTITLE_DIR, f"{base_filename}_word_{int(time.time())}.srt")
-                
-                # Xuất kết quả ở các định dạng khác nhau
-                ass_output = result.to_ass(ass_path)
-                srt_output = result.to_srt_vtt(srt_path, word_level=False)
-                word_srt_output = result.to_srt_vtt(word_srt_path, segment_level=False)
-                
-                logger.info(f"Đã tạo phụ đề: ASS={ass_path}, SRT={srt_path}, Word SRT={word_srt_path}")
-                
-                # Xóa file tạm sau khi xử lý xong
-                os.unlink(tmp.name)
-                logger.info(f"Đã xóa file tạm: {tmp.name}")
-                
-                # Dọn dẹp bộ nhớ CUDA sau khi xử lý
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                    gc.collect()
-                    logger.info(f"Bộ nhớ CUDA sau khi xử lý: {torch.cuda.memory_allocated()/1024**2:.2f} MB / {torch.cuda.get_device_properties(0).total_memory/1024**3:.2f} GB")
-                
-                # Nếu yêu cầu trả về file phụ đề
-                if return_file:
-                    if output_format == "ass":
-                        return FileResponse(
-                            ass_path, 
-                            media_type="text/x-ssa", 
-                            filename=f"{base_filename}.ass"
-                        )
-                    elif output_format == "srt":
-                        return FileResponse(
-                            srt_path, 
-                            media_type="text/plain", 
-                            filename=f"{base_filename}.srt"
-                        )
-                    elif output_format == "word_srt":
-                        return FileResponse(
-                            word_srt_path, 
-                            media_type="text/plain", 
-                            filename=f"{base_filename}_word.srt"
-                        )
-                
-                # Trả về kết quả đầy đủ dưới dạng JSON
-                return {
-                    "text": result.text, 
-                    "ass": ass_output, 
-                    "srt": srt_output,
-                    "word_srt": word_srt_output,
-                    "device_used": use_device,
-                    "segments": result.to_dict().get("segments", []),
-                    "language": "vi",
-                    "processing_info": {
-                        "vad_used": vad,
-                        "denoiser_used": denoiser,
-                        "word_timestamps": word_timestamps,
-                        "compute_type": compute_type
-                    },
-                    "files": {
-                        "ass": ass_path,
-                        "srt": srt_path,
-                        "word_srt": word_srt_path
-                    }
-                }
-            except Exception as e:
-                logger.error(f"Lỗi khi xử lý transcribe: {str(e)}")
-                
-                # Nếu lỗi CUDA out of memory và đang dùng GPU, thử lại với CPU
-                if "CUDA out of memory" in str(e) and use_device == "cuda":
-                    logger.info("Thử lại với CPU do GPU hết bộ nhớ")
-                    try:
-                        # Dọn dẹp bộ nhớ
-                        torch.cuda.empty_cache()
-                        gc.collect()
-                        
-                        # Thử lại với CPU
-                        result = model.transcribe(
-                            tmp.name, 
-                            language="vi",
-                            vad_filter=vad,
-                            vad_threshold=vad_threshold,
-                            word_timestamps=word_timestamps,
-                            compute_type="float32",  # CPU thường dùng float32
-                            denoiser=denoiser
-                        )
-                        
-                        # Tạo tên file gốc không có phần mở rộng
-                        base_filename = os.path.splitext(os.path.basename(file.filename))[0]
-                        
-                        # Tạo các file phụ đề
-                        ass_path = os.path.join(SUBTITLE_DIR, f"{base_filename}_{int(time.time())}.ass")
-                        srt_path = os.path.join(SUBTITLE_DIR, f"{base_filename}_{int(time.time())}.srt")
-                        word_srt_path = os.path.join(SUBTITLE_DIR, f"{base_filename}_word_{int(time.time())}.srt")
-                        
-                        # Xuất kết quả ở các định dạng khác nhau
-                        ass_output = result.to_ass(ass_path)
-                        srt_output = result.to_srt_vtt(srt_path, word_level=False)
-                        word_srt_output = result.to_srt_vtt(word_srt_path, segment_level=False)
-                        
-                        logger.info(f"Đã tạo phụ đề (CPU fallback): ASS={ass_path}, SRT={srt_path}, Word SRT={word_srt_path}")
-                        
-                        # Xóa file tạm
-                        os.unlink(tmp.name)
-                        
-                        # Nếu yêu cầu trả về file phụ đề
-                        if return_file:
-                            if output_format == "ass":
-                                return FileResponse(
-                                    ass_path, 
-                                    media_type="text/x-ssa", 
-                                    filename=f"{base_filename}.ass"
-                                )
-                            elif output_format == "srt":
-                                return FileResponse(
-                                    srt_path, 
-                                    media_type="text/plain", 
-                                    filename=f"{base_filename}.srt"
-                                )
-                            elif output_format == "word_srt":
-                                return FileResponse(
-                                    word_srt_path, 
-                                    media_type="text/plain", 
-                                    filename=f"{base_filename}_word.srt"
-                                )
-                        
-                        return {
-                            "text": result.text, 
-                            "ass": ass_output, 
-                            "srt": srt_output,
-                            "word_srt": word_srt_output,
-                            "device_used": "cpu (fallback)",
-                            "segments": result.to_dict().get("segments", []),
-                            "language": "vi",
-                            "processing_info": {
-                                "vad_used": vad,
-                                "denoiser_used": denoiser,
-                                "word_timestamps": word_timestamps,
-                                "compute_type": "float32"
-                            },
-                            "files": {
-                                "ass": ass_path,
-                                "srt": srt_path,
-                                "word_srt": word_srt_path
-                            }
-                        }
-                    except Exception as cpu_e:
-                        logger.error(f"Lỗi khi thử lại với CPU: {str(cpu_e)}")
-                        raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý transcribe với CPU: {str(cpu_e)}")
-                
-                raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý transcribe: {str(e)}")
+        if not output_formats:
+            output_formats = ["txt"]  # Mặc định là văn bản thuần
+        
+        # Xử lý file âm thanh
+        result = process_audio(
+            str(temp_file), 
+            output_formats,
+            word_level=word_level,
+            segment_level=segment_level,
+            language=language
+        )
+        
+        # Thêm nhiệm vụ dọn dẹp tệp cũ
+        background_tasks.add_task(clean_old_files)
+        
+        return result
+        
     except Exception as e:
-        logger.error(f"Lỗi khi xử lý file: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý file: {str(e)}")
+        logger.error(f"Lỗi khi xử lý file âm thanh: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Lỗi khi xử lý: {str(e)}"
+        )
 
-@app.get("/download/{file_type}/{filename}")
-async def download_subtitle(file_type: str, filename: str):
+@app.get("/download/{file_format}/{filename}")
+async def download_file(file_format: str, filename: str):
     """
-    Tải xuống file phụ đề đã tạo
+    Endpoint tải xuống file kết quả
     
-    - **file_type**: Loại file (ass, srt, word_srt)
-    - **filename**: Tên file phụ đề
+    - **file_format**: Định dạng file (txt, srt, vtt, ass, json)
+    - **filename**: Tên file không có phần mở rộng
     """
-    if file_type not in ["ass", "srt", "word_srt"]:
-        raise HTTPException(status_code=400, detail="Loại file không hợp lệ")
+    if file_format not in ["txt", "srt", "vtt", "ass", "json"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Định dạng file không hợp lệ"
+        )
     
-    file_path = os.path.join(SUBTITLE_DIR, filename)
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File không tồn tại")
+    file_path = TEMP_DIR / f"{filename}.{file_format}"
     
-    media_type = "text/x-ssa" if file_type == "ass" else "text/plain"
-    return FileResponse(file_path, media_type=media_type, filename=filename)
+    if not file_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="File không tồn tại"
+        )
+    
+    return FileResponse(
+        path=file_path,
+        media_type="application/octet-stream",
+        filename=f"{filename}.{file_format}"
+    )
 
-@app.get("/health")
-async def health_check():
-    """
-    Kiểm tra trạng thái hoạt động của API server
-    """
-    if model is None:
-        return {"status": "error", "message": "Model chưa được tải"}
-    
-    # Thêm thông tin về bộ nhớ GPU
-    memory_info = {}
-    if torch.cuda.is_available():
-        memory_info = {
-            "total_memory_gb": torch.cuda.get_device_properties(0).total_memory / (1024**3),
-            "allocated_memory_mb": torch.cuda.memory_allocated() / (1024**2),
-            "free_memory_mb": (torch.cuda.get_device_properties(0).total_memory - torch.cuda.memory_allocated()) / (1024**2)
-        }
-    
-    return {
-        "status": "ok", 
-        "message": "API đang hoạt động bình thường",
-        "model": "vinai/PhoWhisper-large",
-        "gpu_memory": memory_info
-    }
-
-@app.post("/clear_memory")
-async def clear_memory():
-    """
-    Dọn dẹp bộ nhớ CUDA
-    """
-    if torch.cuda.is_available():
-        before = torch.cuda.memory_allocated() / (1024**2)
-        torch.cuda.empty_cache()
-        gc.collect()
-        after = torch.cuda.memory_allocated() / (1024**2)
-        return {
-            "status": "success",
-            "message": f"Đã dọn dẹp bộ nhớ CUDA",
-            "memory_before_mb": before,
-            "memory_after_mb": after
-        }
-    return {"status": "info", "message": "CUDA không khả dụng"}
-
-@app.get("/logs")
-async def get_logs(
-    limit: int = Query(100, description="Số lượng log muốn lấy"),
-    level: Optional[str] = Query(None, description="Lọc theo cấp độ log (INFO, ERROR, WARNING)")
-):
-    """
-    Lấy logs từ hệ thống
-    
-    - **limit**: Số lượng log muốn lấy (mặc định: 100)
-    - **level**: Lọc theo cấp độ log (INFO, ERROR, WARNING)
-    """
-    filtered_logs = list(memory_logs)
-    
-    # Lọc theo cấp độ nếu được chỉ định
-    if level:
-        filtered_logs = [log for log in filtered_logs if log['level'] == level.upper()]
-    
-    # Giới hạn số lượng log trả về
-    return {"logs": filtered_logs[-limit:]}
-
-@app.get("/model_info")
-async def model_info():
-    """
-    Lấy thông tin về mô hình đang được sử dụng
-    """
-    if model is None:
-        return {"status": "error", "message": "Model chưa được tải"}
-    
-    return {
-        "model_name": "vinai/PhoWhisper-large",
-        "language": "vi",
-        "description": "PhoWhisper là mô hình ASR được tinh chỉnh từ Whisper cho tiếng Việt, được phát triển bởi VinAI Research",
-        "features": [
-            "Hỗ trợ nhiều giọng địa phương tiếng Việt",
-            "Độ chính xác cao cho tiếng Việt",
-            "Tạo timestamp chính xác cho từng từ"
-        ],
-        "paper": "https://arxiv.org/abs/2401.03230",
-        "homepage": "https://huggingface.co/vinai/PhoWhisper-large"
-    }
-
-@app.get("/subtitle_files")
-async def list_subtitle_files():
-    """
-    Liệt kê tất cả các file phụ đề đã tạo
-    """
-    files = []
-    for filename in os.listdir(SUBTITLE_DIR):
-        file_path = os.path.join(SUBTITLE_DIR, filename)
-        if os.path.isfile(file_path):
-            file_type = "unknown"
-            if filename.endswith(".ass"):
-                file_type = "ass"
-            elif filename.endswith(".srt"):
-                if "word" in filename:
-                    file_type = "word_srt"
-                else:
-                    file_type = "srt"
-            
-            files.append({
-                "filename": filename,
-                "type": file_type,
-                "size": os.path.getsize(file_path),
-                "created": os.path.getctime(file_path)
-            })
-    
-    # Sắp xếp theo thời gian tạo, mới nhất lên đầu
-    files.sort(key=lambda x: x["created"], reverse=True)
-    
-    return {"files": files}
-
-@app.delete("/subtitle_files/{filename}")
-async def delete_subtitle_file(filename: str):
-    """
-    Xóa file phụ đề
-    
-    - **filename**: Tên file phụ đề cần xóa
-    """
-    file_path = os.path.join(SUBTITLE_DIR, filename)
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File không tồn tại")
-    
-    try:
-        os.remove(file_path)
-        return {"status": "success", "message": f"Đã xóa file {filename}"}
-    except Exception as e:
-        logger.error(f"Lỗi khi xóa file {filename}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Lỗi khi xóa file: {str(e)}")
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
