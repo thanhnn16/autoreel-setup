@@ -269,14 +269,18 @@ function createTitleLine(options) {
   const endTime = titleDuration;
 
   // Phong cách 2025: Tối giản, thanh lịch, tinh tế
-  // Đặt tiêu đề chính giữa màn hình (cả ngang và dọc)
-  // Sử dụng font San-serif hiện đại hỗ trợ tiếng Việt UTF-8
-  // Thêm blur nền để làm nổi bật chữ trên mọi hình nền
-  // Hiệu ứng fade in/out mượt mà (500ms)
-  // Vị trí: x=256 (giữa ngang), y=384 (giữa dọc) cho video 512x768
-  const dialogueLine = `Dialogue: 0,${formatAssTime(startTime)},${formatAssTime(endTime)},Title,,0,0,0,,{\\fad(500,500)\\blur0.7\\bord1.5\\1c&H${titleColor1}&\\3c&H000000&\\alpha&H00&\\pos(256,384)\\fs24\\an5\\q2\\i0\\fn@Arial Unicode MS\\shad0\\be0\\b0}{\\blur5\\3c&H000000&\\4c&H000000&\\1a&HB0&\\3a&HC0&\\4a&HC0&\\t(0,100,\\alpha&H60&)\\p1}m -100 -30 b -100 -50 100 -50 100 -30 b 100 -10 -100 -10 -100 -30{\\p0}${titleText}`;
-
-  return dialogueLine;
+  // Sử dụng cú pháp ASS đơn giản nhưng hiệu quả
+  // Đặt tiêu đề ở giữa video 512x768
+  
+  // Tạo hai dòng ASS - một dòng cho nền mờ và một dòng cho văn bản
+  // Dòng 1: Box nền tối để nổi bật chữ
+  const backgroundLine = `Dialogue: 0,${formatAssTime(startTime)},${formatAssTime(endTime)},Title,,0,0,0,,{\\an5\\pos(256,384)\\bord0\\shad0\\1c&H000000&\\1a&HD0&\\p1}m -160 -30 l 160 -30 l 160 30 l -160 30{\\p0}`;
+  
+  // Dòng 2: Văn bản tiêu đề với hiệu ứng fade
+  const textLine = `Dialogue: 1,${formatAssTime(startTime)},${formatAssTime(endTime)},Title,,0,0,0,,{\\fad(300,300)\\an5\\pos(256,384)\\fs26\\bord1.5\\1c&H${titleColor1}&\\3c&H000000&\\fn@Arial Unicode MS}${titleText}`;
+  
+  // Trả về cả 2 dòng, mỗi dòng trên một hàng riêng biệt
+  return backgroundLine + '\n' + textLine;
 }
 
 // Hàm xử lý toàn bộ workflow cho 1 task
@@ -628,30 +632,70 @@ async function processTask(task) {
         const voice_file = `voice_${id}.mp3`;
         const bg_file = `bg_${id}.mp3`;
 
-        // Tải file voice và background
-        await Promise.all([
-          downloadFile(voiceUrl, voice_file),
-          downloadFile(bgUrl, bg_file)
-        ]);
+        // Tải file voice
+        await downloadFile(voiceUrl, voice_file);
+        
+        // Kiểm tra và tải file background nếu có
+        let hasBgMusic = false;
+        if (bgUrl && bgUrl.trim() !== '') {
+          try {
+            await downloadFile(bgUrl, bg_file);
+            hasBgMusic = true;
+            writeLog(`[Task ${id}] Đã tải file nhạc nền thành công`, 'INFO');
+          } catch (error) {
+            writeLog(`[Task ${id}] Không thể tải nhạc nền: ${error.message}. Bỏ qua nhạc nền.`, 'WARNING');
+            hasBgMusic = false;
+          }
+        } else {
+          writeLog(`[Task ${id}] Không có URL nhạc nền (bgUrl). Bỏ qua nhạc nền.`, 'INFO');
+        }
 
-        // --- Bước 5: Mix âm thanh ---
+        // --- Bước 5: Mix âm thanh hoặc sử dụng voice trực tiếp ---
         const temp_audio = `temp_audio_${id}.mp3`;
-        const audioArgs = [
-          "-y", "-threads", "0",
-          "-i", voice_file,
-          "-i", bg_file,
-          "-filter_complex",
-          `[0:a]volume=1[voice];[1:a]volume=0.2[bg];[voice][bg]amix=inputs=2:duration=first:dropout_transition=2,dynaudnorm=f=200[out]`,
-          "-map", "[out]",
-          temp_audio
-        ];
+        
+        if (hasBgMusic) {
+          // Mix âm thanh nếu có nhạc nền
+          const audioArgs = [
+            "-y", "-threads", "0",
+            "-i", voice_file,
+            "-i", bg_file,
+            "-filter_complex",
+            `[0:a]volume=1[voice];
+             [1:a]volume=0.15,afade=t=in:st=0:d=1[bgfaded];
+             [bgfaded][0:a]sidechaincompress=threshold=0.02:ratio=5:attack=5:release=50[duckedbg];
+             [voice][duckedbg]amix=inputs=2:duration=first:dropout_transition=2,dynaudnorm=f=200[out]`,
+            "-map", "[out]",
+            temp_audio
+          ];
 
-        await runFFmpeg(audioArgs);
+          await runFFmpeg(audioArgs);
+          writeLog(`[Task ${id}] Đã mix âm thanh voice và nhạc nền thành công`, 'INFO');
+        } else {
+          // Nếu không có nhạc nền, chỉ xử lý voice
+          const audioArgs = [
+            "-y", "-threads", "0",
+            "-i", voice_file,
+            "-filter_complex",
+            `[0:a]dynaudnorm=f=200[out]`,
+            "-map", "[out]",
+            temp_audio
+          ];
 
-        // Ghi log cho quá trình xử lý âm thanh
-        writeLog(`[Task ${id}] Đã mix âm thanh thành công`, 'INFO');
+          await runFFmpeg(audioArgs);
+          writeLog(`[Task ${id}] Đã xử lý âm thanh voice (không có nhạc nền)`, 'INFO');
+        }
 
-        // --- Bước 6: Tạo subtitle ASS ---
+        // --- Bước 6: Xử lý tiêu đề và subtitle ---
+        let subtitle_ass = null;
+        let title_ass = null;
+
+        // Tạo file tiêu đề nếu có
+        if (titleText && titleText.trim() !== '') {
+          title_ass = await createTitleFile(task);
+          writeLog(`[Task ${id}] Đã tạo file tiêu đề: ${title_ass}`, 'INFO');
+        }
+
+        // Xử lý subtitle nếu có
         if (subtitleUrl) {
           try {
             // Đảm bảo URL phải là file ASS
@@ -660,10 +704,10 @@ async function processTask(task) {
             }
             
             // Tải file ASS về
-            const subtitle_ass = `subtitle_${id}.ass`;
+            subtitle_ass = `subtitle_${id}.ass`;
             await downloadFile(subtitleUrl, subtitle_ass);
             
-            // Xử lý trực tiếp file ASS và thêm tiêu đề
+            // Xử lý file ASS (không thêm tiêu đề vào)
             const result = await processAssSubtitle(subtitle_ass, task);
             
             if (!result) {
@@ -672,83 +716,172 @@ async function processTask(task) {
             
             writeLog(`[Task ${id}] Đã xử lý file ASS thành công`, 'INFO');
 
-            // --- Bước 7: Kết hợp video, audio và subtitle ---
+            // --- Bước 7: Kết hợp video, audio, tiêu đề và subtitle ---
             const output_file = `output_${id}.mp4`;
+            
+            // Tạo filter phức tạp để áp dụng cả tiêu đề và subtitle
+            let videoFilter = "";
+            
+            if (title_ass && subtitle_ass) {
+              // Áp dụng cả tiêu đề và subtitle
+              videoFilter = `ass=${subtitle_ass},ass=${title_ass}`;
+              writeLog(`[Task ${id}] Áp dụng cả tiêu đề và subtitle`, 'INFO');
+            } else if (subtitle_ass) {
+              // Chỉ áp dụng subtitle
+              videoFilter = `ass=${subtitle_ass}`;
+              writeLog(`[Task ${id}] Chỉ áp dụng subtitle`, 'INFO');
+            } else if (title_ass) {
+              // Chỉ áp dụng tiêu đề
+              videoFilter = `ass=${title_ass}`;
+              writeLog(`[Task ${id}] Chỉ áp dụng tiêu đề`, 'INFO');
+            }
+            
             const finalArgs = [
               "-y", "-threads", "0",
               "-i", temp_video_no_audio,
-              "-i", temp_audio,
-              "-i", subtitle_ass,
+              "-i", temp_audio
+            ];
+            
+            if (videoFilter) {
+              finalArgs.push("-vf", videoFilter);
+            }
+            
+            finalArgs.push(
               "-map", "0:v",
               "-map", "1:a",
               "-c:v", "libx264",
               "-c:a", "aac",
-              "-vf", `ass=${subtitle_ass}`,
-              "-metadata:s:v", `title="Video with burned subtitles"`,
+              "-metadata:s:v", `title="Video with burned subtitles and title"`,
               output_file
-            ];
+            );
 
             await runFFmpeg(finalArgs);
 
-            // Ghi log cho quá trình xử lý subtitle
-            writeLog(`[Task ${id}] Đã thêm subtitle ASS thành công`, 'INFO');
+            // Ghi log cho quá trình xử lý
+            writeLog(`[Task ${id}] Đã kết hợp video, âm thanh và phụ đề thành công`, 'INFO');
+
+            // Xóa file phụ đề tạm
+            if (subtitle_ass && fs.existsSync(subtitle_ass)) fs.unlinkSync(subtitle_ass);
+            if (title_ass && fs.existsSync(title_ass)) fs.unlinkSync(title_ass);
 
             // Xóa các file tạm
-            fs.unlinkSync(subtitle_ass);
+            if (fs.existsSync(voice_file)) fs.unlinkSync(voice_file);
+            if (hasBgMusic && fs.existsSync(bg_file)) fs.unlinkSync(bg_file);
+            if (fs.existsSync(temp_audio)) fs.unlinkSync(temp_audio);
+            if (fs.existsSync(temp_video_no_audio)) fs.unlinkSync(temp_video_no_audio);
+
+            // Xóa thư mục tạm và các file trong đó
+            /* Comment lại để kiểm tra output
+            if (fs.existsSync(tempDir)) {
+              const files = fs.readdirSync(tempDir);
+              for (const file of files) {
+                fs.unlinkSync(path.join(tempDir, file));
+              }
+              fs.rmdirSync(tempDir);
+            }
+            */
+
+            writeLog(`[Task ${id}] Đã giữ lại thư mục tạm để kiểm tra: ${tempDir}`, 'INFO');
+
+            // Ghi log tổng kết
+            const duration = (Date.now() - startTime) / 1000;
+            const summary = {
+              taskId: id,
+              startTime: new Date(startTime).toISOString(),
+              endTime: new Date().toISOString(),
+              duration: duration,
+              totalImages: images.length,
+              totalDuration: durations.reduce((acc, d) => acc + parseFloat(d), 0),
+              hasSubtitle: !!subtitleUrl,
+              videoSettings: {
+                width: video_width,
+                height: video_height,
+                fps: fps,
+                quality: video_quality,
+                preset: preset
+              }
+            };
+
+            fs.writeFileSync(
+              `${logsDir}/task_${id}_summary.json`,
+              JSON.stringify(summary, null, 2)
+            );
+
+            writeLog(`[Task ${id}] Hoàn thành xử lý task sau ${duration}s`, 'INFO');
+            return { success: true, duration, summary };
+
           } catch (error) {
             writeLog(`[Task ${id}] Lỗi khi xử lý subtitle: ${error.message}`, 'ERROR');
 
-            // Nếu có lỗi khi xử lý subtitle, tạo video không có subtitle
+            // Nếu có lỗi khi xử lý subtitle, vẫn áp dụng tiêu đề nếu có
             const output_file = `output_${id}.mp4`;
             const finalArgs = [
               "-y", "-threads", "0",
               "-i", temp_video_no_audio,
-              "-i", temp_audio,
+              "-i", temp_audio
+            ];
+            
+            // Áp dụng tiêu đề nếu có
+            if (title_ass && fs.existsSync(title_ass)) {
+              finalArgs.push("-vf", `ass=${title_ass}`);
+              writeLog(`[Task ${id}] Áp dụng tiêu đề mặc dù lỗi subtitle`, 'INFO');
+            }
+            
+            finalArgs.push(
               "-map", "0:v",
               "-map", "1:a",
               "-c:v", "libx264",
               "-c:a", "aac",
               output_file
-            ];
+            );
 
             await runFFmpeg(finalArgs);
-            writeLog(`[Task ${id}] Đã tạo video không có subtitle do lỗi xử lý subtitle`, 'INFO');
+            writeLog(`[Task ${id}] Đã tạo video với tiêu đề (nếu có) nhưng không có subtitle do lỗi xử lý subtitle`, 'INFO');
+            
+            // Xóa file tiêu đề nếu có
+            if (title_ass && fs.existsSync(title_ass)) fs.unlinkSync(title_ass);
           }
         } else {
-          // Nếu không có subtitle, chỉ kết hợp video và audio
+          // Nếu không có subtitle, vẫn áp dụng tiêu đề nếu có
           const output_file = `output_${id}.mp4`;
           const finalArgs = [
             "-y", "-threads", "0",
             "-i", temp_video_no_audio,
-            "-i", temp_audio,
+            "-i", temp_audio
+          ];
+          
+          // Áp dụng tiêu đề nếu có
+          if (title_ass && fs.existsSync(title_ass)) {
+            finalArgs.push("-vf", `ass=${title_ass}`);
+            writeLog(`[Task ${id}] Áp dụng tiêu đề cho video không có subtitle`, 'INFO');
+          }
+          
+          finalArgs.push(
             "-map", "0:v",
             "-map", "1:a",
             "-c:v", "libx264",
             "-c:a", "aac",
             output_file
-          ];
+          );
 
           await runFFmpeg(finalArgs);
-          writeLog(`[Task ${id}] Đã tạo video không có subtitle thành công`, 'INFO');
+          
+          if (title_ass) {
+            writeLog(`[Task ${id}] Đã tạo video với tiêu đề nhưng không có subtitle`, 'INFO');
+          } else {
+            writeLog(`[Task ${id}] Đã tạo video không có cả tiêu đề và subtitle`, 'INFO');
+          }
+          
+          // Xóa file tiêu đề nếu có
+          if (title_ass && fs.existsSync(title_ass)) fs.unlinkSync(title_ass);
         }
 
         // Xóa các file tạm nhưng giữ lại log
         try {
           if (fs.existsSync(voice_file)) fs.unlinkSync(voice_file);
-          if (fs.existsSync(bg_file)) fs.unlinkSync(bg_file);
+          if (hasBgMusic && fs.existsSync(bg_file)) fs.unlinkSync(bg_file);
           if (fs.existsSync(temp_audio)) fs.unlinkSync(temp_audio);
           if (fs.existsSync(temp_video_no_audio)) fs.unlinkSync(temp_video_no_audio);
-
-          // Xóa thư mục tạm và các file trong đó
-          /* Comment lại để kiểm tra output
-          if (fs.existsSync(tempDir)) {
-            const files = fs.readdirSync(tempDir);
-            for (const file of files) {
-              fs.unlinkSync(path.join(tempDir, file));
-            }
-            fs.rmdirSync(tempDir);
-          }
-          */
 
           writeLog(`[Task ${id}] Đã giữ lại thư mục tạm để kiểm tra: ${tempDir}`, 'INFO');
         } catch (error) {
@@ -1035,7 +1168,7 @@ app.listen(3000, () => {
 
 // Hàm trực tiếp xử lý file ASS và thêm tiêu đề
 async function processAssSubtitle(assFilePath, task) {
-  writeLog(`Bắt đầu xử lý và thêm tiêu đề vào file ASS: ${assFilePath}`, 'INFO');
+  writeLog(`Bắt đầu xử lý file ASS: ${assFilePath}`, 'INFO');
 
   try {
     // Kiểm tra file ASS có tồn tại không
@@ -1067,47 +1200,63 @@ async function processAssSubtitle(assFilePath, task) {
     headerPart = assContent.substring(0, dialogueStart);
     const dialoguePart = assContent.substring(dialogueStart);
     
-    // Thiết lập thông tin tiêu đề
-    const titleText = task && task.titleText ? task.titleText : "";
-    const titleColor1 = task && task.titleColor1 ? task.titleColor1 : "FFFFFF"; // Màu chữ (trắng tinh khiết)
-    const titleColor2 = task && task.titleColor2 ? task.titleColor2 : "FFFFFF"; // Không dùng gradient
-    const titleDuration = task && task.titleDuration ? task.titleDuration : 3; // Thời gian hiển thị title (giây)
-    
-    // Log thông tin tiêu đề
-    if (titleText && titleText.trim() !== "") {
-      writeLog(`Sử dụng tiêu đề: "${titleText}"`, 'INFO');
-    } else {
-      writeLog(`Không sử dụng tiêu đề`, 'INFO');
-    }
-    
-    // Tạo nội dung mới cho file ASS
-    let newAssContent = headerPart;
-    
-    // Thêm dòng tiêu đề nếu cần
-    if (titleText && titleText.trim() !== "") {
-      const titleLine = createTitleLine({
-        titleText,
-        titleColor1,
-        titleColor2,
-        titleDuration
-      });
-      
-      if (titleLine !== "") {
-        // Thêm tiêu đề vào trước các dialogue hiện có
-        newAssContent += titleLine + "\n";
-      }
-    }
-    
-    // Thêm phần dialogue gốc
-    newAssContent += dialoguePart;
-    
-    // Ghi đè file ASS
-    fs.writeFileSync(assFilePath, newAssContent, 'utf8');
-    writeLog(`Đã xử lý thành công file phụ đề ASS: ${assFilePath}`, 'INFO');
-    
+    // Giữ nguyên nội dung file subtitle ASS, không thêm tiêu đề vào
+    // Vì tiêu đề sẽ được xử lý riêng trong một file ASS khác
+
     return true;
   } catch (error) {
     writeLog(`Lỗi khi xử lý file ASS: ${error.message}`, 'ERROR');
     return false;
   }
+}
+
+// Hàm tạo file ASS chỉ chứa tiêu đề
+async function createTitleFile(task) {
+  const { id, titleText, titleColor1 = "FFFFFF", titleColor2 = "FFFFFF", titleDuration = 3 } = task;
+  
+  // Không tạo file nếu không có tiêu đề
+  if (!titleText || titleText.trim() === '') {
+    writeLog(`Không có tiêu đề, bỏ qua việc tạo file tiêu đề`, 'INFO');
+    return null;
+  }
+
+  writeLog(`Tạo file ASS cho tiêu đề: "${titleText}"`, 'INFO');
+  
+  const titleFilePath = `title_${id}.ass`;
+  
+  // Tạo nội dung cơ bản cho file ASS
+  let assContent = `[Script Info]
+; Tệp ASS được tạo bởi AutoReel
+ScriptType: v4.00+
+PlayResX: 512
+PlayResY: 768
+Timer: 100.0000
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Title,Arial,26,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1.5,0,5,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+`;
+
+  // Tạo dòng tiêu đề
+  const titleLine = createTitleLine({
+    titleText,
+    titleColor1,
+    titleColor2,
+    titleDuration
+  });
+  
+  if (titleLine) {
+    assContent += titleLine;
+    
+    // Ghi file ASS
+    fs.writeFileSync(titleFilePath, assContent, 'utf8');
+    writeLog(`Đã tạo file tiêu đề: ${titleFilePath}`, 'INFO');
+    
+    return titleFilePath;
+  }
+  
+  return null;
 }
