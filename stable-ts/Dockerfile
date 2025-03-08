@@ -24,6 +24,7 @@ RUN pip3 install --no-cache-dir uvicorn fastapi
 RUN pip3 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu124
 RUN pip3 install --no-cache-dir git+https://github.com/jianfch/stable-ts.git
 RUN pip3 install --no-cache-dir python-multipart
+RUN pip3 install --no-cache-dir transformers
 
 # Copy mã nguồn FastAPI (api_server.py) vào image
 COPY api_server.py .
