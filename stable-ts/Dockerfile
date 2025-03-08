@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y \
     python3-pip \
     git \
     git-lfs \
+    libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Cấu hình git-lfs
@@ -26,6 +27,11 @@ RUN pip3 install --no-cache-dir git+https://github.com/jianfch/stable-ts.git
 RUN pip3 install --no-cache-dir python-multipart
 RUN pip3 install --no-cache-dir transformers
 RUN pip3 install --no-cache-dir 'accelerate>=0.26.0'
+RUN pip3 install --no-cache-dir huggingface_hub
+RUN pip3 install --no-cache-dir librosa soundfile
+
+# Thêm biến môi trường cho Hugging Face token
+ENV HUGGINGFACE_HUB_TOKEN=""
 
 # Copy mã nguồn FastAPI (api_server.py) vào image
 COPY api_server.py .
