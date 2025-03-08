@@ -289,7 +289,104 @@ if [ -d "./nginx/letsencrypt" ]; then
   sudo chmod -R 700 /etc/letsencrypt/archive
   sudo chmod -R 700 /etc/letsencrypt/live
 
+  # Kiểm tra và tạo lại symbolic link nếu cần thiết
+  echo "Kiểm tra và tạo lại symbolic link cho chứng chỉ SSL..."
+  
+  # Kiểm tra xem thư mục live và archive có tồn tại không
+  if [ -d "/etc/letsencrypt/archive/n8n.autoreel.io.vn" ] && [ -d "/etc/letsencrypt/live" ]; then
+    # Tạo thư mục live/n8n.autoreel.io.vn nếu chưa tồn tại
+    sudo mkdir -p /etc/letsencrypt/live/n8n.autoreel.io.vn
+    
+    # Tạo lại các symbolic link
+    sudo ln -sf /etc/letsencrypt/archive/n8n.autoreel.io.vn/privkey1.pem /etc/letsencrypt/live/n8n.autoreel.io.vn/privkey.pem
+    sudo ln -sf /etc/letsencrypt/archive/n8n.autoreel.io.vn/fullchain1.pem /etc/letsencrypt/live/n8n.autoreel.io.vn/fullchain.pem
+    sudo ln -sf /etc/letsencrypt/archive/n8n.autoreel.io.vn/chain1.pem /etc/letsencrypt/live/n8n.autoreel.io.vn/chain.pem
+    sudo ln -sf /etc/letsencrypt/archive/n8n.autoreel.io.vn/cert1.pem /etc/letsencrypt/live/n8n.autoreel.io.vn/cert.pem
+    
+    echo "Đã tạo lại symbolic link cho chứng chỉ SSL"
+  else
+    echo "⚠️ Không tìm thấy thư mục archive hoặc live trong /etc/letsencrypt"
+    echo "Đang tạo chứng chỉ SSL mới với Certbot..."
+    
+    # Chạy certbot để lấy chứng chỉ SSL mới
+    sudo certbot --nginx --non-interactive --agree-tos --redirect \
+      --staple-ocsp --email thanhnn16.work@gmail.com -d n8n.autoreel.io.vn
+      
+    # Nếu certbot thành công, không cần tạo cấu hình Nginx mới
+    if [ $? -eq 0 ]; then
+      echo "✅ Đã tạo chứng chỉ SSL mới thành công với Certbot"
+      echo "--------- 🔴 Hoàn thành thiết lập SSL với Certbot -----------"
+      return 0
+    fi
+  fi
+
   echo "Đã sao chép chứng chỉ SSL thành công"
+  
+  # Tạo cấu hình Nginx với SSL
+  echo "Cập nhật cấu hình Nginx để sử dụng SSL..."
+  cat >./n8n_ssl_nginx_config <<'EOL'
+server {
+    listen 80;
+    server_name n8n.autoreel.io.vn;
+    
+    # Chuyển hướng tất cả HTTP sang HTTPS
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name n8n.autoreel.io.vn;
+
+    # Cấu hình SSL
+    ssl_certificate /etc/letsencrypt/live/n8n.autoreel.io.vn/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/n8n.autoreel.io.vn/privkey.pem;
+    ssl_trusted_certificate /etc/letsencrypt/live/n8n.autoreel.io.vn/chain.pem;
+    
+    # Cấu hình SSL tối ưu
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers on;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_tickets off;
+    ssl_stapling on;
+    ssl_stapling_verify on;
+    
+    # Cấu hình proxy cho n8n
+    location / {
+        proxy_pass http://localhost:5678;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+}
+EOL
+  sudo cp ./n8n_ssl_nginx_config /etc/nginx/sites-available/n8n
+  sudo ln -sf /etc/nginx/sites-available/n8n /etc/nginx/sites-enabled/
+  
+  # Kiểm tra cấu hình Nginx trước khi khởi động lại
+  echo "Kiểm tra cấu hình Nginx..."
+  if sudo nginx -t; then
+    echo "✅ Cấu hình Nginx hợp lệ, đang khởi động lại Nginx..."
+    sudo systemctl restart nginx
+    echo "✅ Đã khởi động lại Nginx thành công"
+  else
+    echo "❌ Cấu hình Nginx không hợp lệ, đang tạo chứng chỉ SSL mới với Certbot..."
+    # Chạy certbot để lấy chứng chỉ SSL mới
+    sudo certbot --nginx --non-interactive --agree-tos --redirect \
+      --staple-ocsp --email thanhnn16.work@gmail.com -d n8n.autoreel.io.vn
+  fi
+  
+  # Xóa file tạm
+  rm -f ./n8n_ssl_nginx_config
+  
+  echo "Đã cấu hình Nginx với SSL thành công"
 else
   echo "Không tìm thấy thư mục chứng chỉ SSL đã lưu trong nginx/letsencrypt"
   echo "Đang tạo chứng chỉ SSL mới với Certbot..."
