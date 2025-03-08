@@ -25,6 +25,7 @@ RUN pip3 install --no-cache-dir torch --index-url https://download.pytorch.org/w
 RUN pip3 install --no-cache-dir git+https://github.com/jianfch/stable-ts.git
 RUN pip3 install --no-cache-dir python-multipart
 RUN pip3 install --no-cache-dir transformers
+RUN pip3 install --no-cache-dir 'accelerate>=0.26.0'
 
 # Copy mã nguồn FastAPI (api_server.py) vào image
 COPY api_server.py .
