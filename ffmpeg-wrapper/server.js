@@ -257,25 +257,31 @@ function createTitleLine(options) {
   // Sử dụng font hỗ trợ tốt tiếng Việt
   const fontName = "Arial"; // Hoặc "Noto Sans" nếu có sẵn trên hệ thống
   
-  // Tăng kích thước chữ để dễ đọc hơn - Tăng từ 46 lên 60
+  // Tăng kích thước chữ để dễ đọc hơn
   const fontSize = 60;
   
-  // Kích thước hình chữ nhật nền - tăng kích thước để đảm bảo bao phủ đầy đủ
-  const rectWidth = 850; // Tăng từ 650 lên 850
-  const rectHeight = 220; // Tăng từ 150 lên 220
+  // Kích thước hình chữ nhật nền
+  const rectWidth = 900; 
+  const rectHeight = 250; 
   
-  // Thay vì trực tiếp vẽ phức tạp như trước, chúng ta sẽ sử dụng cách đơn giản hơn
-  // Nền đen căn giữa sử dụng \an5 để đảm bảo căn giữa chính xác
-  // Sử dụng đồ họa ASS hiệu quả hơn cho nền
-  const backgroundLine = `Dialogue: 0,${formatAssTime(startTime)},${formatAssTime(endTime)},Title,,0,0,0,,{\\an5\\pos(${centerX},${centerY})\\bord0\\shad0\\fscx${rectWidth}\\fscy${rectHeight}\\1c&H000000&\\1a&HB0&\\t(0,300,\\1a&HC0&)\\t(${(endTime-0.3)*1000},${endTime*1000},\\1a&HFF&)}▬`;
+  // Tính toán vị trí cho hình chữ nhật dựa trên centerX, centerY
+  const rectLeft = centerX - rectWidth/2;
+  const rectTop = centerY - rectHeight/2;
+  
+  // Tạo nền đen bằng cách sử dụng filter "drawbox" thay vì subtitle
+  // Sử dụng các lệnh vẽ đường trong ASS chính xác hơn và định nghĩa tọa độ tuyệt đối
+  // Lưu ý: Cú pháp ASS đúng cách để vẽ hình chữ nhật với tọa độ tuyệt đối
+  const backgroundLine = `Dialogue: 0,${formatAssTime(startTime)},${formatAssTime(endTime)},Title,,0,0,0,,{\\an7\\pos(${rectLeft},${rectTop})\\bord0\\shad0\\1c&H000000&\\1a&HB0&\\t(0,300,\\1a&HC0&)\\t(${(endTime-0.3)*1000},${endTime*1000},\\1a&HFF&)\\p1}m 0 0 l ${rectWidth} 0 l ${rectWidth} ${rectHeight} l 0 ${rectHeight} l 0 0{\\p0}`;
   
   // Văn bản tiêu đề với hiệu ứng fade nhẹ và bóng mềm
   const textLine = `Dialogue: 1,${formatAssTime(startTime)},${formatAssTime(endTime)},Title,,0,0,0,,{\\fad(400,400)\\an5\\pos(${centerX},${centerY})\\fs${fontSize}\\bord1\\blur0.8\\1c&H${titleColor1}&\\3c&H000000&\\3a&HDD&\\fn${fontName}\\b1}${titleText}`;
   
-  // Phần viền mỏng bên dưới tiêu đề
-  // Sử dụng ký tự '▬' với kích thước và màu sắc được cài đặt thông qua các tag
-  const underlineWidth = Math.min(rectWidth - 100, 700); // Tăng giới hạn đường gạch chân từ 500 lên 700
-  const underlineLine = `Dialogue: 0,${formatAssTime(startTime+0.2)},${formatAssTime(endTime-0.2)},Title,,0,0,0,,{\\an5\\pos(${centerX},${centerY+70})\\bord0\\shad0\\fscx${underlineWidth}\\fscy2\\1c&H${titleColor1}&\\alpha&H60&\\fad(300,300)}▬`;
+  // Phần viền mỏng bên dưới tiêu đề - Sử dụng đường vẽ thay vì ký tự
+  const underlineWidth = 700;
+  const underlineY = centerY + 70;
+  const underlineLeft = centerX - underlineWidth/2;
+  
+  const underlineLine = `Dialogue: 0,${formatAssTime(startTime+0.2)},${formatAssTime(endTime-0.2)},Title,,0,0,0,,{\\an7\\pos(${underlineLeft},${underlineY})\\bord0\\shad0\\1c&H${titleColor1}&\\alpha&H60&\\fad(300,300)\\p1}m 0 0 l ${underlineWidth} 0 l ${underlineWidth} 2 l 0 2 l 0 0{\\p0}`;
   
   // Trả về tất cả các dòng, mỗi dòng trên một hàng riêng biệt
   return backgroundLine + '\n' + textLine + '\n' + underlineLine;
