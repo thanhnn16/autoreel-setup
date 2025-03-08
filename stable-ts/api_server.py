@@ -130,7 +130,8 @@ async def root():
 async def transcribe_audio(
     file: UploadFile = File(...),
     format: str = Form("txt"),
-    use_cpu: bool = Form(False)
+    use_cpu: bool = Form(False),
+    include_segments: bool = Form(False)
 ):
     """
     API phiên âm file audio
@@ -139,13 +140,14 @@ async def transcribe_audio(
     - file: File audio cần phiên âm
     - format: Định dạng đầu ra (txt, srt, vtt, ass, json)
     - use_cpu: Có sử dụng CPU thay vì GPU không
+    - include_segments: Có trả về danh sách segments trong response không
     
     Returns:
     - Thông tin kết quả và URL để tải file
     """
     
     # Ghi log request
-    logger.info(f"Nhận yêu cầu phiên âm file: {file.filename}, format: {format}, use_cpu: {use_cpu}")
+    logger.info(f"Nhận yêu cầu phiên âm file: {file.filename}, format: {format}, use_cpu: {use_cpu}, include_segments: {include_segments}")
     
     # Kiểm tra định dạng file
     supported_formats = ["mp3", "wav", "m4a", "ogg", "flac", "mp4", "avi", "mkv"]
@@ -228,16 +230,32 @@ async def transcribe_audio(
         
         logger.info(f"Hoàn thành phiên âm. URL tải xuống: {download_url}, định dạng: {format}")
         
-        return JSONResponse(
-            content={
-                "success": True,
-                "message": f"Đã phiên âm thành công file {file.filename}",
-                "processing_time": f"{process_time:.2f} giây",
-                "device": _device,
-                "download_url": download_url,
-                "format": format
-            }
-        )
+        response_data = {
+            "success": True,
+            "message": f"Đã phiên âm thành công file {file.filename}",
+            "processing_time": f"{process_time:.2f} giây",
+            "device": _device,
+            "download_url": download_url,
+            "format": format
+        }
+        
+        # Thêm segments vào response nếu được yêu cầu hoặc định dạng là ASS
+        if include_segments or format == "ass":
+            # Chuyển đổi segments thành dạng có thể serialize được
+            segments_data = []
+            for segment in result.segments:
+                segment_dict = {
+                    "id": segment.id,
+                    "start": segment.start,
+                    "end": segment.end,
+                    "text": segment.text,
+                    "words": [{"word": w.word, "start": w.start, "end": w.end} 
+                             for w in segment.words] if hasattr(segment, 'words') and segment.words else []
+                }
+                segments_data.append(segment_dict)
+            response_data["segments"] = segments_data
+        
+        return JSONResponse(content=response_data)
     
     except RuntimeError as e:
         if "CUDA out of memory" in str(e) and not use_cpu:
@@ -250,7 +268,7 @@ async def transcribe_audio(
             torch.cuda.empty_cache()
             
             # Thử lại với CPU
-            return await transcribe_audio(file, format, use_cpu=True)
+            return await transcribe_audio(file, format, use_cpu=True, include_segments=include_segments)
         else:
             # Lỗi khác
             logger.error(f"Lỗi khi phiên âm: {str(e)}")
