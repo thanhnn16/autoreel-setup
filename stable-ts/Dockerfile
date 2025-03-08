@@ -7,7 +7,6 @@ RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     libsndfile1 \
-    git \
     && rm -rf /var/lib/apt/lists/*
 
 # Thiết lập thư mục làm việc
@@ -17,7 +16,7 @@ WORKDIR /app
 RUN pip3 install --no-cache-dir uvicorn fastapi
 RUN pip3 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu124
 RUN pip3 install --no-cache-dir transformers
-RUN pip3 install --no-cache-dir git+https://github.com/jianfch/stable-ts.git[hf]
+RUN pip3 install --no-cache-dir stable-ts[hf]
 RUN pip3 install --no-cache-dir python-multipart
 RUN pip3 install --no-cache-dir pydub
 
