@@ -137,7 +137,10 @@ async def transcribe_audio(
     file: UploadFile = File(...),
     format: str = Form("txt"),
     use_cpu: bool = Form(False),
-    segment_by_sentence: bool = Form(True)
+    segment_by_sentence: bool = Form(True),
+    font_size: int = Form(12),
+    font: str = Form("Arial"),
+    margin_v: int = Form(10)
 ):
     """
     API endpoint để phiên âm file audio thành văn bản.
@@ -147,13 +150,16 @@ async def transcribe_audio(
         format (str): Định dạng đầu ra (txt, srt, vtt, json, sentence)
         use_cpu (bool): Sử dụng CPU thay vì GPU
         segment_by_sentence (bool): Ngắt segment theo câu để có context tốt hơn
+        font_size (int): Kích thước font cho file ASS (mặc định: 12)
+        font (str): Tên font chữ cho file ASS (mặc định: Arial)
+        margin_v (int): Lề dọc cho file ASS (mặc định: 10)
         
     Returns:
         Kết quả phiên âm theo định dạng yêu cầu
     """
     
     # Ghi log request
-    logger.info(f"Nhận yêu cầu phiên âm file: {file.filename}, format: {format}, use_cpu: {use_cpu}, segment_by_sentence: {segment_by_sentence}")
+    logger.info(f"Nhận yêu cầu phiên âm file: {file.filename}, format: {format}, use_cpu: {use_cpu}, segment_by_sentence: {segment_by_sentence}, font_size: {font_size}, font: {font}, margin_v: {margin_v}")
     
     # Kiểm tra định dạng file
     supported_formats = ["mp3", "wav", "m4a", "ogg", "flac", "mp4", "avi", "mkv"]
@@ -241,7 +247,36 @@ async def transcribe_audio(
         elif format == "vtt":
             result.to_srt_vtt(str(output_path), output_format="vtt")
         elif format == "ass":
-            result.to_ass(str(output_path))
+            # Sử dụng phương thức đơn giản theo hướng dẫn từ stable-ts
+            # Hàm to_ass() mặc định đã hỗ trợ hiển thị cả segment và word-level
+            try:
+                # Sử dụng các tham số đúng theo tài liệu
+                result.to_ass(
+                    str(output_path),
+                    font_size=font_size,
+                    font=font,
+                    MarginV=margin_v
+                )
+            except AttributeError as e:
+                if "'WordTiming' object has no attribute 'text'" in str(e):
+                    logger.error(f"Lỗi khi xử lý: {str(e)}")
+                    # Chuyển đổi từ WordTiming sang định dạng chứa thuộc tính text
+                    for segment in result.segments:
+                        if hasattr(segment, 'words') and segment.words:
+                            # Kiểm tra và chuyển đổi các words nếu không có thuộc tính text
+                            for i, word in enumerate(segment.words):
+                                if not hasattr(word, 'text') and hasattr(word, 'word'):
+                                    # Sử dụng thuộc tính word nếu không có thuộc tính text
+                                    word.text = word.word
+                    # Thử lại sau khi sửa với các tham số đã chỉ định
+                    result.to_ass(
+                        str(output_path),
+                        font_size=font_size,
+                        font=font,
+                        MarginV=margin_v
+                    )
+                else:
+                    raise
         elif format == "json":
             with open(output_path, "w", encoding="utf-8") as f:
                 import json
@@ -364,20 +399,22 @@ def process_audio_with_attention_mask(model, audio_path, language="vi", regroup=
     Returns:
         WhisperResult: Kết quả phiên âm
     """
+    # Thực hiện phiên âm với word_timestamps=True để có timestamps cho từng từ
     result = model.transcribe(str(audio_path), language=language, regroup=regroup)
     
-    # Nếu bật regroup, thực hiện thêm phân nhóm theo câu
+    # Nếu bật regroup, thực hiện các bước nhóm theo câu hoàn chỉnh
     if regroup:
-        # Thêm phân nhóm theo dấu câu tiếng Việt
+        # Đầu tiên, gộp tất cả các segments lại
+        result = result.merge_all_segments()
+        
+        # Kết hợp các segments thành các câu hoàn chỉnh theo các dấu câu tiếng Việt
+        # Các dấu câu kết thúc câu: dấu chấm, dấu chấm hỏi, dấu chấm than
         result = (
             result
-            .ignore_special_periods()
-            .clamp_max()
-            .split_by_punctuation([('.', ' '), '。', '?', '？', '!', '!'])
-            .split_by_gap(0.5)
-            .split_by_punctuation([(',', ' '), '،', '，'], min_chars=40)
-            .split_by_length(60)
-            .clamp_max()
+            .ignore_special_periods()  # Bỏ qua các dấu chấm đặc biệt (viết tắt, số,...)
+            .split_by_punctuation([('.', ' '), '。', '?', '？', '!', '!'])  # Tách theo dấu câu kết thúc
+            .split_by_gap(0.8)  # Tách nếu khoảng cách giữa các từ quá lớn
+            .split_by_length(100)  # Giới hạn độ dài tối đa của mỗi segment
         )
     
     return result
@@ -385,13 +422,13 @@ def process_audio_with_attention_mask(model, audio_path, language="vi", regroup=
 def extract_sentence_segments(result):
     """
     Trích xuất segments theo câu từ kết quả phiên âm.
-    Chỉ bao gồm id, thời gian bắt đầu, thời gian kết thúc và văn bản.
+    Mỗi segment là một câu hoàn chỉnh (tới dấu kết thúc câu).
     
     Args:
         result: Kết quả phiên âm (WhisperResult)
         
     Returns:
-        list: Danh sách các segment theo câu
+        list: Danh sách các segment theo câu hoàn chỉnh
     """
     sentence_segments = []
     
@@ -423,6 +460,7 @@ def extract_sentence_segments(result):
                         "probability": word.probability if hasattr(word, 'probability') else 1.0
                     })
         
+        # Mỗi segment sẽ là một câu hoàn chỉnh với start/end time
         sentence_segments.append({
             "id": i,
             "start": segment.start,
