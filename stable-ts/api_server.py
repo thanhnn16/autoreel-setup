@@ -201,7 +201,7 @@ async def transcribe_audio(
         
         # Sử dụng phương pháp đơn giản theo hướng dẫn từ stable-ts
         try:
-            result = process_audio_with_attention_mask(
+            result, result_regrouped = process_audio_with_attention_mask(
                 model, 
                 temp_file, 
                 language="vi", 
@@ -214,21 +214,26 @@ async def transcribe_audio(
         process_time = time.time() - start_time
         logger.info(f"Thời gian xử lý: {process_time:.2f} giây, với thiết bị: {_device}")
         
+        # Chọn phiên bản kết quả phù hợp cho format đầu ra và phản hồi
+        # result: phiên bản không regroup (giữ nguyên segments gốc)
+        # result_regrouped: phiên bản đã regroup theo câu (nếu segment_by_sentence=True)
+        
         # Xử lý đặc biệt cho định dạng sentence
         if format == "sentence":
-            # Trả về JSON trực tiếp với các segment câu
-            sentence_segments = extract_sentence_segments(result)
+            # Trả về JSON trực tiếp với các segment câu, sử dụng phiên bản đã regroup nếu có
+            display_result = result_regrouped if result_regrouped else result
+            sentence_segments = extract_sentence_segments(display_result)
             return JSONResponse(
                 content={
                     "success": True,
                     "message": f"Đã phiên âm thành công file {file.filename}",
                     "processing_time": f"{process_time:.2f} giây",
                     "device": _device,
-                    "text": result.text,
+                    "text": display_result.text,
                     "segments": sentence_segments,
                     "segment_count": len(sentence_segments),
                     "segment_by_sentence": segment_by_sentence,
-                    "regroup_history": result.regroup_history if hasattr(result, 'regroup_history') else ""
+                    "regroup_history": display_result.regroup_history if hasattr(display_result, 'regroup_history') else ""
                 }
             )
         
@@ -238,19 +243,26 @@ async def transcribe_audio(
         
         logger.info(f"Tạo file đầu ra: {output_path} với định dạng {format}")
         
+        # Quyết định dùng phiên bản kết quả nào dựa vào định dạng đầu ra
+        # (giữ nguyên các segments gốc cho ASS, dùng phiên bản regroup cho các định dạng khác nếu có)
+        output_result = result  # Mặc định dùng kết quả không regroup cho ASS
+        if format != "ass" and result_regrouped:  # Với các định dạng khác, dùng regroup nếu có
+            output_result = result_regrouped
+        
         # Lưu kết quả theo định dạng yêu cầu
         if format == "txt":
             with open(output_path, "w", encoding="utf-8") as f:
-                f.write(result.text)
+                f.write(output_result.text)
         elif format == "srt":
-            result.to_srt_vtt(str(output_path))
+            output_result.to_srt_vtt(str(output_path))
         elif format == "vtt":
-            result.to_srt_vtt(str(output_path), output_format="vtt")
+            output_result.to_srt_vtt(str(output_path), output_format="vtt")
         elif format == "ass":
             # Sử dụng phương thức đơn giản theo hướng dẫn từ stable-ts
             # Hàm to_ass() mặc định đã hỗ trợ hiển thị cả segment và word-level
             try:
                 # Sử dụng các tham số đúng theo tài liệu
+                # Dùng kết quả không regroup để giữ nguyên segments và words
                 result.to_ass(
                     str(output_path),
                     font_size=font_size,
@@ -280,7 +292,7 @@ async def transcribe_audio(
         elif format == "json":
             with open(output_path, "w", encoding="utf-8") as f:
                 import json
-                json.dump(result.to_dict(), f, ensure_ascii=False, indent=2)
+                json.dump(output_result.to_dict(), f, ensure_ascii=False, indent=2)
         
         # Xóa file tạm
         try:
@@ -301,12 +313,16 @@ async def transcribe_audio(
             "device": _device,
             "download_url": download_url,
             "format": format,
-            "text": result.text  # Thêm nội dung text vào response cho tất cả các định dạng
+            "text": output_result.text  # Thêm nội dung text vào response cho tất cả các định dạng
         }
         
-        # Thêm segments vào response nếu định dạng là ass
-        if format == "ass":
-            sentence_segments = extract_sentence_segments(result)
+        # Với định dạng ASS, luôn trả về cả segments dạng câu (từ kết quả regroup) trong response
+        if format == "ass" and result_regrouped:
+            sentence_segments = extract_sentence_segments(result_regrouped)
+            response_content["segments"] = sentence_segments
+        # Với các định dạng khác, trả về segments từ kết quả đã được sử dụng
+        elif format == "ass":
+            sentence_segments = extract_sentence_segments(result)  # Dùng segments gốc nếu không có regroup
             response_content["segments"] = sentence_segments
         
         return JSONResponse(
@@ -400,24 +416,29 @@ def process_audio_with_attention_mask(model, audio_path, language="vi", regroup=
         WhisperResult: Kết quả phiên âm
     """
     # Thực hiện phiên âm với word_timestamps=True để có timestamps cho từng từ
-    result = model.transcribe(str(audio_path), language=language, regroup=regroup)
+    result = model.transcribe(str(audio_path), language=language, regroup=False)
     
-    # Nếu bật regroup, thực hiện các bước nhóm theo câu hoàn chỉnh
+    # Nếu bật regroup, tạo bản sao và thực hiện các bước nhóm theo câu hoàn chỉnh
+    result_regrouped = None
     if regroup:
+        # Tạo bản sao của kết quả
+        result_regrouped = result.copy()
+        
         # Đầu tiên, gộp tất cả các segments lại
-        result = result.merge_all_segments()
+        result_regrouped = result_regrouped.merge_all_segments()
         
         # Kết hợp các segments thành các câu hoàn chỉnh theo các dấu câu tiếng Việt
         # Các dấu câu kết thúc câu: dấu chấm, dấu chấm hỏi, dấu chấm than
-        result = (
-            result
+        result_regrouped = (
+            result_regrouped
             .ignore_special_periods()  # Bỏ qua các dấu chấm đặc biệt (viết tắt, số,...)
             .split_by_punctuation([('.', ' '), '。', '?', '？', '!', '!'])  # Tách theo dấu câu kết thúc
             .split_by_gap(0.8)  # Tách nếu khoảng cách giữa các từ quá lớn
             .split_by_length(100)  # Giới hạn độ dài tối đa của mỗi segment
         )
     
-    return result
+    # Trả về cả kết quả gốc (không regroup) và kết quả đã regroup
+    return result, result_regrouped if regroup else None
 
 def extract_sentence_segments(result):
     """
