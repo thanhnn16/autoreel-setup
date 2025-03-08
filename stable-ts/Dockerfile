@@ -15,7 +15,8 @@ WORKDIR /app
 # Cài đặt các package Python cần thiết:
 RUN pip3 install --no-cache-dir uvicorn fastapi
 RUN pip3 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu124
-RUN pip3 install --no-cache-dir git+https://github.com/jianfch/stable-ts.git
+RUN pip3 install --no-cache-dir transformers
+RUN pip3 install --no-cache-dir git+https://github.com/jianfch/stable-ts.git[hf]
 RUN pip3 install --no-cache-dir python-multipart
 RUN pip3 install --no-cache-dir pydub
 

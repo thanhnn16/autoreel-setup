@@ -42,9 +42,9 @@ def get_model():
         logger.info(f"Sử dụng thiết bị: {device}, compute_type: {compute_type}")
         
         try:
-            # Đơn giản hóa quy trình tải mô hình
-            _model = stable_whisper.load_model('large-v3')
-            logger.info("Đã tải mô hình thành công!")
+            # Sử dụng mô hình vi-whisper-large-v3-turbo từ HuggingFace
+            _model = stable_whisper.load_hf_whisper('suzii/vi-whisper-large-v3-turbo')
+            logger.info("Đã tải mô hình tiếng Việt thành công!")
             
         except Exception as e:
             logger.error(f"Lỗi khi tải mô hình: {str(e)}")
