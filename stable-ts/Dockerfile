@@ -41,10 +41,8 @@ ENV PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
 # Tạo thư mục cho mô hình
 RUN mkdir -p /app/models/vinai/PhoWhisper-large
 
-# Lưu ý: Bạn cần đặt thư mục chứa mô hình PhoWhisper-large đã tải xuống 
-# vào cùng thư mục với Dockerfile trước khi build
-# Thư mục này nên có cấu trúc: ./models/vinai/PhoWhisper-large/...
-COPY ./models/vinai/PhoWhisper-large /app/models/vinai/PhoWhisper-large
+# Tải mô hình PhoWhisper-large từ Hugging Face
+RUN python3 -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='vinai/PhoWhisper-large', local_dir='/app/models/vinai/PhoWhisper-large', local_dir_use_symlinks=False)"
 
 # Copy mã nguồn FastAPI (api_server.py) vào image
 COPY api_server.py .
