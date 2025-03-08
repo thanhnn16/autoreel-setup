@@ -61,7 +61,7 @@ def get_model(force_cpu=False):
     
     # Nếu chưa có mô hình hoặc đã giải phóng mô hình
     if _model is None:
-        logger.info(f"Tải mô hình với thiết bị: {device}, compute_type: {compute_type}, dynamic_quantization: {use_dq}")
+        logger.info(f"Tải mô hình với thiết bị: {device}, dynamic_quantization: {use_dq}")
         _device = device
         
         try:
@@ -69,16 +69,24 @@ def get_model(force_cpu=False):
             # Sử dụng HF Transformers cho tốc độ nhanh hơn (lên đến 9x)
             logger.info("Sử dụng tối ưu hóa Hugging Face Transformers cho tốc độ nhanh hơn")
             
+            # Thiết lập các tham số phù hợp với Hugging Face pipeline
+            model_kwargs = {
+                "device": device,
+                "download_root": None,
+                "in_memory": False,  # Giảm sử dụng bộ nhớ
+                "use_better_transformer": True,  # Sử dụng BetterTransformer 
+                "use_flash_attention": device == "cuda",  # Flash Attention chỉ khả dụng trên CUDA
+            }
+            
+            # Thiết lập các tham số cho quá trình sinh văn bản (generation)
+            generation_kwargs = {
+                "beam_size": 5,  # Giảm beam size để tiết kiệm bộ nhớ
+                "fp16": device == "cuda"  # Sử dụng fp16 cho GPU, fp32 cho CPU
+            }
+            
             _model = stable_whisper.load_hf_whisper(
                 'suzii/vi-whisper-large-v3-turbo',
-                device=device,
-                compute_type=compute_type,
-                download_root=None,
-                in_memory=False,  # Giảm sử dụng bộ nhớ
-                # Các tùy chọn tối ưu cho HF Transformers
-                use_better_transformer=True,   # Sử dụng BetterTransformer 
-                use_flash_attention=device == "cuda",  # Flash Attention chỉ khả dụng trên CUDA
-                beam_size=5,  # Giảm beam size để tiết kiệm bộ nhớ
+                **model_kwargs
             )
             
             logger.info("Lưu ý: Alignment và Refinement không được hỗ trợ trên các mô hình Hugging Face")
@@ -105,7 +113,7 @@ def get_model(force_cpu=False):
 @app.on_event("startup")
 async def startup_event():
     """
-    Khởi tạo trước mô hình khi khởi động server
+    Khởi tạo mô hình khi khởi động server
     """
     try:
         # Cấu hình PyTorch để tối ưu việc sử dụng bộ nhớ
@@ -114,13 +122,21 @@ async def startup_event():
             os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
             logger.info(f"Phát hiện GPU: {torch.cuda.get_device_name(0)}")
             logger.info(f"Bộ nhớ GPU khả dụng: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.2f} GB")
+            
+            # Đặt seed cho PyTorch để đảm bảo tính nhất quán
+            torch.manual_seed(42)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed_all(42)
         else:
             logger.info("Không phát hiện GPU, sẽ sử dụng CPU")
         
-        # Không khởi tạo trước mô hình để tránh sử dụng bộ nhớ GPU không cần thiết
-        # get_model()
+        # Tải mô hình ngay khi khởi động server
+        logger.info("Bắt đầu tải mô hình khi khởi động server...")
+        get_model()
+        logger.info("Đã tải mô hình thành công, server sẵn sàng phục vụ!")
     except Exception as e:
         logger.error(f"Lỗi khi khởi tạo: {str(e)}")
+        logger.warning("Server sẽ vẫn khởi động, nhưng mô hình sẽ được tải lại khi có yêu cầu đầu tiên.")
 
 @app.get("/")
 async def root():
@@ -179,7 +195,8 @@ async def transcribe_audio(
                 language="vi",  # Xác định ngôn ngữ tiếng Việt
                 beam_size=5,    # Giảm beam size để tăng tốc độ
                 best_of=5,      # Giảm số lượng mẫu để tăng tốc độ
-                temperature=0.0 # Giảm nhiệt độ để tăng tốc độ và độ chính xác
+                temperature=0.0, # Giảm nhiệt độ để tăng tốc độ và độ chính xác
+                fp16=_device == "cuda"  # Sử dụng fp16 cho GPU, fp32 cho CPU
             )
             
             process_time = time.time() - start_time
@@ -191,6 +208,7 @@ async def transcribe_audio(
                 logger.warning("CUDA out of memory, chuyển sang sử dụng CPU với dynamic quantization...")
                 
                 # Giải phóng bộ nhớ GPU triệt để
+                global _model
                 if _model is not None:
                     _model = None
                 
