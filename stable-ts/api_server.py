@@ -10,6 +10,7 @@ from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 import stable_whisper
 from typing import Optional
+import tempfile
 
 # Thiết lập logging
 logging.basicConfig(
@@ -187,19 +188,20 @@ async def transcribe_audio(
         logger.info(f"Bắt đầu phiên âm file {file.filename}...")
         start_time = time.time()
         
+        # Sử dụng phương pháp process_audio_with_attention_mask
         try:
-            # Thử sử dụng phương pháp có xử lý attention mask
+            result = process_audio_with_attention_mask(model, temp_file, language="vi")
+        except Exception as e:
+            logger.warning(f"Không thể sử dụng xử lý attention mask tùy chỉnh: {str(e)}")
+            # Quay lại phương pháp cơ bản
+            logger.info("Thử lại với phương pháp phiên âm cơ bản...")
+            transcribe_options = {
+                "language": "vi",
+            }
+            
             try:
-                result = process_audio_with_attention_mask(model, temp_file, language="vi")
-            except Exception as e:
-                logger.warning(f"Không thể sử dụng xử lý attention mask tùy chỉnh: {str(e)}")
-                # Quay lại phương pháp cũ
-                transcribe_options = {
-                    "language": "vi",  # Xác định ngôn ngữ tiếng Việt
-                }
-                
+                # Thêm tùy chọn attn_implementation nếu là mô hình HF pipeline
                 if hasattr(model, 'pipeline') and hasattr(model.pipeline, 'model'):
-                    # Nếu là mô hình HF pipeline, thêm attn_implementation
                     transcribe_options['generate_kwargs'] = {
                         'attn_implementation': 'eager'
                     }
@@ -208,11 +210,10 @@ async def transcribe_audio(
                     str(temp_file),
                     **transcribe_options
                 )
-        except TypeError as type_err:
-            # Nếu vẫn có lỗi về tham số, thử lại với tham số tối thiểu
-            logger.warning(f"Lỗi tham số khi gọi transcribe: {str(type_err)}")
-            logger.info("Thử lại với tham số tối thiểu...")
-            result = model.transcribe(str(temp_file))
+            except Exception:
+                # Nếu vẫn lỗi, thử lại với tham số tối thiểu
+                logger.info("Thử lại với tham số tối thiểu...")
+                result = model.transcribe(str(temp_file))
         
         process_time = time.time() - start_time
         logger.info(f"Thời gian xử lý: {process_time:.2f} giây, với thiết bị: {_device}")
@@ -230,7 +231,28 @@ async def transcribe_audio(
         elif format == "vtt":
             result.to_srt_vtt(str(output_path), output_format="vtt")
         elif format == "ass":
-            result.to_ass(str(output_path))
+            try:
+                result.to_ass(str(output_path))
+                if not output_path.exists() or output_path.stat().st_size == 0:
+                    raise FileNotFoundError("File ASS không được tạo hoặc kích thước bằng 0")
+                logger.info(f"Đã tạo thành công file ASS: {output_path}")
+            except Exception as e:
+                logger.error(f"Lỗi khi xuất sang định dạng ASS: {str(e)}")
+                # Thử lại với tham số rõ ràng
+                logger.info("Thử lại với các tham số mặc định...")
+                try:
+                    result.to_ass(
+                        str(output_path),
+                        segment_level=True,
+                        word_level=True,
+                        min_dur=0.2,
+                        font="Arial",
+                        font_size=48
+                    )
+                    logger.info(f"Đã tạo thành công file ASS (phương pháp thay thế): {output_path}")
+                except Exception as e2:
+                    logger.error(f"Vẫn không thể tạo file ASS: {str(e2)}")
+                    raise e2
         elif format == "json":
             with open(output_path, "w", encoding="utf-8") as f:
                 import json
@@ -344,19 +366,26 @@ def process_audio_with_attention_mask(model, audio_path, language="vi"):
     # Các tùy chọn transcribe cụ thể cho tiếng Việt
     transcribe_options = {
         "language": language,
-        "vad": True,  # Sử dụng Voice Activity Detection
-        "word_timestamps": True,  # Bắt buộc có timestamp ở cấp độ từng từ
-        "suppress_silence": True,  # Loại bỏ khoảng im lặng
+        "vad": True,                 # Sử dụng Voice Activity Detection
+        "word_timestamps": True,     # Bắt buộc có timestamp ở cấp độ từng từ
+        "suppress_silence": True,    # Loại bỏ khoảng im lặng
         "suppress_nonspeech": True,  # Loại bỏ âm thanh không phải giọng nói
-        "vad_threshold": 0.5,  # Threshold cho VAD
-        "repetition_penalty": 1.2,  # Giảm khả năng lặp từ
+        "vad_threshold": 0.5,        # Threshold cho VAD
+        "repetition_penalty": 1.2,   # Giảm khả năng lặp từ
     }
     
     # Nếu có GPU, thêm tùy chọn tối ưu
     if _device == "cuda":
         transcribe_options["beam_size"] = 5
+        
+        # Kiểm tra nếu mô hình là HF pipeline, thêm attn_implementation
+        if hasattr(model, 'pipeline') and hasattr(model.pipeline, 'model'):
+            if not "generate_kwargs" in transcribe_options:
+                transcribe_options["generate_kwargs"] = {}
+            transcribe_options["generate_kwargs"]["attn_implementation"] = "eager"
     
     # Thực hiện phiên âm
+    logger.debug(f"Sử dụng các tùy chọn phiên âm: {transcribe_options}")
     result = model.transcribe(
         str(audio_path),
         **transcribe_options
