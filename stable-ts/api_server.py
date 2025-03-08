@@ -258,12 +258,12 @@ async def transcribe_audio(
         elif format == "vtt":
             output_result.to_srt_vtt(str(output_path), output_format="vtt")
         elif format == "ass":
-            # Sử dụng phương thức đơn giản theo hướng dẫn từ stable-ts
-            # Hàm to_ass() mặc định đã hỗ trợ hiển thị cả segment và word-level
             try:
-                # Sử dụng các tham số đúng theo tài liệu
-                # Dùng kết quả không regroup để giữ nguyên segments và words
-                result.to_ass(
+                # Áp dụng split_by_length trước khi xuất ra ASS để giới hạn title còn 2 dòng
+                result_limited = result.split_by_length(67)  # Khoảng 67 ký tự ~ 2 dòng
+                
+                # Sử dụng kết quả đã được giới hạn để xuất file ASS
+                result_limited.to_ass(
                     str(output_path),
                     font_size=font_size,
                     font=font,
