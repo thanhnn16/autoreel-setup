@@ -242,8 +242,8 @@ async def transcribe_audio(
             result.to_srt_vtt(str(output_path), output_format="vtt")
         elif format == "ass":
             # Sử dụng phương thức đơn giản theo hướng dẫn từ stable-ts
-            # Thêm tùy chọn word_level=True và segment_level=True để luôn hiển thị cả hai
-            result.to_ass(str(output_path), word_level=True, segment_level=True)
+            # Hàm to_ass() mặc định đã hỗ trợ hiển thị cả segment và word-level
+            result.to_ass(str(output_path))
         elif format == "json":
             with open(output_path, "w", encoding="utf-8") as f:
                 import json
