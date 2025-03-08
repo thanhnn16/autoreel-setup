@@ -163,11 +163,11 @@ async def transcribe_audio(
     format = format.lower().strip()
     logger.info(f"Định dạng đầu ra sau khi chuẩn hóa: {format}")
     
-    if format not in ["txt", "srt", "vtt", "ass", "json"]:
+    if format not in ["txt", "srt", "vtt", "ass", "json", "sentence"]:
         return JSONResponse(
             status_code=400,
             content={
-                "error": "Định dạng đầu ra không hợp lệ. Hỗ trợ: txt, srt, vtt, ass, json"
+                "error": "Định dạng đầu ra không hợp lệ. Hỗ trợ: txt, srt, vtt, ass, json, sentence"
             }
         )
     
@@ -194,6 +194,21 @@ async def transcribe_audio(
         
         process_time = time.time() - start_time
         logger.info(f"Thời gian xử lý: {process_time:.2f} giây, với thiết bị: {_device}")
+        
+        # Xử lý đặc biệt cho định dạng sentence
+        if format == "sentence":
+            # Trả về JSON trực tiếp với các segment câu
+            sentence_segments = extract_sentence_segments(result)
+            return JSONResponse(
+                content={
+                    "success": True,
+                    "message": f"Đã phiên âm thành công file {file.filename}",
+                    "processing_time": f"{process_time:.2f} giây",
+                    "device": _device,
+                    "text": result.text,
+                    "segments": sentence_segments
+                }
+            )
         
         # Tạo tên file đầu ra
         output_filename = f"{uuid.uuid4()}.{format}"
@@ -327,6 +342,29 @@ def process_audio_with_attention_mask(model, audio_path, language="vi"):
     """
     result = model.transcribe(str(audio_path), language=language)
     return result
+
+def extract_sentence_segments(result):
+    """
+    Trích xuất segments theo câu từ kết quả phiên âm.
+    Chỉ bao gồm id, thời gian bắt đầu, thời gian kết thúc và văn bản.
+    
+    Args:
+        result: Kết quả phiên âm (WhisperResult)
+        
+    Returns:
+        list: Danh sách các segment theo câu
+    """
+    sentence_segments = []
+    
+    for i, segment in enumerate(result.segments):
+        sentence_segments.append({
+            "id": i,
+            "start": segment.start,
+            "end": segment.end,
+            "text": segment.text
+        })
+    
+    return sentence_segments
 
 if __name__ == "__main__":
     import uvicorn
