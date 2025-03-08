@@ -6,9 +6,10 @@ import torch
 import tempfile
 import logging
 from pathlib import Path
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Query
 from fastapi.responses import FileResponse
 import stable_whisper
+import gc
 
 # Cấu hình logging
 logging.basicConfig(level=logging.INFO)
@@ -27,23 +28,49 @@ app = FastAPI(
 
 # Biến toàn cục để lưu trữ mô hình đã tải
 _model = None
+_device = None
 
-def get_model():
+def get_model(force_cpu=False):
     """
     Hàm lazy-loading để khởi tạo mô hình một lần duy nhất
+    
+    Args:
+        force_cpu (bool): Nếu True, sẽ sử dụng CPU ngay cả khi có GPU
     """
-    global _model
+    global _model, _device
+    
+    # Nếu yêu cầu chạy trên CPU hoặc không có GPU
+    if force_cpu or not torch.cuda.is_available():
+        device = "cpu"
+        compute_type = "float32"
+        use_dq = True  # Kích hoạt dynamic quantization cho CPU
+    else:
+        device = "cuda"
+        compute_type = "float16"
+        use_dq = False  # Dynamic quantization chỉ hoạt động trên CPU
+    
+    # Nếu đã có mô hình nhưng yêu cầu đổi thiết bị
+    if _model is not None and _device != device:
+        logger.info(f"Chuyển mô hình từ {_device} sang {device}")
+        # Giải phóng bộ nhớ GPU nếu có
+        if _device == "cuda":
+            _model = None
+            torch.cuda.empty_cache()
+            gc.collect()
+    
+    # Nếu chưa có mô hình hoặc đã giải phóng mô hình
     if _model is None:
-        logger.info("Tải mô hình...")
-        # Sử dụng GPU nếu có sẵn, nếu không thì sử dụng CPU
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        compute_type = "float16" if torch.cuda.is_available() else "float32"
-        
-        logger.info(f"Sử dụng thiết bị: {device}, compute_type: {compute_type}")
+        logger.info(f"Tải mô hình với thiết bị: {device}, compute_type: {compute_type}, dynamic_quantization: {use_dq}")
+        _device = device
         
         try:
-            # Sử dụng mô hình vi-whisper-large-v3-turbo từ HuggingFace
-            _model = stable_whisper.load_hf_whisper('suzii/vi-whisper-large-v3-turbo')
+            # Sử dụng mô hình vi-whisper-large-v3-turbo từ HuggingFace với dynamic quantization khi chạy trên CPU
+            _model = stable_whisper.load_hf_whisper(
+                'suzii/vi-whisper-large-v3-turbo', 
+                device=device, 
+                compute_type=compute_type,
+                dq=use_dq  # Kích hoạt dynamic quantization
+            )
             logger.info("Đã tải mô hình tiếng Việt thành công!")
             
         except Exception as e:
@@ -58,7 +85,9 @@ async def startup_event():
     Khởi tạo trước mô hình khi khởi động server
     """
     try:
-        get_model()
+        # Không khởi tạo trước mô hình để tránh sử dụng bộ nhớ GPU không cần thiết
+        # get_model()
+        pass
     except Exception as e:
         logger.error(f"Lỗi khi khởi tạo mô hình: {str(e)}")
 
@@ -78,13 +107,15 @@ async def root():
 @app.post("/transcribe")
 async def transcribe_audio(
     file: UploadFile = File(...),
-    format: str = Form("txt")
+    format: str = Form("txt"),
+    use_cpu: bool = Form(False)
 ):
     """
     Endpoint chuyển đổi âm thanh thành văn bản
     
     - **file**: File âm thanh cần chuyển đổi
     - **format**: Định dạng đầu ra (txt, srt, vtt, ass)
+    - **use_cpu**: Sử dụng CPU thay vì GPU để tránh lỗi bộ nhớ
     """
     # Kiểm tra định dạng file
     if not file.filename.lower().endswith(('.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac')):
@@ -103,9 +134,24 @@ async def transcribe_audio(
         if format not in ["txt", "srt", "vtt", "ass"]:
             format = "txt"  # Mặc định là văn bản thuần
         
-        # Xử lý file âm thanh
-        model = get_model()
-        result = model.transcribe(str(temp_file))
+        # Cố gắng xử lý file âm thanh
+        try:
+            # Thử sử dụng GPU nếu không yêu cầu CPU
+            model = get_model(force_cpu=use_cpu)
+            result = model.transcribe(str(temp_file))
+        except RuntimeError as e:
+            if "CUDA out of memory" in str(e) and not use_cpu:
+                # Nếu gặp lỗi CUDA OOM và đang dùng GPU, chuyển sang CPU
+                logger.warning("CUDA out of memory, chuyển sang sử dụng CPU với dynamic quantization...")
+                # Giải phóng bộ nhớ GPU
+                torch.cuda.empty_cache()
+                gc.collect()
+                # Tải lại mô hình trên CPU với dynamic quantization
+                model = get_model(force_cpu=True)
+                result = model.transcribe(str(temp_file))
+            else:
+                # Nếu là lỗi khác, ném ngoại lệ
+                raise
         
         # Tạo file output
         output_file = TEMP_DIR / f"{temp_file.stem}.{format}"
@@ -124,7 +170,9 @@ async def transcribe_audio(
         # Trả về nội dung văn bản và đường dẫn đến file
         return {
             "text": result.text,
-            "file_path": str(output_file)
+            "file_path": str(output_file),
+            "device_used": "cpu" if use_cpu or _device == "cpu" else "cuda",
+            "dynamic_quantization": use_cpu or _device == "cpu"  # Thêm thông tin về dynamic quantization
         }
         
     except Exception as e:
