@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, Request, Form, Query
+from fastapi import FastAPI, UploadFile, File, HTTPException, Request, Form, Query, Response
 import stable_whisper
 import tempfile
 import os
@@ -7,7 +7,7 @@ import torch
 import gc
 import random
 import json
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 from collections import deque
@@ -52,6 +52,10 @@ app.add_middleware(
 
 # Cấu hình PyTorch để tối ưu bộ nhớ
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+# Thư mục lưu trữ tạm thời cho các file phụ đề
+SUBTITLE_DIR = "/app/subtitles"
+os.makedirs(SUBTITLE_DIR, exist_ok=True)
 
 # Hàm tải mô hình từ local hoặc Hugging Face
 def load_model_from_local_or_download(model_id, local_dir, device="cuda", compute_type="int8"):
@@ -134,7 +138,9 @@ async def transcribe(
     vad_threshold: float = Form(0.35),
     batch_size: int = Form(8),
     word_timestamps: bool = Form(True),
-    compute_type: str = Form("int8")
+    compute_type: str = Form("int8"),
+    return_file: bool = Form(False),
+    output_format: str = Form("ass")  # Mặc định là ASS
 ):
     """
     Chuyển đổi giọng nói thành văn bản với PhoWhisper-large.
@@ -147,6 +153,8 @@ async def transcribe(
     - **batch_size**: Kích thước batch để tiết kiệm bộ nhớ
     - **word_timestamps**: Tạo timestamp cho từng từ
     - **compute_type**: Loại tính toán (int8, float16, float32)
+    - **return_file**: Trả về file phụ đề thay vì JSON
+    - **output_format**: Định dạng phụ đề (ass, srt, word_srt)
     """
     # Kiểm tra model đã được tải chưa
     if model is None:
@@ -166,6 +174,14 @@ async def transcribe(
         raise HTTPException(
             status_code=400, 
             detail=f"File phải là định dạng audio ({', '.join(audio_extensions)})"
+        )
+    
+    # Kiểm tra định dạng phụ đề
+    if output_format not in ["ass", "srt", "word_srt"]:
+        logger.error(f"Định dạng phụ đề không hỗ trợ: {output_format}")
+        raise HTTPException(
+            status_code=400,
+            detail="Định dạng phụ đề phải là 'ass', 'srt' hoặc 'word_srt'"
         )
     
     try:
@@ -221,12 +237,20 @@ async def transcribe(
                 )
                 logger.info("Transcribe thành công")
                 
-                # Xuất kết quả ở các định dạng khác nhau
-                ass_output = result.to_ass()
-                srt_output = result.to_srt_vtt(word_level=False)
-                word_srt_output = result.to_srt_vtt(segment_level=False)
+                # Tạo tên file gốc không có phần mở rộng
+                base_filename = os.path.splitext(os.path.basename(file.filename))[0]
                 
-                logger.info("Tạo phụ đề thành công")
+                # Tạo các file phụ đề
+                ass_path = os.path.join(SUBTITLE_DIR, f"{base_filename}_{int(time.time())}.ass")
+                srt_path = os.path.join(SUBTITLE_DIR, f"{base_filename}_{int(time.time())}.srt")
+                word_srt_path = os.path.join(SUBTITLE_DIR, f"{base_filename}_word_{int(time.time())}.srt")
+                
+                # Xuất kết quả ở các định dạng khác nhau
+                ass_output = result.to_ass(ass_path)
+                srt_output = result.to_srt_vtt(srt_path, word_level=False)
+                word_srt_output = result.to_srt_vtt(word_srt_path, segment_level=False)
+                
+                logger.info(f"Đã tạo phụ đề: ASS={ass_path}, SRT={srt_path}, Word SRT={word_srt_path}")
                 
                 # Xóa file tạm sau khi xử lý xong
                 os.unlink(tmp.name)
@@ -238,7 +262,28 @@ async def transcribe(
                     gc.collect()
                     logger.info(f"Bộ nhớ CUDA sau khi xử lý: {torch.cuda.memory_allocated()/1024**2:.2f} MB / {torch.cuda.get_device_properties(0).total_memory/1024**3:.2f} GB")
                 
-                # Trả về kết quả đầy đủ
+                # Nếu yêu cầu trả về file phụ đề
+                if return_file:
+                    if output_format == "ass":
+                        return FileResponse(
+                            ass_path, 
+                            media_type="text/x-ssa", 
+                            filename=f"{base_filename}.ass"
+                        )
+                    elif output_format == "srt":
+                        return FileResponse(
+                            srt_path, 
+                            media_type="text/plain", 
+                            filename=f"{base_filename}.srt"
+                        )
+                    elif output_format == "word_srt":
+                        return FileResponse(
+                            word_srt_path, 
+                            media_type="text/plain", 
+                            filename=f"{base_filename}_word.srt"
+                        )
+                
+                # Trả về kết quả đầy đủ dưới dạng JSON
                 return {
                     "text": result.text, 
                     "ass": ass_output, 
@@ -252,6 +297,11 @@ async def transcribe(
                         "denoiser_used": denoiser,
                         "word_timestamps": word_timestamps,
                         "compute_type": compute_type
+                    },
+                    "files": {
+                        "ass": ass_path,
+                        "srt": srt_path,
+                        "word_srt": word_srt_path
                     }
                 }
             except Exception as e:
@@ -276,13 +326,44 @@ async def transcribe(
                             denoiser=denoiser
                         )
                         
+                        # Tạo tên file gốc không có phần mở rộng
+                        base_filename = os.path.splitext(os.path.basename(file.filename))[0]
+                        
+                        # Tạo các file phụ đề
+                        ass_path = os.path.join(SUBTITLE_DIR, f"{base_filename}_{int(time.time())}.ass")
+                        srt_path = os.path.join(SUBTITLE_DIR, f"{base_filename}_{int(time.time())}.srt")
+                        word_srt_path = os.path.join(SUBTITLE_DIR, f"{base_filename}_word_{int(time.time())}.srt")
+                        
                         # Xuất kết quả ở các định dạng khác nhau
-                        ass_output = result.to_ass()
-                        srt_output = result.to_srt_vtt(word_level=False)
-                        word_srt_output = result.to_srt_vtt(segment_level=False)
+                        ass_output = result.to_ass(ass_path)
+                        srt_output = result.to_srt_vtt(srt_path, word_level=False)
+                        word_srt_output = result.to_srt_vtt(word_srt_path, segment_level=False)
+                        
+                        logger.info(f"Đã tạo phụ đề (CPU fallback): ASS={ass_path}, SRT={srt_path}, Word SRT={word_srt_path}")
                         
                         # Xóa file tạm
                         os.unlink(tmp.name)
+                        
+                        # Nếu yêu cầu trả về file phụ đề
+                        if return_file:
+                            if output_format == "ass":
+                                return FileResponse(
+                                    ass_path, 
+                                    media_type="text/x-ssa", 
+                                    filename=f"{base_filename}.ass"
+                                )
+                            elif output_format == "srt":
+                                return FileResponse(
+                                    srt_path, 
+                                    media_type="text/plain", 
+                                    filename=f"{base_filename}.srt"
+                                )
+                            elif output_format == "word_srt":
+                                return FileResponse(
+                                    word_srt_path, 
+                                    media_type="text/plain", 
+                                    filename=f"{base_filename}_word.srt"
+                                )
                         
                         return {
                             "text": result.text, 
@@ -297,6 +378,11 @@ async def transcribe(
                                 "denoiser_used": denoiser,
                                 "word_timestamps": word_timestamps,
                                 "compute_type": "float32"
+                            },
+                            "files": {
+                                "ass": ass_path,
+                                "srt": srt_path,
+                                "word_srt": word_srt_path
                             }
                         }
                     except Exception as cpu_e:
@@ -307,6 +393,24 @@ async def transcribe(
     except Exception as e:
         logger.error(f"Lỗi khi xử lý file: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Lỗi khi xử lý file: {str(e)}")
+
+@app.get("/download/{file_type}/{filename}")
+async def download_subtitle(file_type: str, filename: str):
+    """
+    Tải xuống file phụ đề đã tạo
+    
+    - **file_type**: Loại file (ass, srt, word_srt)
+    - **filename**: Tên file phụ đề
+    """
+    if file_type not in ["ass", "srt", "word_srt"]:
+        raise HTTPException(status_code=400, detail="Loại file không hợp lệ")
+    
+    file_path = os.path.join(SUBTITLE_DIR, filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File không tồn tại")
+    
+    media_type = "text/x-ssa" if file_type == "ass" else "text/plain"
+    return FileResponse(file_path, media_type=media_type, filename=filename)
 
 @app.get("/health")
 async def health_check():
@@ -390,3 +494,51 @@ async def model_info():
         "paper": "https://arxiv.org/abs/2401.03230",
         "homepage": "https://huggingface.co/vinai/PhoWhisper-large"
     }
+
+@app.get("/subtitle_files")
+async def list_subtitle_files():
+    """
+    Liệt kê tất cả các file phụ đề đã tạo
+    """
+    files = []
+    for filename in os.listdir(SUBTITLE_DIR):
+        file_path = os.path.join(SUBTITLE_DIR, filename)
+        if os.path.isfile(file_path):
+            file_type = "unknown"
+            if filename.endswith(".ass"):
+                file_type = "ass"
+            elif filename.endswith(".srt"):
+                if "word" in filename:
+                    file_type = "word_srt"
+                else:
+                    file_type = "srt"
+            
+            files.append({
+                "filename": filename,
+                "type": file_type,
+                "size": os.path.getsize(file_path),
+                "created": os.path.getctime(file_path)
+            })
+    
+    # Sắp xếp theo thời gian tạo, mới nhất lên đầu
+    files.sort(key=lambda x: x["created"], reverse=True)
+    
+    return {"files": files}
+
+@app.delete("/subtitle_files/{filename}")
+async def delete_subtitle_file(filename: str):
+    """
+    Xóa file phụ đề
+    
+    - **filename**: Tên file phụ đề cần xóa
+    """
+    file_path = os.path.join(SUBTITLE_DIR, filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File không tồn tại")
+    
+    try:
+        os.remove(file_path)
+        return {"status": "success", "message": f"Đã xóa file {filename}"}
+    except Exception as e:
+        logger.error(f"Lỗi khi xóa file {filename}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Lỗi khi xóa file: {str(e)}")
