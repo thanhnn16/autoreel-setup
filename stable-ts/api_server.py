@@ -72,22 +72,24 @@ def get_model(force_cpu=False):
             # Thiết lập các tham số phù hợp với Hugging Face pipeline
             model_kwargs = {
                 "device": device,
-                "download_root": None,
-                "in_memory": False,  # Giảm sử dụng bộ nhớ
-                "use_better_transformer": True,  # Sử dụng BetterTransformer 
-                "use_flash_attention": device == "cuda",  # Flash Attention chỉ khả dụng trên CUDA
+                "torch_dtype": torch.float16 if device == "cuda" else torch.float32,
             }
             
-            # Thiết lập các tham số cho quá trình sinh văn bản (generation)
-            generation_kwargs = {
-                "beam_size": 5,  # Giảm beam size để tiết kiệm bộ nhớ
-                "fp16": device == "cuda"  # Sử dụng fp16 cho GPU, fp32 cho CPU
-            }
-            
-            _model = stable_whisper.load_hf_whisper(
-                'suzii/vi-whisper-large-v3-turbo',
-                **model_kwargs
-            )
+            try:
+                _model = stable_whisper.load_hf_whisper(
+                    'suzii/vi-whisper-large-v3-turbo',
+                    **model_kwargs
+                )
+                logger.info("Đã tải mô hình Whisper từ Hugging Face thành công")
+            except TypeError as type_err:
+                # Xử lý trường hợp lỗi tham số
+                logger.warning(f"Có lỗi tham số khi tải mô hình: {str(type_err)}")
+                logger.info("Thử lại với tham số tối thiểu...")
+                # Thử lại với ít tham số hơn
+                _model = stable_whisper.load_hf_whisper(
+                    'suzii/vi-whisper-large-v3-turbo',
+                    device=device
+                )
             
             logger.info("Lưu ý: Alignment và Refinement không được hỗ trợ trên các mô hình Hugging Face")
             
