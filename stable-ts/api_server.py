@@ -73,6 +73,7 @@ def get_model(force_cpu=False):
             model_kwargs = {
                 "device": device,
                 "torch_dtype": torch.float16 if device == "cuda" else torch.float32,
+                "attn_implementation": "eager"  # Thêm tham số này để tránh cảnh báo
             }
             
             try:
@@ -98,9 +99,22 @@ def get_model(force_cpu=False):
                 logger.info("Áp dụng dynamic quantization cho mô hình trên CPU")
                 # Sử dụng dynamic quantization cho CPU
                 try:
-                    torch.quantization.quantize_dynamic(
-                        _model, {torch.nn.Linear}, dtype=torch.qint8, inplace=True
-                    )
+                    # Kiểm tra xem đối tượng có hỗ trợ quantization không
+                    if hasattr(_model, 'model'):
+                        # Thử quantize mô hình bên trong nếu có
+                        torch.quantization.quantize_dynamic(
+                            _model.model, {torch.nn.Linear}, dtype=torch.qint8, inplace=True
+                        )
+                    elif hasattr(_model, 'feature_extractor') and hasattr(_model, 'tokenizer') and hasattr(_model, 'encoder') and hasattr(_model, 'decoder'):
+                        # Thử quantize các thành phần riêng lẻ của mô hình Whisper
+                        for component in [_model.encoder, _model.decoder]:
+                            if hasattr(component, 'eval'):
+                                component.eval()
+                                torch.quantization.quantize_dynamic(
+                                    component, {torch.nn.Linear}, dtype=torch.qint8, inplace=True
+                                )
+                    else:
+                        logger.warning("Không thể áp dụng quantization: cấu trúc mô hình không hỗ trợ")
                 except Exception as q_err:
                     logger.warning(f"Không thể áp dụng quantization: {str(q_err)}")
                 
@@ -198,12 +212,27 @@ async def transcribe_audio(
             # Chạy transcribe với tham số tối ưu cho tốc độ
             try:
                 logger.info(f"Transcribing with Hugging Face Whisper (suzii/vi-whisper-large-v3-turbo)...")
-                result = model.transcribe(
-                    str(temp_file),
-                    language="vi",      # Xác định ngôn ngữ tiếng Việt
-                    temperature=0.0     # Giảm nhiệt độ để tăng tốc độ và độ chính xác
-                    # Đã loại bỏ các tham số không hợp lệ: beam_size, best_of, fp16
-                )
+                
+                # Thử sử dụng phương pháp có xử lý attention mask
+                try:
+                    result = process_audio_with_attention_mask(model, temp_file, language="vi")
+                except Exception as e:
+                    logger.warning(f"Không thể sử dụng xử lý attention mask tùy chỉnh: {str(e)}")
+                    # Quay lại phương pháp cũ
+                    transcribe_options = {
+                        "language": "vi",  # Xác định ngôn ngữ tiếng Việt
+                    }
+                    
+                    if hasattr(model, 'pipeline') and hasattr(model.pipeline, 'model'):
+                        # Nếu là mô hình HF pipeline, thêm attn_implementation
+                        transcribe_options['generate_kwargs'] = {
+                            'attn_implementation': 'eager'
+                        }
+                    
+                    result = model.transcribe(
+                        str(temp_file),
+                        **transcribe_options
+                    )
             except TypeError as type_err:
                 # Nếu vẫn có lỗi về tham số, thử lại với tham số tối thiểu
                 logger.warning(f"Lỗi tham số khi gọi transcribe: {str(type_err)}")
@@ -231,10 +260,10 @@ async def transcribe_audio(
                 try:
                     # Thử lại với CPU
                     model = get_model(force_cpu=True)
-                    result = model.transcribe(
-                        str(temp_file),
-                        language="vi"  # Chỉ giữ lại tham số cần thiết
-                    )
+                    # Sử dụng cùng phương pháp xử lý attention mask
+                    result = process_audio_with_attention_mask(model, temp_file, language="vi")
+                    process_time = time.time() - start_time
+                    logger.info(f"Thời gian xử lý trên CPU: {process_time:.2f} giây")
                 except Exception as cpu_err:
                     logger.error(f"Lỗi khi thử lại trên CPU: {str(cpu_err)}")
                     raise HTTPException(
@@ -299,6 +328,50 @@ async def download_file(filename: str):
         media_type="application/octet-stream",
         filename=filename
     )
+
+# Hàm helper để xử lý attention mask nếu cần
+def process_audio_with_attention_mask(model, audio_path, language="vi"):
+    """
+    Hàm xử lý audio với custom attention mask nếu cần thiết
+    """
+    # Kiểm tra xem model có phải là pipeline HF hay không
+    if hasattr(model, 'pipeline') and hasattr(model.pipeline, 'feature_extractor'):
+        try:
+            import numpy as np
+            from transformers import WhisperProcessor
+            
+            # Nếu model có feature_extractor và processor
+            logger.info("Sử dụng xử lý tùy chỉnh với attention mask...")
+            
+            # Đọc file audio
+            import librosa
+            audio, sr = librosa.load(str(audio_path), sr=16000)
+            
+            # Xử lý audio với feature extractor
+            processor = model.pipeline.processor if hasattr(model.pipeline, 'processor') else WhisperProcessor.from_pretrained("openai/whisper-large-v3")
+            input_features = processor.feature_extractor(audio, sampling_rate=sr, return_tensors="pt").input_features
+            
+            # Tạo attention mask đúng cách (tất cả là 1 vì không có padding)
+            attention_mask = torch.ones_like(input_features[:, :, 0])
+            
+            # Sử dụng model trực tiếp với attention mask
+            if hasattr(model.pipeline, 'model'):
+                forced_decoder_ids = processor.get_decoder_prompt_ids(language=language, task="transcribe")
+                result = model.pipeline.model.generate(
+                    input_features, 
+                    attention_mask=attention_mask,
+                    forced_decoder_ids=forced_decoder_ids,
+                    attn_implementation="eager"
+                )
+                transcription = processor.batch_decode(result, skip_special_tokens=True)[0]
+                return type('obj', (object,), {'text': transcription})
+        
+        except Exception as e:
+            logger.warning(f"Xử lý với attention mask thất bại: {str(e)}")
+            logger.info("Chuyển sang phương pháp transcribe thông thường...")
+    
+    # Nếu không thể xử lý tùy chỉnh, dùng cách thông thường
+    return model.transcribe(str(audio_path), language=language)
 
 if __name__ == "__main__":
     import uvicorn
