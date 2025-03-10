@@ -91,14 +91,27 @@ function runFFmpeg(args) {
     // Xử lý đường dẫn trên Windows
     const processedArgs = args.map(arg => {
       // Nếu arg là đường dẫn file, đảm bảo sử dụng dấu gạch chéo thuận (/)
-      if (typeof arg === 'string' && (arg.includes('\\') || arg.includes('/'))) {
-        // Kiểm tra xem arg có phải là đường dẫn file không
-        if (fs.existsSync(arg)) {
+      if (typeof arg === 'string') {
+        // Xử lý đường dẫn file
+        if (arg.includes('\\')) {
           return arg.replace(/\\/g, '/');
         }
-        // Kiểm tra xem arg có phải là tham số filter không
-        if (arg.includes('subtitles=') || arg.includes('file=')) {
-          return arg.replace(/\\/g, '/');
+        
+        // Xử lý đặc biệt cho đường dẫn file images.txt
+        if (arg.endsWith('images.txt')) {
+          // Đảm bảo đường dẫn tuyệt đối
+          const absolutePath = path.resolve(arg);
+          // Kiểm tra xem file có tồn tại không
+          if (fs.existsSync(absolutePath)) {
+            return absolutePath.replace(/\\/g, '/');
+          }
+        }
+        
+        // Xử lý đặc biệt cho filter subtitles
+        if (arg.includes('subtitles=')) {
+          return arg.replace(/\\/g, '/').replace(/subtitles='([^']+)'/g, (match, p1) => {
+            return `subtitles='${p1.replace(/:/g, '\\:')}'`;
+          });
         }
       }
       return arg;

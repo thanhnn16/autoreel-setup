@@ -214,10 +214,14 @@ class TaskProcessor {
           logger.task.warn(this.id, `File ảnh không tồn tại: ${absolutePath}`);
           
           // Thử tìm file với đường dẫn khác
-          const alternativePath = path.join(this.tempDir, 'images', path.basename(filePath));
+          // Kiểm tra xem file có nằm trong thư mục images không
+          const imagesDir = path.join(this.tempDir, 'images');
+          const fileName = path.basename(filePath);
+          const alternativePath = path.join(imagesDir, fileName);
+          
           if (fs.existsSync(alternativePath)) {
-            // Tạo đường dẫn tương đối mới
-            const newRelativePath = path.relative(path.dirname(imageListPath), alternativePath).replace(/\\/g, '/');
+            // Tạo đường dẫn tương đối mới, đơn giản hơn
+            const newRelativePath = `images/${fileName}`;
             logger.task.info(this.id, `Tìm thấy file thay thế: ${alternativePath}`);
             logger.task.info(this.id, `Sửa đường dẫn trong images.txt: ${filePath} -> ${newRelativePath}`);
             
@@ -257,18 +261,23 @@ class TaskProcessor {
     
     this.resources.images.forEach((imagePath, index) => {
       const duration = this.task.durations[index];
-      // Sửa: Đảm bảo đường dẫn tương đối sử dụng dấu gạch chéo thuận (/) trên mọi hệ điều hành
-      // Sử dụng path.relative để lấy đường dẫn tương đối từ thư mục chứa file images.txt
-      const relativePath = path.relative(path.dirname(imageListPath), imagePath).replace(/\\/g, '/');
-      imageListContent += `file '${relativePath}'\n`;
+      
+      // Sửa: Sử dụng đường dẫn tương đối đơn giản hơn
+      // Chỉ sử dụng tên file thay vì đường dẫn tương đối đầy đủ
+      // Vì file images.txt và thư mục images nằm cùng cấp trong thư mục task
+      const fileName = path.basename(imagePath);
+      const simplePath = `images/${fileName}`;
+      
+      imageListContent += `file '${simplePath}'\n`;
       imageListContent += `duration ${duration}\n`;
     });
     
     // Thêm ảnh cuối cùng một lần nữa (yêu cầu của FFmpeg)
     if (this.resources.images.length > 0) {
       const lastImage = this.resources.images[this.resources.images.length - 1];
-      const relativePath = path.relative(path.dirname(imageListPath), lastImage).replace(/\\/g, '/');
-      imageListContent += `file '${relativePath}'\n`;
+      const fileName = path.basename(lastImage);
+      const simplePath = `images/${fileName}`;
+      imageListContent += `file '${simplePath}'\n`;
     }
     
     // Ghi file danh sách ảnh
