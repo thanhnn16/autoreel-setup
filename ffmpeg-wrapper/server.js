@@ -87,12 +87,29 @@ console.error = function () {
 function runFFmpeg(args) {
   return new Promise((resolve, reject) => {
     const startTime = Date.now();
+    
+    // Xử lý đường dẫn trên Windows
+    const processedArgs = args.map(arg => {
+      // Nếu arg là đường dẫn file, đảm bảo sử dụng dấu gạch chéo thuận (/)
+      if (typeof arg === 'string' && (arg.includes('\\') || arg.includes('/'))) {
+        // Kiểm tra xem arg có phải là đường dẫn file không
+        if (fs.existsSync(arg)) {
+          return arg.replace(/\\/g, '/');
+        }
+        // Kiểm tra xem arg có phải là tham số filter không
+        if (arg.includes('subtitles=') || arg.includes('file=')) {
+          return arg.replace(/\\/g, '/');
+        }
+      }
+      return arg;
+    });
+    
     // Use the original console functions to avoid duplicate logging
-    originalConsoleLog(`[FFmpeg] Bắt đầu thực thi lệnh: ffmpeg ${args.join(' ')}`);
+    originalConsoleLog(`[FFmpeg] Bắt đầu thực thi lệnh: ffmpeg ${processedArgs.join(' ')}`);
     // Still write to log file
-    fs.appendFileSync(serverLogFile, `[${new Date().toISOString()}] [INFO] [FFmpeg] Bắt đầu thực thi lệnh: ffmpeg ${args.join(' ')}\n`);
+    fs.appendFileSync(serverLogFile, `[${new Date().toISOString()}] [INFO] [FFmpeg] Bắt đầu thực thi lệnh: ffmpeg ${processedArgs.join(' ')}\n`);
 
-    const ffmpeg = spawn('ffmpeg', args);
+    const ffmpeg = spawn('ffmpeg', processedArgs);
     let stdout = '';
     let stderr = '';
 
@@ -124,7 +141,7 @@ function runFFmpeg(args) {
         stderr,
         error: error.message,
         duration,
-        command: `ffmpeg ${args.join(' ')}`
+        command: `ffmpeg ${processedArgs.join(' ')}`
       });
     });
 
@@ -138,7 +155,7 @@ function runFFmpeg(args) {
           stdout,
           stderr,
           duration,
-          command: `ffmpeg ${args.join(' ')}`
+          command: `ffmpeg ${processedArgs.join(' ')}`
         });
       } else {
         originalConsoleError(`[FFmpeg] Thực thi thất bại với mã lỗi ${code} (${duration}s)`);
@@ -148,7 +165,7 @@ function runFFmpeg(args) {
           stdout,
           stderr,
           duration,
-          command: `ffmpeg ${args.join(' ')}`
+          command: `ffmpeg ${processedArgs.join(' ')}`
         });
       }
     });

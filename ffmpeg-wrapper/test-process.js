@@ -10,9 +10,9 @@ console.log(JSON.stringify(data, null, 2));
 // Gửi request đến endpoint /process
 async function sendRequest() {
   try {
-    console.log('Đang gửi request đến http://localhost:3000/process...');
+    console.log('Đang gửi request đến http://localhost:3000/api/process/task...');
     
-    const response = await fetch('http://localhost:3000/process', {
+    const response = await fetch('http://localhost:3000/api/process/task', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

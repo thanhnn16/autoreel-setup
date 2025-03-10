@@ -9,3 +9,5 @@ ffmpeg-wrapper/*.ass
 ffmpeg-wrapper/*.json
 ffmpeg-wrapper/*.log
 ffmpeg-wrapper/*.txt
+ffmpeg-wrapper/temp*
+ffmpeg-wrapper/node_modules
