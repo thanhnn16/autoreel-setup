@@ -347,10 +347,7 @@ async def transcribe_audio(
                     'Encoding': encoding
                 }
                 
-                # Xác định tag cho từng từ
-                tag_value = -1  # Highlight từng từ riêng lẻ
-                
-                # Sử dụng phương thức to_ass với tất cả tham số
+                # Sử dụng phương thức to_ass với tất cả tham số, bỏ tham số tag
                 result.to_ass(
                     str(output_path),
                     segment_level=segment_level,
@@ -360,7 +357,6 @@ async def transcribe_audio(
                     highlight_color=highlight_color,
                     karaoke=karaoke,
                     reverse_text=reverse_text,
-                    tag=(tag_value, None),
                     **ass_style_kwargs
                 )
             except AttributeError as e:
@@ -412,7 +408,6 @@ async def transcribe_audio(
                         highlight_color=highlight_color,
                         karaoke=karaoke,
                         reverse_text=reverse_text,
-                        tag=(tag_value, None),
                         **ass_style_kwargs
                     )
                 else:
