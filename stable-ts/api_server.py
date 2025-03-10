@@ -357,6 +357,7 @@ async def transcribe_audio(
                     highlight_color=highlight_color,
                     karaoke=karaoke,
                     reverse_text=reverse_text,
+                    tag=-1,  # Thêm tham số tag=-1 để kích hoạt highlight cho từng từ riêng biệt
                     **ass_style_kwargs
                 )
             except AttributeError as e:
@@ -408,6 +409,7 @@ async def transcribe_audio(
                         highlight_color=highlight_color,
                         karaoke=karaoke,
                         reverse_text=reverse_text,
+                        tag=-1,  # Thêm tham số tag=-1 để kích hoạt highlight cho từng từ riêng biệt
                         **ass_style_kwargs
                     )
                 else:

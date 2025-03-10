@@ -90,6 +90,7 @@ const logger = {
   task: {
     info: (taskId, message) => writeLog(`[Task ${taskId}] ${message}`, 'INFO', 'Task'),
     error: (taskId, message) => writeLog(`[Task ${taskId}] ${message}`, 'ERROR', 'Task'),
+    warn: (taskId, message) => writeLog(`[Task ${taskId}] ${message}`, 'WARN', 'Task'),
     logData: (taskId, data, type) => writeTaskLog(taskId, data, type)
   }
 };
