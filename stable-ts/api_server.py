@@ -61,7 +61,8 @@ def get_model(force_cpu=False):
     
     # Tải mô hình đơn giản
     try:
-        _model = stable_whisper.load_model("turbo", device=_device)
+        # _model = stable_whisper.load_model("turbo", device=_device)
+        _model = stable_whisper.load_model("large-v3", device=_device)
         logger.info(f"Đã tải mô hình turbo trên {_device}")
     except Exception as e:
         logger.warning(f"Không thể tải mô hình turbo: {str(e)}")
