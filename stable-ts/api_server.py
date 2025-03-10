@@ -61,8 +61,8 @@ def get_model(force_cpu=False):
     
     # Tải mô hình đơn giản
     try:
-        _model = stable_whisper.load_model("turbo", device=_device)
-        # _model = stable_whisper.load_model("large-v3", device=_device)
+        # _model = stable_whisper.load_model("turbo", device=_device)
+        _model = stable_whisper.load_model("large-v3", device=_device)
         logger.info(f"Đã tải mô hình turbo trên {_device}")
     except Exception as e:
         logger.warning(f"Không thể tải mô hình turbo: {str(e)}")
@@ -139,14 +139,39 @@ async def transcribe_audio(
     format: str = Form("txt"),
     use_cpu: bool = Form(False),
     segment_by_sentence: bool = Form(True),
-    font_size: int = Form(14),
+    
+    # Tham số cho ASS
+    segment_level: bool = Form(True),
+    word_level: bool = Form(True),
+    min_dur: float = Form(0.2),
     font: str = Form("Noto Sans"),
-    margin_v: int = Form(72),
+    font_size: int = Form(14),
+    strip: bool = Form(True),
     highlight_color: str = Form('05c2ed'),
-    background_color: str = Form('80000000'),  # Mặc định: màu đen với độ trong suốt 50%
-    scale_x: int = Form(100),  # Tỷ lệ ngang 60% phù hợp với video nhỏ
-    scale_y: int = Form(100),  # Tỷ lệ dọc 60% phù hợp với video nhỏ
-    alignment: int = Form(2)   # 2: Căn dưới giữa
+    karaoke: bool = Form(False),
+    reverse_text: bool = Form(False),
+    
+    # Các tham số định dạng ASS
+    background_color: str = Form('80000000'),
+    primary_color: str = Form('FFFFFF'),
+    secondary_color: str = Form('FFFFFF'),
+    outline_color: str = Form('000000'),
+    bold: bool = Form(False),
+    italic: bool = Form(False),
+    underline: bool = Form(False),
+    strike_out: bool = Form(False),
+    scale_x: int = Form(100),
+    scale_y: int = Form(100),
+    spacing: int = Form(0),
+    angle: int = Form(0),
+    border_style: int = Form(1),
+    outline: int = Form(2),
+    shadow: int = Form(2),
+    alignment: int = Form(2),
+    margin_l: int = Form(10),
+    margin_r: int = Form(10),
+    margin_v: int = Form(72),
+    encoding: int = Form(1)
 ):
     """
     API endpoint để phiên âm file audio thành văn bản.
@@ -156,23 +181,46 @@ async def transcribe_audio(
         format (str): Định dạng đầu ra (txt, srt, vtt, ass, json, sentence)
         use_cpu (bool): Sử dụng CPU thay vì GPU
         segment_by_sentence (bool): Ngắt segment theo câu để có context tốt hơn
-        font_size (int): Kích thước font cho file ASS (mặc định: 14)
-        font (str): Tên font chữ cho file ASS (mặc định: Noto Sans)
-        margin_v (int): Lề dọc cho file ASS (mặc định: 20)
-        highlight_color (str): Màu sắc cho highlight dạng BGR (mặc định: 05c2ed)
-        background_color (str): Màu nền dạng AABBGGRR (mặc định: 80000000 - đen trong suốt 50%)
-        scale_x (int): Tỷ lệ ngang của phụ đề, tính bằng % (mặc định: 60)
-        scale_y (int): Tỷ lệ dọc của phụ đề, tính bằng % (mặc định: 60)
-        alignment (int): Vị trí căn chỉnh phụ đề (mặc định: 2 - căn dưới giữa)
-                         1: dưới trái, 2: dưới giữa, 3: dưới phải
-                         4: giữa trái, 5: chính giữa, 6: giữa phải
-                         7: trên trái, 8: trên giữa, 9: trên phải
+        
+        # Tham số cho ASS
+        segment_level (bool): Hiển thị phụ đề ở cấp độ đoạn
+        word_level (bool): Hiển thị phụ đề ở cấp độ từng từ
+        min_dur (float): Thời lượng tối thiểu cho mỗi từ/đoạn
+        font (str): Tên font chữ
+        font_size (int): Kích thước font
+        strip (bool): Loại bỏ khoảng trắng thừa
+        highlight_color (str): Màu highlight cho từng từ, định dạng BGR
+        karaoke (bool): Tạo hiệu ứng karaoke
+        reverse_text (bool): Đảo ngược thứ tự từ trong mỗi đoạn
+        
+        # Các tham số định dạng ASS
+        background_color (str): Màu nền dạng AABBGGRR
+        primary_color (str): Màu chữ chính
+        secondary_color (str): Màu chữ phụ
+        outline_color (str): Màu viền
+        bold (bool): Chữ đậm
+        italic (bool): Chữ nghiêng
+        underline (bool): Chữ gạch chân
+        strike_out (bool): Chữ gạch ngang
+        scale_x (int): Tỷ lệ ngang của phụ đề
+        scale_y (int): Tỷ lệ dọc của phụ đề
+        spacing (int): Khoảng cách giữa các ký tự
+        angle (int): Góc xoay của phụ đề
+        border_style (int): Kiểu viền
+        outline (int): Độ dày viền
+        shadow (int): Độ đậm bóng
+        alignment (int): Vị trí căn chỉnh phụ đề
+        margin_l (int): Lề trái
+        margin_r (int): Lề phải
+        margin_v (int): Lề dọc
+        encoding (int): Mã hóa ký tự
+        
     Returns:
         Kết quả phiên âm theo định dạng yêu cầu
     """
     
     # Ghi log request
-    logger.info(f"Nhận yêu cầu phiên âm file: {file.filename}, format: {format}, use_cpu: {use_cpu}, segment_by_sentence: {segment_by_sentence}, font_size: {font_size}, font: {font}, margin_v: {margin_v}")
+    logger.info(f"Nhận yêu cầu phiên âm file: {file.filename}, format: {format}, use_cpu: {use_cpu}, segment_by_sentence: {segment_by_sentence}")
     
     # Kiểm tra định dạng file
     supported_formats = ["mp3", "wav", "m4a", "ogg", "flac", "mp4", "avi", "mkv"]
@@ -272,24 +320,48 @@ async def transcribe_audio(
             output_result.to_srt_vtt(str(output_path), output_format="vtt")
         elif format == "ass":
             try:
-                # Sử dụng phương thức to_ass với các tham số nâng cao
+                # Tạo từ điển kwargs cho các tham số định dạng ASS
+                ass_style_kwargs = {
+                    'Name': 'Default',
+                    'Fontname': font,
+                    'Fontsize': font_size,
+                    'PrimaryColour': f"&H{primary_color}",
+                    'SecondaryColour': f"&H{secondary_color}",
+                    'OutlineColour': f"&H{outline_color}",
+                    'BackColour': f"&H{background_color}",
+                    'Bold': int(bold),
+                    'Italic': int(italic),
+                    'Underline': int(underline),
+                    'StrikeOut': int(strike_out),
+                    'ScaleX': scale_x,
+                    'ScaleY': scale_y,
+                    'Spacing': spacing,
+                    'Angle': angle,
+                    'BorderStyle': border_style,
+                    'Outline': outline,
+                    'Shadow': shadow,
+                    'Alignment': alignment,
+                    'MarginL': margin_l,
+                    'MarginR': margin_r,
+                    'MarginV': margin_v,
+                    'Encoding': encoding
+                }
+                
+                # Xác định tag cho từng từ
+                tag_value = -1  # Highlight từng từ riêng lẻ
+                
+                # Sử dụng phương thức to_ass với tất cả tham số
                 result.to_ass(
                     str(output_path),
-                    segment_level=True,    # Bật timestamp theo segment
-                    word_level=True,       # Bật timestamp theo từ
-                    min_dur=0.2,           # Thời gian tối thiểu cho mỗi từ/segment
-                    font=font,
-                    font_size=font_size,
+                    segment_level=segment_level,
+                    word_level=word_level,
+                    min_dur=min_dur,
+                    strip=strip,
                     highlight_color=highlight_color,
-                    karaoke=False,         # Tắt hiệu ứng karaoke
-                    strip=True,            # Loại bỏ khoảng trắng thừa
-                    BackColour=f"&H{background_color}",
-                    MarginV=margin_v,
-                    ScaleX=scale_x,
-                    ScaleY=scale_y,
-                    Alignment=alignment,
-                    tag=(-1, None),        # Highlight từng từ riêng lẻ
-                    reverse_text=False     # Giữ nguyên thứ tự văn bản
+                    karaoke=karaoke,
+                    reverse_text=reverse_text,
+                    tag=(tag_value, None),
+                    **ass_style_kwargs
                 )
             except AttributeError as e:
                 if "'WordTiming' object has no attribute 'text'" in str(e):
@@ -302,24 +374,46 @@ async def transcribe_audio(
                                 if not hasattr(word, 'text') and hasattr(word, 'word'):
                                     # Sử dụng thuộc tính word nếu không có thuộc tính text
                                     word.text = word.word
+                    
                     # Thử lại sau khi sửa với các tham số đã chỉ định
+                    # Tạo từ điển kwargs cho các tham số định dạng ASS
+                    ass_style_kwargs = {
+                        'Name': 'Default',
+                        'Fontname': font,
+                        'Fontsize': font_size,
+                        'PrimaryColour': f"&H{primary_color}",
+                        'SecondaryColour': f"&H{secondary_color}",
+                        'OutlineColour': f"&H{outline_color}",
+                        'BackColour': f"&H{background_color}",
+                        'Bold': int(bold),
+                        'Italic': int(italic),
+                        'Underline': int(underline),
+                        'StrikeOut': int(strike_out),
+                        'ScaleX': scale_x,
+                        'ScaleY': scale_y,
+                        'Spacing': spacing,
+                        'Angle': angle,
+                        'BorderStyle': border_style,
+                        'Outline': outline,
+                        'Shadow': shadow,
+                        'Alignment': alignment,
+                        'MarginL': margin_l,
+                        'MarginR': margin_r,
+                        'MarginV': margin_v,
+                        'Encoding': encoding
+                    }
+                    
                     result.to_ass(
                         str(output_path),
-                        segment_level=True,
-                        word_level=True,
-                        min_dur=0.2,
-                        font=font,
-                        font_size=font_size,
+                        segment_level=segment_level,
+                        word_level=word_level,
+                        min_dur=min_dur,
+                        strip=strip,
                         highlight_color=highlight_color,
-                        karaoke=False,
-                        strip=True,
-                        BackColour=f"&H{background_color}",
-                        MarginV=margin_v,
-                        ScaleX=scale_x,
-                        ScaleY=scale_y,
-                        Alignment=alignment,
-                        tag=(-1, None),
-                        reverse_text=False
+                        karaoke=karaoke,
+                        reverse_text=reverse_text,
+                        tag=(tag_value, None),
+                        **ass_style_kwargs
                     )
                 else:
                     raise
