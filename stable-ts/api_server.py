@@ -139,22 +139,34 @@ async def transcribe_audio(
     format: str = Form("txt"),
     use_cpu: bool = Form(False),
     segment_by_sentence: bool = Form(True),
-    font_size: int = Form(12),
-    font: str = Form("Arial"),
-    margin_v: int = Form(10)
+    font_size: int = Form(14),
+    font: str = Form("Noto Sans"),
+    margin_v: int = Form(72),
+    highlight_color: str = Form('05c2ed'),
+    background_color: str = Form('80000000'),  # Mặc định: màu đen với độ trong suốt 50%
+    scale_x: int = Form(100),  # Tỷ lệ ngang 60% phù hợp với video nhỏ
+    scale_y: int = Form(100),  # Tỷ lệ dọc 60% phù hợp với video nhỏ
+    alignment: int = Form(2)   # 2: Căn dưới giữa
 ):
     """
     API endpoint để phiên âm file audio thành văn bản.
     
     Args:
         file (UploadFile): File audio cần phiên âm
-        format (str): Định dạng đầu ra (txt, srt, vtt, json, sentence)
+        format (str): Định dạng đầu ra (txt, srt, vtt, ass, json, sentence)
         use_cpu (bool): Sử dụng CPU thay vì GPU
         segment_by_sentence (bool): Ngắt segment theo câu để có context tốt hơn
-        font_size (int): Kích thước font cho file ASS (mặc định: 12)
-        font (str): Tên font chữ cho file ASS (mặc định: Arial)
-        margin_v (int): Lề dọc cho file ASS (mặc định: 10)
-        
+        font_size (int): Kích thước font cho file ASS (mặc định: 14)
+        font (str): Tên font chữ cho file ASS (mặc định: Noto Sans)
+        margin_v (int): Lề dọc cho file ASS (mặc định: 20)
+        highlight_color (str): Màu sắc cho highlight dạng BGR (mặc định: 05c2ed)
+        background_color (str): Màu nền dạng AABBGGRR (mặc định: 80000000 - đen trong suốt 50%)
+        scale_x (int): Tỷ lệ ngang của phụ đề, tính bằng % (mặc định: 60)
+        scale_y (int): Tỷ lệ dọc của phụ đề, tính bằng % (mặc định: 60)
+        alignment (int): Vị trí căn chỉnh phụ đề (mặc định: 2 - căn dưới giữa)
+                         1: dưới trái, 2: dưới giữa, 3: dưới phải
+                         4: giữa trái, 5: chính giữa, 6: giữa phải
+                         7: trên trái, 8: trên giữa, 9: trên phải
     Returns:
         Kết quả phiên âm theo định dạng yêu cầu
     """
@@ -260,15 +272,24 @@ async def transcribe_audio(
             output_result.to_srt_vtt(str(output_path), output_format="vtt")
         elif format == "ass":
             try:
-                # Áp dụng split_by_length trước khi xuất ra ASS để giới hạn title còn 2 dòng
-                result_limited = result.split_by_length(67)  # Khoảng 67 ký tự ~ 2 dòng
-                
-                # Sử dụng kết quả đã được giới hạn để xuất file ASS
-                result_limited.to_ass(
+                # Sử dụng phương thức to_ass với các tham số nâng cao
+                result.to_ass(
                     str(output_path),
-                    font_size=font_size,
+                    segment_level=True,    # Bật timestamp theo segment
+                    word_level=True,       # Bật timestamp theo từ
+                    min_dur=0.2,           # Thời gian tối thiểu cho mỗi từ/segment
                     font=font,
-                    MarginV=margin_v
+                    font_size=font_size,
+                    highlight_color=highlight_color,
+                    karaoke=False,         # Tắt hiệu ứng karaoke
+                    strip=True,            # Loại bỏ khoảng trắng thừa
+                    BackColour=f"&H{background_color}",
+                    MarginV=margin_v,
+                    ScaleX=scale_x,
+                    ScaleY=scale_y,
+                    Alignment=alignment,
+                    tag=(-1, None),        # Highlight từng từ riêng lẻ
+                    reverse_text=False     # Giữ nguyên thứ tự văn bản
                 )
             except AttributeError as e:
                 if "'WordTiming' object has no attribute 'text'" in str(e):
@@ -284,9 +305,21 @@ async def transcribe_audio(
                     # Thử lại sau khi sửa với các tham số đã chỉ định
                     result.to_ass(
                         str(output_path),
-                        font_size=font_size,
+                        segment_level=True,
+                        word_level=True,
+                        min_dur=0.2,
                         font=font,
-                        MarginV=margin_v
+                        font_size=font_size,
+                        highlight_color=highlight_color,
+                        karaoke=False,
+                        strip=True,
+                        BackColour=f"&H{background_color}",
+                        MarginV=margin_v,
+                        ScaleX=scale_x,
+                        ScaleY=scale_y,
+                        Alignment=alignment,
+                        tag=(-1, None),
+                        reverse_text=False
                     )
                 else:
                     raise
