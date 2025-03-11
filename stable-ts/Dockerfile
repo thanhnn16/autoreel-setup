@@ -1,33 +1,62 @@
-# Sử dụng CUDA 12.2.0-base-ubuntu22.04 làm image nền
-FROM nvidia/cuda:12.2.0-base-ubuntu22.04
+FROM python:3.12-slim
 
-# Cài đặt các dependency hệ thống: ffmpeg, python3, pip
+# Cài đặt các phụ thuộc hệ thống
 RUN apt-get update && apt-get install -y \
+    git \
+    build-essential \
+    cmake \
+    libboost-all-dev \
+    libicu-dev \
+    ninja-build \
+    pkg-config \
     ffmpeg \
-    python3 \
-    python3-pip \
-    libsndfile1 \
-    && rm -rf /var/lib/apt/lists/*
+    libass-dev \
+    libfontconfig1-dev \
+    libfreetype6-dev \
+    libfribidi-dev \
+    libharfbuzz-dev \
+    meson \
+    curl && rm -rf /var/lib/apt/lists/*
 
 # Thiết lập thư mục làm việc
 WORKDIR /app
 
-# Cài đặt các package Python cần thiết:
-RUN pip3 install --no-cache-dir uvicorn fastapi
-RUN pip3 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cu124
-RUN pip3 install --no-cache-dir transformers
-RUN pip3 install --no-cache-dir -U stable-ts
-RUN pip3 install --no-cache-dir python-multipart
-RUN pip3 install --no-cache-dir pydub
+# Clone và build aegisub-cli
+RUN git clone https://github.com/Myaamori/aegisub-cli.git && \
+    cd aegisub-cli && \
+    meson --prefix=/usr --buildtype=release builddir && \
+    ninja -C builddir src/aegisub-cli && \
+    cp builddir/src/aegisub-cli /usr/local/bin/ && \
+    cd .. && rm -rf aegisub-cli
 
-# Cấu hình PyTorch để tối ưu bộ nhớ
-ENV PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
+# Cài đặt automation scripts (DependencyControl & ILL)
+RUN mkdir -p /root/.aegisub/automation/autoload && \
+    git clone https://github.com/TypesettingTools/DependencyControl.git /root/.aegisub/automation/autoload/DependencyControl && \
+    git clone https://github.com/TypesettingTools/ILL.git /root/.aegisub/automation/autoload/ILL
 
-# Copy mã nguồn FastAPI (api_server.py) vào image
-COPY api_server.py .
+# Cài đặt font hỗ trợ Unicode đầy đủ
+RUN apt-get update && apt-get install -y fonts-noto fonts-noto-cjk fonts-noto-color-emoji && rm -rf /var/lib/apt/lists/*
 
-# Mở cổng 8000 để cho phép truy cập API từ bên ngoài container
+# Sao chép font từ thư mục /fonts vào hệ thống
+RUN mkdir -p /usr/share/fonts/truetype/custom
+COPY ./fonts/Montserrat/*.ttf /usr/share/fonts/truetype/custom/
+COPY ./fonts/Bungee_Spice/*.ttf /usr/share/fonts/truetype/custom/
+COPY ./fonts/Poppins/*.ttf /usr/share/fonts/truetype/custom/
+COPY ./fonts/Quicksand/*.ttf /usr/share/fonts/truetype/custom/
+RUN fc-cache -f -v
+
+# Copy requirements.txt và cài đặt stable-ts cùng các thư viện liên quan
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy toàn bộ mã nguồn ứng dụng vào container
+COPY . .
+
+# Tạo các thư mục cần thiết
+RUN mkdir -p temp outputs
+
+# Expose port của FastAPI app
 EXPOSE 8000
 
-# Khởi chạy API server
+# Khởi chạy ứng dụng FastAPI
 CMD ["uvicorn", "api_server:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,10 +1,10 @@
-import os
+# import os
+
 import time
 import uuid
 import logging
 import shutil
 import torch
-import subprocess
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from fastapi import FastAPI, File, Form, UploadFile, HTTPException
@@ -15,31 +15,36 @@ from typing import Optional
 import tempfile
 
 # Thiết lập logging
+
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+level=logging.INFO,
+format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger("autoreel-api")
 
 # Khởi tạo FastAPI
+
 app = FastAPI(title="AutoReel API", description="API phiên âm âm thanh sử dụng stable-ts")
 
 # Thư mục lưu trữ file tạm thời và kết quả
+
 TEMP_DIR = Path("./temp")
 OUTPUTS_DIR = Path("./outputs")
 
 # Đảm bảo thư mục tồn tại
+
 TEMP_DIR.mkdir(exist_ok=True)
 OUTPUTS_DIR.mkdir(exist_ok=True)
 
 # Biến toàn cục để lưu trữ mô hình
+
 _model = None
 _device = "cpu"
 
 def get_model(force_cpu=False):
-    """
-    Tải và trả về mô hình stable-ts.
-    
+"""
+Tải và trả về mô hình stable-ts.
+
     Args:
         force_cpu (bool): Nếu True, sẽ tải mô hình trên CPU ngay cả khi GPU khả dụng
         
@@ -72,35 +77,33 @@ def get_model(force_cpu=False):
         logger.info("Đã tải mô hình medium")
     
     return _model
-
-@app.on_event("startup")
+    @app.on_event("startup")
 async def startup_event():
-    """
-    Khởi tạo tài nguyên khi server bắt đầu.
-    """
-    # Tạo thư mục nếu chưa tồn tại
-    TEMP_DIR.mkdir(exist_ok=True)
-    OUTPUTS_DIR.mkdir(exist_ok=True)
-    
+"""
+Khởi tạo tài nguyên khi server bắt đầu.
+"""
+\# Tạo thư mục nếu chưa tồn tại
+TEMP_DIR.mkdir(exist_ok=True)
+OUTPUTS_DIR.mkdir(exist_ok=True)
+
     # Khởi tạo mô hình trước để giảm thời gian chờ cho request đầu tiên
     try:
         get_model()
         logger.info("Đã khởi tạo mô hình sẵn sàng")
     except Exception as e:
         logger.error(f"Không thể khởi tạo mô hình: {str(e)}")
-
-@app.on_event("shutdown")
+    @app.on_event("shutdown")
 async def shutdown_event():
-    """
-    Dọn dẹp tài nguyên khi server tắt.
-    """
-    # Xóa các file tạm
-    for file in TEMP_DIR.glob("*"):
-        try:
-            file.unlink()
-        except Exception as e:
-            logger.error(f"Không thể xóa file tạm {file}: {str(e)}")
-    
+"""
+Dọn dẹp tài nguyên khi server tắt.
+"""
+\# Xóa các file tạm
+for file in TEMP_DIR.glob("*"):
+try:
+file.unlink()
+except Exception as e:
+logger.error(f"Không thể xóa file tạm {file}: {str(e)}")
+
     # Giải phóng mô hình để giải phóng bộ nhớ
     global _model
     _model = None
@@ -113,39 +116,33 @@ async def shutdown_event():
         torch.cuda.empty_cache()
     
     logger.info("Đã dọn dẹp tài nguyên")
-
-@app.get("/")
+    @app.get("/")
 async def root():
-    """
-    Endpoint mặc định trả về thông tin cơ bản về API.
-    """
-    return {
-        "name": "AutoReel API",
-        "description": "API phiên âm âm thanh sử dụng stable-ts",
-        "endpoints": {
-            "/transcribe": "POST - Phiên âm file âm thanh",
-            "/download/{filename}": "GET - Tải file kết quả"
-        },
-        "features": {
-            "segment_by_sentence": "Tính năng ngắt theo câu để có context tốt nhất",
-            "supported_formats": ["txt", "srt", "vtt", "ass", "json", "sentence"],
-            "supported_audio": ["mp3", "wav", "m4a", "ogg", "flac", "mp4", "avi", "mkv"],
-            "ass_features": {
-                "rounded_corners": "Bo góc cho phụ đề ASS",
-                "word_level": "Highlight từng từ khi phát âm",
-                "karaoke": "Hiệu ứng karaoke"
-            }
-        },
-        "version": "1.1.0"
-    }
+"""
+Endpoint mặc định trả về thông tin cơ bản về API.
+"""
+return {
+"name": "AutoReel API",
+"description": "API phiên âm âm thanh sử dụng stable-ts",
+"endpoints": {
+"/transcribe": "POST - Phiên âm file âm thanh",
+"/download/{filename}": "GET - Tải file kết quả"
+},
+"features": {
+"segment_by_sentence": "Tính năng ngắt theo câu để có context tốt nhất",
+"supported_formats": ["txt", "srt", "vtt", "ass", "json", "sentence"],
+"supported_audio": ["mp3", "wav", "m4a", "ogg", "flac", "mp4", "avi", "mkv"]
+},
+"version": "1.1.0"
+}
 
 @app.post("/transcribe")
 async def transcribe_audio(
-    file: UploadFile = File(...),
-    format: str = Form("txt"),
-    use_cpu: bool = Form(False),
-    segment_by_sentence: bool = Form(True),
-    
+file: UploadFile = File(...),
+format: str = Form("txt"),
+use_cpu: bool = Form(False),
+segment_by_sentence: bool = Form(True),
+
     # Tham số cho ASS
     segment_level: bool = Form(True),
     word_level: bool = Form(True),
@@ -156,8 +153,6 @@ async def transcribe_audio(
     highlight_color: str = Form('05c2ed'),
     karaoke: bool = Form(False),
     reverse_text: bool = Form(False),
-    rounded_corners: bool = Form(False),
-    border_radius: int = Form(10),
     
     # Các tham số định dạng ASS
     background_color: str = Form('80000000'),
@@ -180,10 +175,10 @@ async def transcribe_audio(
     margin_r: int = Form(10),
     margin_v: int = Form(72),
     encoding: int = Form(1)
-):
-    """
-    API endpoint để phiên âm file audio thành văn bản.
-    
+    ):
+"""
+API endpoint để phiên âm file audio thành văn bản.
+
     Args:
         file (UploadFile): File audio cần phiên âm
         format (str): Định dạng đầu ra (txt, srt, vtt, ass, json, sentence)
@@ -200,8 +195,6 @@ async def transcribe_audio(
         highlight_color (str): Màu highlight cho từng từ, định dạng BGR
         karaoke (bool): Tạo hiệu ứng karaoke
         reverse_text (bool): Đảo ngược thứ tự từ trong mỗi đoạn
-        rounded_corners (bool): Áp dụng bo góc cho file ASS
-        border_radius (int): Bán kính bo góc
         
         # Các tham số định dạng ASS
         background_color (str): Màu nền dạng AABBGGRR
@@ -357,18 +350,9 @@ async def transcribe_audio(
                     'Encoding': encoding
                 }
                 
-                # Tạo file tạm để xử lý bo góc nếu cần
-                temp_ass = None
-                final_ass = output_path
-                
-                if rounded_corners:
-                    # Nếu cần bo góc, tạo file tạm
-                    temp_ass = TEMP_DIR / f"{uuid.uuid4()}.ass"
-                    final_ass = output_path
-                
                 # Sử dụng phương thức to_ass với tất cả tham số, bỏ tham số tag
                 result.to_ass(
-                    str(temp_ass if rounded_corners else output_path),
+                    str(output_path),
                     segment_level=segment_level,
                     word_level=word_level,
                     min_dur=min_dur,
@@ -379,21 +363,6 @@ async def transcribe_audio(
                     tag=-1,  # Thêm tham số tag=-1 để kích hoạt highlight cho từng từ riêng biệt
                     **ass_style_kwargs
                 )
-                
-                # Áp dụng bo góc nếu được yêu cầu
-                if rounded_corners:
-                    logger.info(f"Áp dụng bo góc với bán kính {border_radius}")
-                    try:
-                        apply_rounded_borders(temp_ass, final_ass, border_radius)
-                        # Xóa file tạm sau khi xử lý
-                        temp_ass.unlink(missing_ok=True)
-                    except Exception as e:
-                        logger.error(f"Lỗi khi áp dụng bo góc: {str(e)}")
-                        # Nếu có lỗi, sử dụng file gốc
-                        shutil.copy(temp_ass, final_ass)
-                        # Xóa file tạm
-                        temp_ass.unlink(missing_ok=True)
-                
             except AttributeError as e:
                 if "'WordTiming' object has no attribute 'text'" in str(e):
                     logger.error(f"Lỗi khi xử lý: {str(e)}")
@@ -405,15 +374,6 @@ async def transcribe_audio(
                                 if not hasattr(word, 'text') and hasattr(word, 'word'):
                                     # Sử dụng thuộc tính word nếu không có thuộc tính text
                                     word.text = word.word
-                    
-                    # Tạo file tạm để xử lý bo góc nếu cần
-                    temp_ass = None
-                    final_ass = output_path
-                    
-                    if rounded_corners:
-                        # Nếu cần bo góc, tạo file tạm
-                        temp_ass = TEMP_DIR / f"{uuid.uuid4()}.ass"
-                        final_ass = output_path
                     
                     # Thử lại sau khi sửa với các tham số đã chỉ định
                     # Tạo từ điển kwargs cho các tham số định dạng ASS
@@ -444,7 +404,7 @@ async def transcribe_audio(
                     }
                     
                     result.to_ass(
-                        str(temp_ass if rounded_corners else output_path),
+                        str(output_path),
                         segment_level=segment_level,
                         word_level=word_level,
                         min_dur=min_dur,
@@ -455,20 +415,6 @@ async def transcribe_audio(
                         tag=-1,  # Thêm tham số tag=-1 để kích hoạt highlight cho từng từ riêng biệt
                         **ass_style_kwargs
                     )
-                    
-                    # Áp dụng bo góc nếu được yêu cầu
-                    if rounded_corners:
-                        logger.info(f"Áp dụng bo góc với bán kính {border_radius}")
-                        try:
-                            apply_rounded_borders(temp_ass, final_ass, border_radius)
-                            # Xóa file tạm sau khi xử lý
-                            temp_ass.unlink(missing_ok=True)
-                        except Exception as e:
-                            logger.error(f"Lỗi khi áp dụng bo góc: {str(e)}")
-                            # Nếu có lỗi, sử dụng file gốc
-                            shutil.copy(temp_ass, final_ass)
-                            # Xóa file tạm
-                            temp_ass.unlink(missing_ok=True)
                 else:
                     raise
         elif format == "json":
@@ -541,12 +487,11 @@ async def transcribe_audio(
                 "error": f"Lỗi khi xử lý: {str(e)}"
             }
         )
-
-@app.get("/download/{filename}")
+    @app.get("/download/{filename}")
 async def download_file(filename: str):
-    """
-    Tải file kết quả.
-    
+"""
+Tải file kết quả.
+
     Args:
         filename (str): Tên file cần tải
         
@@ -583,11 +528,10 @@ async def download_file(filename: str):
         media_type=content_type,
         filename=filename
     )
+    def process_audio_with_attention_mask(model, audio_path, language="vi", regroup=True):
+"""
+Xử lý audio theo hướng dẫn đơn giản từ stable-ts.
 
-def process_audio_with_attention_mask(model, audio_path, language="vi", regroup=True):
-    """
-    Xử lý audio theo hướng dẫn đơn giản từ stable-ts.
-    
     Args:
         model: Mô hình stable-ts đã tải
         audio_path: Đường dẫn đến file audio
@@ -626,7 +570,84 @@ def process_audio_with_attention_mask(model, audio_path, language="vi", regroup=
     
     # Trả về cả kết quả gốc (không regroup) và kết quả đã regroup
     return result, result_regrouped
+    def extract_sentence_segments(result):
+"""
+Trích xuất segments theo câu từ kết quả phiên âm.
+Mỗi segment là một câu hoàn chỉnh (tới dấu kết thúc câu).
 
+    Args:
+        result: Kết quả phiên âm (WhisperResult)
+        
+    Returns:
+        list: Danh sách các segment theo câu hoàn chỉnh
+    """
+    sentence_segments = []
+    
+    for i, segment in enumerate(result.segments):
+        # Loại bỏ các segment quá ngắn hoặc không có nội dung
+        if not segment.text.strip() or len(segment.text.strip()) < 2:
+            continue
+            
+        # Loại bỏ các khoảng trắng dư thừa ở đầu và cuối
+        cleaned_text = segment.text.strip()
+        
+        # Xử lý tokens/words
+        word_tokens = []
+        if hasattr(segment, 'words') and segment.words:
+            for word in segment.words:
+                word_text = None
+                # Ưu tiên sử dụng thuộc tính text nếu có
+                if hasattr(word, 'text') and word.text:
+                    word_text = word.text
+                # Nếu không có text, thử dùng thuộc tính word
+                elif hasattr(word, 'word') and word.word:
+                    word_text = word.word
+                
+                if word_text:
+                    word_tokens.append({
+                        "text": word_text,
+                        "start": word.start,
+                        "end": word.end,
+                        "probability": word.probability if hasattr(word, 'probability') else 1.0
+                    })
+        
+        # Mỗi segment sẽ là một câu hoàn chỉnh với start/end time
+        sentence_segments.append({
+            "id": i,
+            "start": segment.start,
+            "end": segment.end,
+            "text": cleaned_text
+        })
+    
+    return sentence_segments
+    if __name__ == "__main__":
+import uvicorn
+uvicorn.run(app, host="0.0.0.0", port=8000)
+
+Sửa file api_server.py như thế nào?
+
+Dựa trên mã nguồn của bạn, tôi sẽ hướng dẫn tích hợp tính năng bo góc phụ đề ASS vào api_server.py theo 4 bước:
+
+## 1. Thêm tham số API cho bo góc
+
+Bổ sung 2 tham số mới vào endpoint `/transcribe`:
+
+```python
+@app.post("/transcribe")
+async def transcribe_audio(
+    # ... các tham số hiện có ...
+    rounded_corners: bool = Form(False),  # Thêm dòng này
+    border_radius: int = Form(10)         # Thêm dòng này
+):
+    # ... phần xử lý hiện tại ...
+```
+
+
+## 2. Thêm hàm xử lý bo góc
+
+Bổ sung hàm này sau hàm `process_audio_with_attention_mask`:
+
+```python
 def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int = 10):
     """
     Áp dụng bo góc cho file ASS sử dụng aegisub-cli
@@ -714,58 +735,101 @@ depctrl:registerMacro(apply_rounded_borders)
     except Exception as e:
         logger.error(f"Lỗi khi áp dụng bo góc: {str(e)}")
         raise
+```
 
-def extract_sentence_segments(result):
-    """
-    Trích xuất segments theo câu từ kết quả phiên âm.
-    Mỗi segment là một câu hoàn chỉnh (tới dấu kết thúc câu).
-    
-    Args:
-        result: Kết quả phiên âm (WhisperResult)
+
+## 3. Sửa phần xử lý định dạng ASS
+
+Cập nhật phần xử lý ASS trong hàm `transcribe_audio`:
+
+```python
+elif format == "ass":
+    try:
+        # ... phần tạo ASS gốc ...
         
-    Returns:
-        list: Danh sách các segment theo câu hoàn chỉnh
-    """
-    sentence_segments = []
-    
-    for i, segment in enumerate(result.segments):
-        # Loại bỏ các segment quá ngắn hoặc không có nội dung
-        if not segment.text.strip() or len(segment.text.strip()) < 2:
-            continue
+        # Tạo file tạm để xử lý bo góc
+        temp_ass = TEMP_DIR / f"{uuid.uuid4()}.ass"
+        final_ass = output_path
+        
+        # Di chuyển file kết quả vào temp
+        shutil.move(str(output_path), str(temp_ass))
+        
+        if rounded_corners:
+            logger.info(f"Áp dụng bo góc với bán kính {border_radius}")
+            apply_rounded_borders(temp_ass, final_ass, border_radius)
+        else:
+            shutil.copy(temp_ass, final_ass)
             
-        # Loại bỏ các khoảng trắng dư thừa ở đầu và cuối
-        cleaned_text = segment.text.strip()
+        # Xóa file tạm
+        temp_ass.unlink(missing_ok=True)
         
-        # Xử lý tokens/words
-        word_tokens = []
-        if hasattr(segment, 'words') and segment.words:
-            for word in segment.words:
-                word_text = None
-                # Ưu tiên sử dụng thuộc tính text nếu có
-                if hasattr(word, 'text') and word.text:
-                    word_text = word.text
-                # Nếu không có text, thử dùng thuộc tính word
-                elif hasattr(word, 'word') and word.word:
-                    word_text = word.word
-                
-                if word_text:
-                    word_tokens.append({
-                        "text": word_text,
-                        "start": word.start,
-                        "end": word.end,
-                        "probability": word.probability if hasattr(word, 'probability') else 1.0
-                    })
-        
-        # Mỗi segment sẽ là một câu hoàn chỉnh với start/end time
-        sentence_segments.append({
-            "id": i,
-            "start": segment.start,
-            "end": segment.end,
-            "text": cleaned_text
-        })
-    
-    return sentence_segments
+    except Exception as e:
+        logger.error(f"Lỗi xử lý ASS: {str(e)}")
+        # Khôi phục file gốc nếu có lỗi
+        if temp_ass.exists():
+            shutil.copy(temp_ass, final_ass)
+        raise
+```
 
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+
+## 4. Cập nhật Dockerfile
+
+Thêm các phụ thuộc cần thiết vào Dockerfile:
+
+```dockerfile
+# Trong phần cài đặt system dependencies
+RUN apt-get update && apt-get install -y \
+    libass-dev \
+    libfontconfig-dev \
+    libharfbuzz-dev \
+    libfribidi-dev \
+    meson \
+    ninja-build \
+    # ... các package khác ...
+
+# Clone automation dependencies
+RUN mkdir -p /root/.aegisub/automation/autoload && \
+    git clone https://github.com/TypesettingTools/DependencyControl.git \
+    /root/.aegisub/automation/autoload/DependencyControl && \
+    git clone https://github.com/TypesettingTools/ILL.git \
+    /root/.aegisub/automation/autoload/ILL
+```
+
+
+## Kiểm tra hoạt động
+
+Gửi request với tham số mới:
+
+```python
+requests.post(
+    "http://localhost:8000/transcribe",
+    files={"file": open("audio.mp3", "rb")},
+    data={
+        "format": "ass",
+        "rounded_corners": "true",
+        "border_radius": "15"
+    }
+)
+```
+
+Những thay đổi này sẽ:
+
+1. Thêm 2 tham số điều khiển bo góc
+2. Tích hợp Aegisub-cli vào quy trình xử lý ASS
+3. Tự động tạo script bo góc động dựa trên tham số
+4. Xử lý lỗi và rollback khi cần thiết
+5. Đảm bảo tương thích với các tham số ASS hiện có
+
+Lưu ý quan trọng:
+
+- Đảm bảo Dockerfile đã cài đặt đủ các thư viện cần thiết
+- Kiểm tra quyền truy cập file trong container
+- Thêm xử lý cleanup các file tạm
+- Test với các giá trị border_radius khác nhau
+
+<div style="text-align: center">⁂</div>
+
+[^1]: https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/56266463/43b5eddc-078d-4c4e-9a3f-cfaf018ecee0/Dockerfile
+
+[^2]: https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/56266463/1d1a23b8-cf39-4723-a9d8-cbe609a854d4/api_server.py
+

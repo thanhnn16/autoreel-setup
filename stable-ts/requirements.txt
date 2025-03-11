@@ -1,0 +1,6 @@
+fastapi>=0.103.2
+uvicorn>=0.24.0
+stable-ts>=2.13.1
+torch>=2.2.1
+python-multipart>=0.0.7
+aiofiles>=24.1.0
