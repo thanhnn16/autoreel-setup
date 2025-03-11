@@ -293,7 +293,7 @@ async def transcribe_audio(
                         logger.info(f"Đã thay đổi font size từ {original_font_size} thành {font_size} trong style Default")
                     ass_content[i] = ','.join(parts)
             
-            # Kiểm tra highlight color trong các dòng Dialogue
+            # Kiểm tra và thêm highlight color vào các dòng Dialogue
             highlight_found = False
             for i, line in enumerate(ass_content):
                 if line.startswith("Dialogue:") and "\\1c&H" in line:
@@ -303,12 +303,26 @@ async def transcribe_audio(
             
             if not highlight_found:
                 logger.warning(f"Không tìm thấy highlight color trong file ASS. Highlight color đã cài đặt: {highlight_color}")
+                
+                # Thêm highlight color vào các dòng Dialogue
+                for i, line in enumerate(ass_content):
+                    if line.startswith("Dialogue:") and "Default" in line and "{\\k" in line:
+                        # Tìm vị trí của tag karaoke đầu tiên
+                        parts = line.split(',', 9)
+                        if len(parts) >= 10:
+                            text = parts[9]
+                            # Thêm tag highlight color vào mỗi tag karaoke
+                            modified_text = text.replace("{\\k", "{\\1c&H" + highlight_color_bgr + "&\\k")
+                            # Cập nhật dòng với highlight color
+                            parts[9] = modified_text
+                            ass_content[i] = ','.join(parts)
+                            logger.info(f"Đã thêm highlight color vào dòng: {i+1}")
             
             # Ghi lại file
             with open(temp_ass, 'w', encoding='utf-8') as f:
                 f.writelines(ass_content)
             
-            logger.info(f"Đã sửa lại file ASS để đảm bảo font size: {font_size}")
+            logger.info(f"Đã sửa lại file ASS để đảm bảo font size: {font_size} và highlight color: {highlight_color}")
         except Exception as e:
             logger.error(f"Lỗi khi sửa lại file ASS: {str(e)}")
         
@@ -482,6 +496,17 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
     try:
         with open(input_ass, 'r', encoding='utf-8') as f:
             lines = f.readlines()
+
+        # Kiểm tra highlight color trong các dòng Dialogue
+        highlight_found = False
+        for line in lines:
+            if line.startswith("Dialogue:") and "\\1c&H" in line:
+                highlight_found = True
+                logger.info(f"Đã tìm thấy highlight color trong dòng trước khi áp dụng bo góc: {line.strip()}")
+                break
+        
+        if not highlight_found:
+            logger.warning("Không tìm thấy highlight color trong file ASS trước khi áp dụng bo góc")
 
         # Cập nhật PlayResX và PlayResY để phù hợp với kích thước video
         video_width = 1080
@@ -693,6 +718,18 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         # Ghi file mới
         with open(output_ass, 'w', encoding='utf-8') as f:
             f.writelines(new_events)
+            
+        # Kiểm tra highlight color trong file đầu ra
+        highlight_found = False
+        with open(output_ass, 'r', encoding='utf-8') as f:
+            for line in f:
+                if line.startswith("Dialogue:") and "\\1c&H" in line:
+                    highlight_found = True
+                    logger.info(f"Đã tìm thấy highlight color trong dòng sau khi áp dụng bo góc: {line.strip()}")
+                    break
+        
+        if not highlight_found:
+            logger.warning("Không tìm thấy highlight color trong file ASS sau khi áp dụng bo góc")
 
     except Exception as e:
         logger.error(f"Lỗi khi áp dụng hiệu ứng: {str(e)}")
