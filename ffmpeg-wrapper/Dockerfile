@@ -1,10 +1,11 @@
 FROM linuxserver/ffmpeg:latest
 
 USER root
+    fontconfig \
 
 # Install curl and unzip for Bun installation
 RUN apt-get update && \
-    apt-get install -y curl unzip && \
+    apt-get install -y curl unzip fontconfig && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Bun
