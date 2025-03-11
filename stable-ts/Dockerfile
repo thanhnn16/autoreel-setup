@@ -13,10 +13,7 @@ RUN apt-get update && apt-get install -y \
     libxext6 \
     libxrender-dev \
     libraqm-dev \
-    # Bỏ các package sau vì không cần thiết
-    # curl \
-    # build-essential \
-    # git \
+    fontconfig \
     && rm -rf /var/lib/apt/lists/*
 
 # Thiết lập thư mục làm việc
