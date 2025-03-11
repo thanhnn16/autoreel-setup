@@ -123,18 +123,14 @@ async def root():
         "name": "AutoReel API",
         "description": "API phiên âm âm thanh sử dụng stable-ts",
         "endpoints": {
-            "/transcribe": "POST - Phiên âm file âm thanh",
+            "/transcribe": "POST - Phiên âm file âm thanh sang ASS subtitle",
             "/download/{filename}": "GET - Tải file kết quả"
         },
         "features": {
-            "segment_by_sentence": "Tính năng ngắt theo câu để có context tốt nhất",
-            "supported_formats": ["txt", "srt", "vtt", "ass", "json", "sentence"],
-            "supported_audio": ["mp3", "wav", "m4a", "ogg", "flac", "mp4", "avi", "mkv"],
-            "ass_features": {
-                "rounded_corners": "Bo góc cho phụ đề ASS",
-                "word_level": "Highlight từng từ khi phát âm",
-                "karaoke": "Hiệu ứng karaoke"
-            }
+            "rounded_corners": "Bo góc cho phụ đề ASS",
+            "word_level": "Highlight từng từ khi phát âm",
+            "max_lines": "Giới hạn 2 dòng subtitle",
+            "supported_audio": ["mp3", "wav", "m4a", "ogg", "flac", "mp4", "avi", "mkv"]
         },
         "version": "1.1.0"
     }
@@ -142,81 +138,43 @@ async def root():
 @app.post("/transcribe")
 async def transcribe_audio(
     file: UploadFile = File(...),
-    format: str = Form("txt"),
     use_cpu: bool = Form(False),
-    segment_by_sentence: bool = Form(True),
     
     # Tham số cho ASS
-    segment_level: bool = Form(False),
-    word_level: bool = Form(True),
-    min_dur: float = Form(0.2),
     font: str = Form("Montserrat"),
     font_size: int = Form(24),
-    strip: bool = Form(True),
     highlight_color: str = Form('05c2ed'),
-    karaoke: bool = Form(False),
-    reverse_text: bool = Form(False),
-    rounded_corners: bool = Form(False),
     border_radius: int = Form(10),
     
     # Các tham số định dạng ASS
     background_color: str = Form('80000000'),
     primary_color: str = Form('FFFFFF'),
-    secondary_color: str = Form('FFFFFF'),
     outline_color: str = Form('000000'),
-    bold: bool = Form(False),
-    italic: bool = Form(False),
-    underline: bool = Form(False),
-    strike_out: bool = Form(False),
-    scale_x: int = Form(100),
-    scale_y: int = Form(100),
-    spacing: int = Form(0),
-    angle: int = Form(0),
-    border_style: int = Form(1),
     outline: int = Form(2),
     shadow: int = Form(2),
     alignment: int = Form(2),
     margin_l: int = Form(16),
     margin_r: int = Form(16),
-    margin_v: int = Form(56),
+    margin_v: int = Form(48),
     encoding: int = Form(163)
 ):
     """
-    API endpoint để phiên âm file audio thành văn bản.
+    API endpoint để phiên âm file audio thành ASS subtitle.
     
     Args:
         file (UploadFile): File audio cần phiên âm
-        format (str): Định dạng đầu ra (txt, srt, vtt, ass, json, sentence)
         use_cpu (bool): Sử dụng CPU thay vì GPU
-        segment_by_sentence (bool): Ngắt segment theo câu để có context tốt hơn
         
         # Tham số cho ASS
-        segment_level (bool): Hiển thị phụ đề ở cấp độ đoạn
-        word_level (bool): Hiển thị phụ đề ở cấp độ từng từ
-        min_dur (float): Thời lượng tối thiểu cho mỗi từ/đoạn
         font (str): Tên font chữ
         font_size (int): Kích thước font
-        strip (bool): Loại bỏ khoảng trắng thừa
         highlight_color (str): Màu highlight cho từng từ, định dạng BGR
-        karaoke (bool): Tạo hiệu ứng karaoke
-        reverse_text (bool): Đảo ngược thứ tự từ trong mỗi đoạn
-        rounded_corners (bool): Áp dụng bo góc cho file ASS
         border_radius (int): Bán kính bo góc
         
         # Các tham số định dạng ASS
         background_color (str): Màu nền dạng AABBGGRR
         primary_color (str): Màu chữ chính
-        secondary_color (str): Màu chữ phụ
         outline_color (str): Màu viền
-        bold (bool): Chữ đậm
-        italic (bool): Chữ nghiêng
-        underline (bool): Chữ gạch chân
-        strike_out (bool): Chữ gạch ngang
-        scale_x (int): Tỷ lệ ngang của phụ đề
-        scale_y (int): Tỷ lệ dọc của phụ đề
-        spacing (int): Khoảng cách giữa các ký tự
-        angle (int): Góc xoay của phụ đề
-        border_style (int): Kiểu viền
         outline (int): Độ dày viền
         shadow (int): Độ đậm bóng
         alignment (int): Vị trí căn chỉnh phụ đề
@@ -226,11 +184,11 @@ async def transcribe_audio(
         encoding (int): Mã hóa ký tự
         
     Returns:
-        Kết quả phiên âm theo định dạng yêu cầu
+        Kết quả phiên âm dưới dạng ASS subtitle
     """
     
     # Ghi log request
-    logger.info(f"Nhận yêu cầu phiên âm file: {file.filename}, format: {format}, use_cpu: {use_cpu}, segment_by_sentence: {segment_by_sentence}")
+    logger.info(f"Nhận yêu cầu phiên âm file: {file.filename}, use_cpu: {use_cpu}")
     
     # Kiểm tra định dạng file
     supported_formats = ["mp3", "wav", "m4a", "ogg", "flac", "mp4", "avi", "mkv"]
@@ -241,18 +199,6 @@ async def transcribe_audio(
             status_code=400,
             content={
                 "error": f"Định dạng file không được hỗ trợ. Các định dạng hỗ trợ: {', '.join(supported_formats)}"
-            }
-        )
-    
-    # Chuẩn hóa và kiểm tra định dạng đầu ra
-    format = format.lower().strip()
-    logger.info(f"Định dạng đầu ra sau khi chuẩn hóa: {format}")
-    
-    if format not in ["txt", "srt", "vtt", "ass", "json", "sentence"]:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "error": "Định dạng đầu ra không hợp lệ. Hỗ trợ: txt, srt, vtt, ass, json, sentence"
             }
         )
     
@@ -272,12 +218,7 @@ async def transcribe_audio(
         
         # Sử dụng phương pháp đơn giản theo hướng dẫn từ stable-ts
         try:
-            result, result_regrouped = process_audio_with_attention_mask(
-                model, 
-                temp_file, 
-                language="vi", 
-                regroup=segment_by_sentence
-            )
+            result = process_audio_with_attention_mask(model, temp_file, language="vi")
         except Exception as e:
             logger.error(f"Không thể phiên âm: {str(e)}")
             raise
@@ -285,194 +226,63 @@ async def transcribe_audio(
         process_time = time.time() - start_time
         logger.info(f"Thời gian xử lý: {process_time:.2f} giây, với thiết bị: {_device}")
         
-        # Chọn phiên bản kết quả phù hợp cho format đầu ra và phản hồi
-        # result: phiên bản không regroup (giữ nguyên segments gốc)
-        # result_regrouped: phiên bản đã regroup theo câu (nếu segment_by_sentence=True)
-        
-        # Xử lý đặc biệt cho định dạng sentence
-        if format == "sentence":
-            # Trả về JSON trực tiếp với các segment câu, sử dụng phiên bản đã regroup nếu có
-            display_result = result_regrouped if result_regrouped is not None else result
-            sentence_segments = extract_sentence_segments(display_result)
-            return JSONResponse(
-                content={
-                    "success": True,
-                    "message": f"Đã phiên âm thành công file {file.filename}",
-                    "processing_time": f"{process_time:.2f} giây",
-                    "device": _device,
-                    "text": display_result.text,
-                    "segments": sentence_segments,
-                    "segment_count": len(sentence_segments),
-                    "segment_by_sentence": segment_by_sentence,
-                    "regroup_history": display_result.regroup_history if hasattr(display_result, 'regroup_history') else ""
-                }
-            )
-        
         # Tạo tên file đầu ra
-        output_filename = f"{uuid.uuid4()}.{format}"
+        output_filename = f"{uuid.uuid4()}.ass"
         output_path = OUTPUTS_DIR / output_filename
         
-        logger.info(f"Tạo file đầu ra: {output_path} với định dạng {format}")
+        logger.info(f"Tạo file ASS: {output_path}")
         
-        # Quyết định dùng phiên bản kết quả nào dựa vào định dạng đầu ra
-        # (giữ nguyên các segments gốc cho ASS, dùng phiên bản regroup cho các định dạng khác nếu có)
-        output_result = result  # Mặc định dùng kết quả không regroup cho ASS
-        if format != "ass" and result_regrouped is not None:  # Với các định dạng khác, dùng regroup nếu có
-            output_result = result_regrouped
+        # Tạo file tạm để xử lý bo góc
+        temp_ass = TEMP_DIR / f"{uuid.uuid4()}.ass"
         
-        # Lưu kết quả theo định dạng yêu cầu
-        if format == "txt":
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(output_result.text)
-        elif format == "srt":
-            output_result.to_srt_vtt(str(output_path))
-        elif format == "vtt":
-            output_result.to_srt_vtt(str(output_path), output_format="vtt")
-        elif format == "ass":
-            try:
-                # Tạo từ điển kwargs cho các tham số định dạng ASS
-                ass_style_kwargs = {
-                    'Name': 'Default',
-                    'Fontname': font,
-                    'Fontsize': font_size,
-                    'PrimaryColour': f"&H{primary_color}",
-                    'SecondaryColour': f"&H{secondary_color}",
-                    'OutlineColour': f"&H{outline_color}",
-                    'BackColour': f"&H{background_color}",
-                    'Bold': int(bold),
-                    'Italic': int(italic),
-                    'Underline': int(underline),
-                    'StrikeOut': int(strike_out),
-                    'ScaleX': scale_x,
-                    'ScaleY': scale_y,
-                    'Spacing': spacing,
-                    'Angle': angle,
-                    'BorderStyle': border_style,
-                    'Outline': outline,
-                    'Shadow': shadow,
-                    'Alignment': alignment,
-                    'MarginL': margin_l,
-                    'MarginR': margin_r,
-                    'MarginV': margin_v,
-                    'Encoding': encoding
-                }
-                
-                # Tạo file tạm để xử lý bo góc nếu cần
-                temp_ass = None
-                final_ass = output_path
-                
-                if rounded_corners:
-                    # Nếu cần bo góc, tạo file tạm
-                    temp_ass = TEMP_DIR / f"{uuid.uuid4()}.ass"
-                    final_ass = output_path
-                
-                # Sử dụng phương thức to_ass với tất cả tham số
-                result.to_ass(
-                    str(temp_ass if rounded_corners else output_path),
-                    segment_level=segment_level,
-                    word_level=True,
-                    min_dur=min_dur,
-                    strip=strip,
-                    highlight_color=highlight_color,
-                    karaoke=karaoke,
-                    reverse_text=reverse_text,
-                    **ass_style_kwargs
-                )
-                
-                # Áp dụng bo góc nếu được yêu cầu
-                if rounded_corners:
-                    logger.info(f"Áp dụng bo góc với bán kính {border_radius}")
-                    try:
-                        apply_rounded_borders(temp_ass, final_ass, border_radius)
-                        # Xóa file tạm sau khi xử lý
-                        temp_ass.unlink(missing_ok=True)
-                    except Exception as e:
-                        logger.error(f"Lỗi khi áp dụng bo góc: {str(e)}")
-                        # Nếu có lỗi, sử dụng file gốc
-                        shutil.copy(temp_ass, final_ass)
-                        # Xóa file tạm
-                        temp_ass.unlink(missing_ok=True)
-                
-            except AttributeError as e:
-                if "'WordTiming' object has no attribute 'text'" in str(e):
-                    logger.error(f"Lỗi khi xử lý: {str(e)}")
-                    # Kiểm tra và đảm bảo mỗi từ có thuộc tính text
-                    for segment in result.segments:
-                        if hasattr(segment, 'words') and segment.words:
-                            # Kiểm tra và chuyển đổi các words nếu không có thuộc tính text
-                            for i, word in enumerate(segment.words):
-                                if not hasattr(word, 'text') and hasattr(word, 'word'):
-                                    # Sử dụng thuộc tính word nếu không có thuộc tính text
-                                    word.text = word.word
-                    
-                    # Tạo file tạm để xử lý bo góc nếu cần
-                    temp_ass = None
-                    final_ass = output_path
-                    
-                    if rounded_corners:
-                        # Nếu cần bo góc, tạo file tạm
-                        temp_ass = TEMP_DIR / f"{uuid.uuid4()}.ass"
-                        final_ass = output_path
-                    
-                    # Thử lại sau khi sửa với các tham số đã chỉ định
-                    # Tạo từ điển kwargs cho các tham số định dạng ASS
-                    ass_style_kwargs = {
-                        'Name': 'Default',
-                        'Fontname': font,
-                        'Fontsize': font_size,
-                        'PrimaryColour': f"&H{primary_color}",
-                        'SecondaryColour': f"&H{secondary_color}",
-                        'OutlineColour': f"&H{outline_color}",
-                        'BackColour': f"&H{background_color}",
-                        'Bold': int(bold),
-                        'Italic': int(italic),
-                        'Underline': int(underline),
-                        'StrikeOut': int(strike_out),
-                        'ScaleX': scale_x,
-                        'ScaleY': scale_y,
-                        'Spacing': spacing,
-                        'Angle': angle,
-                        'BorderStyle': border_style,
-                        'Outline': outline,
-                        'Shadow': shadow,
-                        'Alignment': alignment,
-                        'MarginL': margin_l,
-                        'MarginR': margin_r,
-                        'MarginV': margin_v,
-                        'Encoding': encoding
-                    }
-                    
-                    result.to_ass(
-                        str(temp_ass if rounded_corners else output_path),
-                        segment_level=segment_level,
-                        word_level=True,
-                        min_dur=min_dur,
-                        strip=strip,
-                        highlight_color=highlight_color,
-                        karaoke=karaoke,
-                        reverse_text=reverse_text,
-                        **ass_style_kwargs
-                    )
-                    
-                    # Áp dụng bo góc nếu được yêu cầu
-                    if rounded_corners:
-                        logger.info(f"Áp dụng bo góc với bán kính {border_radius}")
-                        try:
-                            apply_rounded_borders(temp_ass, final_ass, border_radius)
-                            # Xóa file tạm sau khi xử lý
-                            temp_ass.unlink(missing_ok=True)
-                        except Exception as e:
-                            logger.error(f"Lỗi khi áp dụng bo góc: {str(e)}")
-                            # Nếu có lỗi, sử dụng file gốc
-                            shutil.copy(temp_ass, final_ass)
-                            # Xóa file tạm
-                            temp_ass.unlink(missing_ok=True)
-                else:
-                    raise
-        elif format == "json":
-            with open(output_path, "w", encoding="utf-8") as f:
-                import json
-                json.dump(output_result.to_dict(), f, ensure_ascii=False, indent=2)
+        # Tạo từ điển kwargs cho các tham số định dạng ASS
+        ass_style_kwargs = {
+            'Name': 'Default',
+            'Fontname': font,
+            'Fontsize': font_size,
+            'PrimaryColour': f"&H{primary_color}",
+            'OutlineColour': f"&H{outline_color}",
+            'BackColour': f"&H{background_color}",
+            'Bold': 0,
+            'Italic': 0,
+            'Underline': 0,
+            'StrikeOut': 0,
+            'ScaleX': 100,
+            'ScaleY': 100,
+            'Spacing': 0,
+            'Angle': 0,
+            'BorderStyle': 1,
+            'Outline': outline,
+            'Shadow': shadow,
+            'Alignment': alignment,
+            'MarginL': margin_l,
+            'MarginR': margin_r,
+            'MarginV': margin_v,
+            'Encoding': encoding
+        }
+        
+        # Tạo ASS subtitle với word-level timing
+        result.to_ass(
+            str(temp_ass),
+            word_level=True,
+            min_dur=0.2,
+            strip=True,
+            highlight_color=highlight_color,
+            **ass_style_kwargs
+        )
+        
+        # Áp dụng bo góc
+        logger.info(f"Áp dụng bo góc với bán kính {border_radius}")
+        try:
+            apply_rounded_borders(temp_ass, output_path, border_radius)
+            # Xóa file tạm sau khi xử lý
+            temp_ass.unlink(missing_ok=True)
+        except Exception as e:
+            logger.error(f"Lỗi khi áp dụng bo góc: {str(e)}")
+            # Nếu có lỗi, sử dụng file gốc
+            shutil.copy(temp_ass, output_path)
+            # Xóa file tạm
+            temp_ass.unlink(missing_ok=True)
         
         # Xóa file tạm
         try:
@@ -483,30 +293,21 @@ async def transcribe_audio(
         # Trả về URL để tải file kết quả
         download_url = f"/download/{output_filename}"
         
-        logger.info(f"Hoàn thành phiên âm. URL tải xuống: {download_url}, định dạng: {format}")
+        logger.info(f"Hoàn thành phiên âm. URL tải xuống: {download_url}")
         
-        # Trích xuất segments để trả về trong response nếu định dạng là ass
-        response_content = {
-            "success": True,
-            "message": f"Đã phiên âm thành công file {file.filename}",
-            "processing_time": f"{process_time:.2f} giây",
-            "device": _device,
-            "download_url": download_url,
-            "format": format,
-            "text": output_result.text  # Thêm nội dung text vào response cho tất cả các định dạng
-        }
-        
-        # Với định dạng ASS, luôn trả về cả segments dạng câu (từ kết quả regroup) trong response
-        if format == "ass" and result_regrouped is not None:
-            sentence_segments = extract_sentence_segments(result_regrouped)
-            response_content["segments"] = sentence_segments
-        # Với các định dạng khác, trả về segments từ kết quả đã được sử dụng
-        elif format == "ass":
-            sentence_segments = extract_sentence_segments(result)  # Dùng segments gốc nếu không có regroup
-            response_content["segments"] = sentence_segments
+        # Trích xuất segments để trả về trong response
+        sentence_segments = extract_sentence_segments(result)
         
         return JSONResponse(
-            content=response_content
+            content={
+                "success": True,
+                "message": f"Đã phiên âm thành công file {file.filename}",
+                "processing_time": f"{process_time:.2f} giây",
+                "device": _device,
+                "download_url": download_url,
+                "text": result.text,
+                "segments": sentence_segments
+            }
         )
     
     except RuntimeError as e:
@@ -520,7 +321,7 @@ async def transcribe_audio(
             torch.cuda.empty_cache()
             
             # Thử lại với CPU
-            return await transcribe_audio(file, format, use_cpu=True)
+            return await transcribe_audio(file, use_cpu=True)
         else:
             # Lỗi khác
             logger.error(f"Lỗi khi phiên âm: {str(e)}")
@@ -563,95 +364,31 @@ async def download_file(filename: str):
         logger.error(f"File trống: {file_path}, kích thước: {file_size}")
         raise HTTPException(status_code=404, detail="File trống, vui lòng thử lại")
     
-    # Xác định content_type dựa trên phần mở rộng
-    content_type_map = {
-        "txt": "text/plain",
-        "srt": "text/plain",
-        "vtt": "text/vtt",
-        "ass": "text/plain", 
-        "json": "application/json"
-    }
-    
-    extension = filename.split(".")[-1].lower()
-    logger.info(f"Tải xuống file: {filename}, định dạng: {extension}")
-    content_type = content_type_map.get(extension, "application/octet-stream")
-    
     return FileResponse(
         path=file_path,
-        media_type=content_type,
+        media_type="text/plain",
         filename=filename
     )
 
-def process_audio_with_attention_mask(model, audio_path, language="vi", regroup=True):
+def process_audio_with_attention_mask(model, audio_path, language="vi"):
     """
-    Xử lý audio theo hướng dẫn đơn giản từ stable-ts.
+    Xử lý audio với transcribe mặc định.
     
     Args:
         model: Mô hình stable-ts đã tải
         audio_path: Đường dẫn đến file audio
         language: Ngôn ngữ (mặc định là "vi")
-        regroup: Sử dụng thuật toán phân nhóm lại các từ (mặc định: True)
         
     Returns:
-        WhisperResult: Kết quả phiên âm gốc và kết quả đã gộp thành câu (nếu regroup=True)
+        WhisperResult: Kết quả phiên âm
     """
-    # Thực hiện phiên âm với word_timestamps=True để có timestamps cho từng từ
-    # Luôn thực hiện phiên âm với regroup=False để giữ nguyên segments gốc cho ASS
-    result = model.transcribe(str(audio_path), language=language, regroup=False, word_timestamps=True)
-    
-    # Kiểm tra xem kết quả có timestamps cho từng từ không
-    has_word_timestamps = False
-    if hasattr(result, 'segments') and result.segments:
-        for segment in result.segments:
-            if hasattr(segment, 'words') and segment.words:
-                has_word_timestamps = True
-                # Đảm bảo mỗi từ có thuộc tính text
-                for word in segment.words:
-                    if not hasattr(word, 'text') and hasattr(word, 'word'):
-                        word.text = word.word
-                break
-    
-    if not has_word_timestamps:
-        logger.warning("Kết quả phiên âm không có timestamps cho từng từ. Thử lại với tham số word_timestamps=True.")
-        # Thử lại với tham số word_timestamps=True rõ ràng
-        result = model.transcribe(str(audio_path), language=language, regroup=False, word_timestamps=True)
-    
-    # Biến lưu kết quả đã regroup
-    result_regrouped = None
-    
-    # Nếu bật regroup, thực hiện phiên âm lần hai với regroup=True hoặc 
-    # áp dụng các phương thức regrouping lên kết quả
-    if regroup:
-        try:
-            # Tạo kết quả regrouped bằng cách áp dụng các phương thức regrouping
-            # Kết hợp các segments thành các câu hoàn chỉnh theo các dấu câu tiếng Việt
-            # Các dấu câu kết thúc câu: dấu chấm, dấu chấm hỏi, dấu chấm than
-            result_regrouped = (
-                result
-                .merge_all_segments()
-                .ignore_special_periods()  # Bỏ qua các dấu chấm đặc biệt (viết tắt, số,...)
-                .split_by_punctuation([('.', ' '), '。', '?', '？', '!', '!'])  # Tách theo dấu câu kết thúc
-                .split_by_gap(0.8)  # Tách nếu khoảng cách giữa các từ quá lớn
-                .split_by_length(100)  # Giới hạn độ dài tối đa của mỗi segment
-            )
-            
-            # Kiểm tra xem kết quả regrouped có giữ lại timestamps cho từng từ không
-            if hasattr(result_regrouped, 'segments') and result_regrouped.segments:
-                for segment in result_regrouped.segments:
-                    if not hasattr(segment, 'words') or not segment.words:
-                        logger.warning("Kết quả regrouped không có timestamps cho từng từ.")
-                        break
-        except Exception as e:
-            # Nếu có lỗi khi regrouping, ghi log và tiếp tục mà không có kết quả regrouped
-            logger.warning(f"Không thể thực hiện regrouping: {str(e)}")
-            result_regrouped = None
-    
-    # Trả về cả kết quả gốc (không regroup) và kết quả đã regroup
-    return result, result_regrouped
+    # Sử dụng transcribe mặc định
+    result = model.transcribe(str(audio_path), language=language)
+    return result
 
 def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int = 10):
     """
-    Áp dụng bo góc và background blur cho file ASS
+    Áp dụng bo góc cho file ASS
     """
     try:
         with open(input_ass, 'r', encoding='utf-8') as f:
@@ -669,8 +406,10 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 lines.insert(i+1, bg_style)  # Chèn ngay sau section header
                 break
 
-        # Xử lý các event
+        # Xử lý các event, giới hạn 2 dòng
         new_events = []
+        active_events = []
+        
         for line in lines:
             if line.startswith("Dialogue:"):
                 parts = line.split(',', 9)
@@ -712,8 +451,10 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
 
 def extract_sentence_segments(result):
     """
-    Trích xuất segments theo câu từ kết quả phiên âm.
-    Mỗi segment là một câu hoàn chỉnh (tới dấu kết thúc câu).
+    Trích xuất segments theo câu hoàn chỉnh từ kết quả phiên âm.
+    Một câu hoàn chỉnh được xác định bởi:
+    - Kết thúc bằng dấu câu (. ? ! ... )
+    - Hoặc khoảng cách thời gian đủ lớn giữa các segments (> 0.8s)
     
     Args:
         result: Kết quả phiên âm (WhisperResult)
@@ -722,41 +463,69 @@ def extract_sentence_segments(result):
         list: Danh sách các segment theo câu hoàn chỉnh
     """
     sentence_segments = []
+    current_segment = {
+        "text": "",
+        "start": None,
+        "end": None
+    }
     
-    for i, segment in enumerate(result.segments):
-        # Loại bỏ các segment quá ngắn hoặc không có nội dung
-        if not segment.text.strip() or len(segment.text.strip()) < 2:
+    # Các dấu câu kết thúc
+    end_punctuations = ['.', '?', '!', '...', '।', '。', '？', '！']
+    
+    for segment in result.segments:
+        text = segment.text.strip()
+        if not text:
             continue
             
-        # Loại bỏ các khoảng trắng dư thừa ở đầu và cuối
-        cleaned_text = segment.text.strip()
+        # Bắt đầu segment mới nếu chưa có
+        if current_segment["start"] is None:
+            current_segment["start"] = segment.start
+            
+        # Thêm text vào segment hiện tại
+        current_segment["text"] += " " + text if current_segment["text"] else text
+        current_segment["end"] = segment.end
         
-        # Xử lý tokens/words
-        word_tokens = []
-        if hasattr(segment, 'words') and segment.words:
-            for word in segment.words:
-                word_text = None
-                # Ưu tiên sử dụng thuộc tính text nếu có
-                if hasattr(word, 'text') and word.text:
-                    word_text = word.text
-                # Nếu không có text, thử dùng thuộc tính word
-                elif hasattr(word, 'word') and word.word:
-                    word_text = word.word
-                
-                if word_text:
-                    word_tokens.append({
-                        "text": word_text,
-                        "start": word.start,
-                        "end": word.end,
-                        "probability": word.probability if hasattr(word, 'probability') else 1.0
-                    })
+        # Kiểm tra điều kiện kết thúc câu
+        is_end_of_sentence = False
         
-        # Mỗi segment sẽ là một câu hoàn chỉnh với start/end time
+        # Kiểm tra dấu câu kết thúc
+        for punct in end_punctuations:
+            if text.endswith(punct):
+                is_end_of_sentence = True
+                break
+        
+        # Kiểm tra khoảng cách với segment tiếp theo
+        next_segment = None
+        segments = result.segments
+        current_index = segments.index(segment)
+        if current_index < len(segments) - 1:
+            next_segment = segments[current_index + 1]
+            
+        if next_segment and (next_segment.start - segment.end) > 0.8:
+            is_end_of_sentence = True
+        
+        # Nếu là kết thúc câu, thêm segment vào kết quả
+        if is_end_of_sentence and current_segment["text"].strip():
+            sentence_segments.append({
+                "id": len(sentence_segments),
+                "start": current_segment["start"],
+                "end": current_segment["end"],
+                "text": current_segment["text"].strip()
+            })
+            # Reset segment hiện tại
+            current_segment = {
+                "text": "",
+                "start": None,
+                "end": None
+            }
+    
+    # Thêm segment cuối cùng nếu còn
+    if current_segment["text"].strip():
         sentence_segments.append({
-            "id": i,
-            "start": segment.start,
-            "end": segment.end,
-            "text": cleaned_text
+            "id": len(sentence_segments),
+            "start": current_segment["start"],
+            "end": current_segment["end"],
+            "text": current_segment["text"].strip()
         })
     
     return sentence_segments
