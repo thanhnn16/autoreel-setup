@@ -262,11 +262,55 @@ async def transcribe_audio(
         
         # Tạo ASS subtitle với word-level timing
         logger.info(f"Tạo file ASS với highlight_color: {highlight_color}, font_size: {font_size}")
+        
+        # Chuyển đổi highlight_color từ định dạng RGB sang BGR (ASS sử dụng BGR)
+        highlight_color_bgr = highlight_color
+        if len(highlight_color) == 6:
+            # Nếu highlight_color là RGB, chuyển sang BGR
+            r, g, b = highlight_color[:2], highlight_color[2:4], highlight_color[4:]
+            highlight_color_bgr = b + g + r
+            logger.info(f"Đã chuyển đổi highlight_color từ RGB {highlight_color} sang BGR {highlight_color_bgr}")
+        
         result.to_ass(
             str(temp_ass),
-            highlight_color=highlight_color,
+            highlight_color=highlight_color_bgr,
             **ass_style_kwargs
         )
+        
+        # Sửa lại file ASS để đảm bảo font size và highlight color được áp dụng đúng
+        try:
+            with open(temp_ass, 'r', encoding='utf-8') as f:
+                ass_content = f.readlines()
+            
+            # Tìm và sửa style Default
+            for i, line in enumerate(ass_content):
+                if line.startswith("Style: Default,"):
+                    parts = line.split(',')
+                    if len(parts) > 2:
+                        # Đảm bảo font size đúng
+                        original_font_size = parts[2]
+                        parts[2] = str(font_size)
+                        logger.info(f"Đã thay đổi font size từ {original_font_size} thành {font_size} trong style Default")
+                    ass_content[i] = ','.join(parts)
+            
+            # Kiểm tra highlight color trong các dòng Dialogue
+            highlight_found = False
+            for i, line in enumerate(ass_content):
+                if line.startswith("Dialogue:") and "\\1c&H" in line:
+                    highlight_found = True
+                    logger.info(f"Đã tìm thấy highlight color trong dòng: {line.strip()}")
+                    break
+            
+            if not highlight_found:
+                logger.warning(f"Không tìm thấy highlight color trong file ASS. Highlight color đã cài đặt: {highlight_color}")
+            
+            # Ghi lại file
+            with open(temp_ass, 'w', encoding='utf-8') as f:
+                f.writelines(ass_content)
+            
+            logger.info(f"Đã sửa lại file ASS để đảm bảo font size: {font_size}")
+        except Exception as e:
+            logger.error(f"Lỗi khi sửa lại file ASS: {str(e)}")
         
         # Log 15 dòng đầu của file ASS trước khi áp dụng bo góc
         logger.info("=== 15 dòng đầu của file ASS TRƯỚC KHI áp dụng bo góc ===")
@@ -482,6 +526,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
             if len(style_parts) > 2:
                 try:
                     font_size = int(style_parts[2])
+                    logger.info(f"Đã đọc font size từ style: {font_size}")
                 except ValueError:
                     pass
             
@@ -491,6 +536,8 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 except ValueError:
                     pass
 
+        # QUAN TRỌNG: KHÔNG thay đổi style Default, giữ nguyên font size và các thuộc tính khác
+        
         # Thêm style cho background theo yêu cầu
         bg_style = (
             "Style: Background,Arial,20,&H80000000,&H000000FF,&H00000000,&H00000000,"
