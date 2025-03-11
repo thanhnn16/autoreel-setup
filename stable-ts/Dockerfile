@@ -32,25 +32,39 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y libffms2-dev && rm -rf /var/lib/apt/lists/* && \
     git clone https://github.com/Myaamori/aegisub-cli.git && \
     cd aegisub-cli && \
-    (meson --prefix=/usr --buildtype=release -Dsystem_luajit=true --wrap-mode=forcefallback builddir && \
-    ninja -C builddir src/aegisub-cli || \
-    (rm -rf builddir && \
-     meson --prefix=/usr --buildtype=release -Dsystem_luajit=true --wrap-mode=nofallback builddir && \
-     ninja -C builddir src/aegisub-cli) || \
-    (rm -rf builddir && \
-     meson --prefix=/usr --buildtype=release -Dsystem_luajit=true builddir && \
-     ninja -C builddir src/aegisub-cli)) && \
+    # Thử phương pháp 1: Sử dụng --wrap-mode=default
+    (meson --prefix=/usr --buildtype=release -Dsystem_luajit=true --wrap-mode=default builddir && \
+    ninja -C builddir src/aegisub-cli && \
     cp builddir/src/aegisub-cli /usr/local/bin/ && \
-    cd .. && rm -rf aegisub-cli || \
+    cd .. && rm -rf aegisub-cli) || \
+    # Thử phương pháp 2: Sử dụng --wrap-mode=nodownload
+    (cd /app/aegisub-cli && rm -rf builddir && \
+     meson --prefix=/usr --buildtype=release -Dsystem_luajit=true --wrap-mode=nodownload builddir && \
+     ninja -C builddir src/aegisub-cli && \
+     cp builddir/src/aegisub-cli /usr/local/bin/ && \
+     cd .. && rm -rf aegisub-cli) || \
+    # Thử phương pháp 3: Cài đặt thêm các phụ thuộc và thử lại
     (cd /app && rm -rf aegisub-cli && \
-     echo "Không thể biên dịch aegisub-cli, đang tải phiên bản đã biên dịch sẵn..." && \
-     mkdir -p /tmp/aegisub-cli && \
-     cd /tmp/aegisub-cli && \
-     curl -L -o aegisub-cli.tar.gz https://github.com/Myaamori/aegisub-cli/archive/refs/tags/db0e4f9.tar.gz && \
-     tar -xzf aegisub-cli.tar.gz && \
-     chmod +x aegisub-cli && \
-     cp aegisub-cli /usr/local/bin/ && \
-     cd /app && rm -rf /tmp/aegisub-cli)
+     apt-get update && apt-get install -y \
+     libfftw3-dev libhunspell-dev libuchardet-dev libcurl4-gnutls-dev libgl1-mesa-dev && \
+     rm -rf /var/lib/apt/lists/* && \
+     git clone https://github.com/Myaamori/aegisub-cli.git && \
+     cd aegisub-cli && \
+     meson --prefix=/usr --buildtype=release -Dsystem_luajit=true builddir && \
+     ninja -C builddir src/aegisub-cli && \
+     cp builddir/src/aegisub-cli /usr/local/bin/ && \
+     cd .. && rm -rf aegisub-cli) || \
+    # Thử phương pháp 4: Sử dụng tag cụ thể và tùy chọn khác
+    (cd /app && rm -rf aegisub-cli && \
+     echo "Đang thử biên dịch aegisub-cli từ tag cụ thể..." && \
+     git clone -b db0e4f9 --depth 1 https://github.com/Myaamori/aegisub-cli.git && \
+     cd aegisub-cli && \
+     meson --prefix=/usr --buildtype=release -Dsystem_luajit=true -Ddefault_library=static builddir && \
+     ninja -C builddir src/aegisub-cli && \
+     cp builddir/src/aegisub-cli /usr/local/bin/ && \
+     cd .. && rm -rf aegisub-cli) || \
+    # Nếu tất cả đều thất bại, hiển thị thông báo lỗi
+    (echo "Không thể biên dịch aegisub-cli bằng bất kỳ phương pháp nào. Vui lòng kiểm tra lại các phụ thuộc và cấu hình." && exit 1)
 
 # Cài đặt automation scripts (DependencyControl & ILL)
 RUN mkdir -p /root/.aegisub/automation/autoload && \
