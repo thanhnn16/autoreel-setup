@@ -34,6 +34,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        - COMPOSE_BAKE=true
     hostname: n8n
     container_name: n8n
     networks: ["autoreel"]
@@ -94,6 +96,8 @@ services:
       - 11434:11434
     volumes:
       - ollama_storage:/root/.ollama
+    depends_on:
+      - ffmpeg-wrapper
     deploy:
       resources:
         reservations:
@@ -126,6 +130,8 @@ services:
       - 8188:8188
     volumes:
       - ./storage:/storage
+    depends_on:
+      - ollama
     environment:
       - WANTED_UID=1000
       - WANTED_GID=1000
@@ -140,6 +146,8 @@ services:
     build:
       context: ./stable-ts
       dockerfile: Dockerfile
+      args:
+        - COMPOSE_BAKE=true
     container_name: stable_ts
     networks: ["autoreel"]
     restart: unless-stopped
@@ -160,8 +168,12 @@ services:
     build:
       context: ./ffmpeg-wrapper
       dockerfile: Dockerfile
+      args:
+        - COMPOSE_BAKE=true
     container_name: ffmpeg-wrapper
     ports:
       - "3000:3000"
     networks: ["autoreel"]
     restart: unless-stopped
+    depends_on:
+      - stable_ts
