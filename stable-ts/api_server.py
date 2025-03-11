@@ -673,20 +673,19 @@ function apply_rounded_borders(subtitles, selected_lines, active_line)
             l 100 100
             l 0 100
             l 0 0
-            [[
         ]])
         
         -- Thêm layer background
         local bg_line = line:copy()
         bg_line.text = string.format([[
-            {{\\an7\\pos(0,0)\\bord0\\shad0\\1a&H80&\\c&H000000&\\p1}}%s
+            {\\an7\\pos(0,0)\\bord0\\shad0\\1a&H80&\\c&H000000&\\p1}%s
         ]], drawing)
         bg_line.layer = 0
         
         -- Điều chỉnh text gốc
         line.text = string.format([[
-            {{\\an7\\pos(5,5)}}%s
-        ]], text:gsub("^{\\[^}]*}", ""))
+            {\\an7\\pos(5,5)}%s
+        ]], text:gsub("^{\\\\[^}]*}", ""))
         line.layer = 1
         
         subtitles[i] = line
