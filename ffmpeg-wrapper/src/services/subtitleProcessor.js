@@ -70,45 +70,125 @@ async function createCombinedAss(subtitlePath, titleText, outputDir, taskId) {
   const logPrefix = taskId ? `[Task ${taskId}]` : '';
   
   try {
+    // Đọc nội dung gốc
     const originalContent = fs.readFileSync(subtitlePath, 'utf8');
     
-    // Tìm vị trí các phần quan trọng
-    const stylesSectionIndex = originalContent.indexOf('[V4+ Styles]');
-    const eventsSectionIndex = originalContent.indexOf('[Events]');
+    // Phân tích cấu trúc file ASS bằng cách tìm các section header
+    const sections = {};
+    let currentSection = null;
+    let sectionContent = '';
     
-    if (eventsSectionIndex === -1) throw new Error('File ASS không hợp lệ: không tìm thấy phần [Events]');
-    
-    let newContent = originalContent;
-    
-    // 1. Thêm style Title vào phần [V4+ Styles]
-    const titleStyle = '\nStyle: Title,Bungee Spice,82,&H000000FF,&H00FFFFFF,&H0000E4FF,&H00FFFFFF,-1,0,0,0,110,100,1,0,1,2,2,5,10,10,10,163';
-    
-    if (stylesSectionIndex !== -1) {
-      // Chèn style vào cuối phần Styles
-      const endStylesIndex = originalContent.indexOf('\n', originalContent.lastIndexOf('Style:', stylesSectionIndex));
-      newContent = originalContent.slice(0, endStylesIndex) + 
-                  titleStyle + 
-                  originalContent.slice(endStylesIndex);
-    } else {
-      // Tạo mới phần Styles nếu không tồn tại
-      const stylesSection = `\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding${titleStyle}\n`;
-      newContent = originalContent.slice(0, eventsSectionIndex) + 
-                  stylesSection + 
-                  originalContent.slice(eventsSectionIndex);
+    // Tách file thành các section
+    const lines = originalContent.split('\n');
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      
+      // Kiểm tra xem dòng có phải là section header không
+      if (line.match(/^\[.*\]$/)) {
+        // Lưu section trước đó nếu có
+        if (currentSection) {
+          sections[currentSection] = sectionContent;
+        }
+        
+        // Bắt đầu section mới
+        currentSection = line;
+        sectionContent = line + '\n';
+      } else if (currentSection) {
+        // Bỏ qua dòng "Style: Title" trong Script Info nếu có
+        if (currentSection === '[Script Info]' && line.trim().startsWith('Style: Title,')) {
+          continue;
+        }
+        sectionContent += line + '\n';
+      }
     }
-
-    // 2. Chèn dialogue tiêu đề vào đầu phần Events
-    const eventsHeader = '[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n';
-    const eventsContentIndex = newContent.indexOf(eventsHeader) + eventsHeader.length;
     
+    // Lưu section cuối cùng
+    if (currentSection) {
+      sections[currentSection] = sectionContent;
+    }
+    
+    // Đảm bảo các section cần thiết tồn tại
+    if (!sections['[Script Info]']) {
+      throw new Error('File ASS không hợp lệ: không tìm thấy phần [Script Info]');
+    }
+    
+    if (!sections['[V4+ Styles]']) {
+      sections['[V4+ Styles]'] = '[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n';
+    }
+    
+    if (!sections['[Events]']) {
+      throw new Error('File ASS không hợp lệ: không tìm thấy phần [Events]');
+    }
+    
+    // Thêm style Title vào phần [V4+ Styles]
+    const titleStyle = 'Style: Title,Bungee Spice,82,&H000000FF,&H00FFFFFF,&H0000E4FF,&H00FFFFFF,-1,0,0,0,110,100,1,0,1,2,2,5,10,10,10,163\n';
+    
+    // Kiểm tra xem style Title đã tồn tại chưa
+    if (!sections['[V4+ Styles]'].includes('Style: Title,')) {
+      // Tìm vị trí sau dòng Format
+      const formatIndex = sections['[V4+ Styles]'].indexOf('Format:');
+      if (formatIndex !== -1) {
+        const afterFormatIndex = sections['[V4+ Styles]'].indexOf('\n', formatIndex) + 1;
+        sections['[V4+ Styles]'] = 
+          sections['[V4+ Styles]'].slice(0, afterFormatIndex) + 
+          titleStyle + 
+          sections['[V4+ Styles]'].slice(afterFormatIndex);
+      } else {
+        // Nếu không có dòng Format, thêm vào cuối
+        sections['[V4+ Styles]'] += 'Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n' + titleStyle;
+      }
+    }
+    
+    // Thêm dialogue tiêu đề vào phần [Events]
     const titleDialogue = createTitleWithEffect(titleText);
-    newContent = newContent.slice(0, eventsContentIndex) + 
-                titleDialogue + '\n' + 
-                newContent.slice(eventsContentIndex);
-
+    
+    // Kiểm tra xem đã có dialogue tiêu đề chưa
+    const hasExistingTitle = sections['[Events]'].includes('Title,,0,0,0,,{\\fad') || 
+                            sections['[Events]'].includes('\\move') && sections['[Events]'].includes(titleText);
+    
+    if (!hasExistingTitle) {
+      // Tìm vị trí sau dòng Format
+      const formatIndex = sections['[Events]'].indexOf('Format:');
+      if (formatIndex !== -1) {
+        const afterFormatIndex = sections['[Events]'].indexOf('\n', formatIndex) + 1;
+        sections['[Events]'] = 
+          sections['[Events]'].slice(0, afterFormatIndex) + 
+          titleDialogue + '\n' + 
+          sections['[Events]'].slice(afterFormatIndex);
+      } else {
+        throw new Error('File ASS không hợp lệ: không tìm thấy dòng Format trong phần Events');
+      }
+    }
+    
+    // Ghép các section lại thành file mới
+    // Thứ tự: Script Info -> Aegisub Project Garbage (nếu có) -> V4+ Styles -> Events
+    let newContent = sections['[Script Info]'];
+    
+    if (sections['[Aegisub Project Garbage]']) {
+      newContent += sections['[Aegisub Project Garbage]'];
+    }
+    
+    newContent += sections['[V4+ Styles]'] + sections['[Events]'];
+    
     // Lưu file mới
     const newPath = path.join(outputDir, `combined_${path.basename(subtitlePath)}`);
     fs.writeFileSync(newPath, newContent);
+    
+    // KIỂM TRA: Sao chép file ASS ra thư mục output để kiểm tra
+    // TODO: Xóa đoạn code này sau khi đã kiểm tra xong
+    try {
+      const outputAssPath = path.join('output', `debug_${taskId}_${path.basename(subtitlePath)}`);
+      await ensureDir(path.dirname(outputAssPath));
+      fs.copyFileSync(newPath, outputAssPath);
+      logger.info(`${logPrefix} Đã sao chép file ASS để kiểm tra tại: ${outputAssPath}`, 'SubtitleProcessor');
+      
+      // Ghi thêm file gốc để so sánh
+      const originalOutputPath = path.join('output', `original_${taskId}_${path.basename(subtitlePath)}`);
+      fs.copyFileSync(subtitlePath, originalOutputPath);
+      logger.info(`${logPrefix} Đã sao chép file ASS gốc để so sánh tại: ${originalOutputPath}`, 'SubtitleProcessor');
+    } catch (copyError) {
+      logger.warn(`${logPrefix} Không thể sao chép file ASS để kiểm tra: ${copyError.message}`, 'SubtitleProcessor');
+    }
     
     logger.info(`${logPrefix} Đã thêm tiêu đề và giữ nguyên tất cả dialogue gốc`, 'SubtitleProcessor');
     return newPath;
