@@ -385,21 +385,49 @@ def process_audio_with_attention_mask(model, audio_path, language="vi"):
 def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int = 10):
     """
     Áp dụng bo góc cho file ASS và đảm bảo giữ nguyên hiệu ứng highlight từng từ
+    Tối ưu cho video kích thước 1080x1920 (chiều rộng x chiều cao)
     """
     try:
         with open(input_ass, 'r', encoding='utf-8') as f:
             lines = f.readlines()
 
-        # Thêm style cho background với blur và bo góc
+        # Cập nhật PlayResX và PlayResY để phù hợp với kích thước video
+        video_width = 1080
+        video_height = 1920
+        
+        # Cập nhật hoặc thêm PlayResX và PlayResY
+        has_play_res_x = False
+        has_play_res_y = False
+        
+        for i, line in enumerate(lines):
+            if line.startswith("PlayResX:"):
+                lines[i] = f"PlayResX: {video_width}\n"
+                has_play_res_x = True
+            elif line.startswith("PlayResY:"):
+                lines[i] = f"PlayResY: {video_height}\n"
+                has_play_res_y = True
+        
+        # Thêm nếu chưa có
+        if not has_play_res_x or not has_play_res_y:
+            for i, line in enumerate(lines):
+                if line.startswith("[Script Info]"):
+                    if not has_play_res_x:
+                        lines.insert(i+1, f"PlayResX: {video_width}\n")
+                    if not has_play_res_y:
+                        lines.insert(i+1, f"PlayResY: {video_height}\n")
+                    break
+
+        # Thêm style cho background theo yêu cầu
         bg_style = (
             "Style: Background,Arial,20,&H80000000,&H000000FF,&H00000000,&H00000000,"
-            "0,0,0,0,100,100,0,0,1,2,2,7,0,0,0,1\n"
+            "0,0,0,0,100,100,0,0,1,2,2,2,16,16,48,1\n"
         )
         
         # Tìm và chèn style background nếu chưa có
         has_bg_style = False
-        for line in lines:
+        for i, line in enumerate(lines):
             if line.startswith("Style: Background,"):
+                lines[i] = bg_style  # Thay thế style hiện có
                 has_bg_style = True
                 break
                 
@@ -412,15 +440,17 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         # Xử lý các event, giữ nguyên hiệu ứng highlight từng từ
         new_events = []
         
-        # Lấy thông tin PlayResX và PlayResY từ file ASS
-        play_res_x = 384  # Giá trị mặc định
-        play_res_y = 288  # Giá trị mặc định
+        # Tính toán kích thước background phù hợp
+        # Sử dụng chiều rộng là 80% của video và chiều cao cố định 100px
+        bg_width = int(video_width * 0.8)  # 80% chiều rộng video
+        bg_height = 100  # Chiều cao cố định
         
-        for line in lines:
-            if line.startswith("PlayResX:"):
-                play_res_x = int(line.split(":", 1)[1].strip())
-            elif line.startswith("PlayResY:"):
-                play_res_y = int(line.split(":", 1)[1].strip())
+        # Tính toán vị trí để căn giữa background
+        bg_x_start = int((video_width - bg_width) / 2)
+        bg_y_start = int(video_height * 0.8)  # Đặt ở khoảng 80% chiều cao video
+        
+        bg_x_end = bg_x_start + bg_width
+        bg_y_end = bg_y_start + bg_height
         
         for line in lines:
             if line.startswith("Dialogue:"):
@@ -438,52 +468,17 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 if style == "Background":
                     continue
                 
-                # Tạo background layer với blur và bo góc
-                # Sử dụng hình chữ nhật thực tế thay vì shape rỗng
+                # Tạo background layer với định dạng theo yêu cầu và vị trí đã tính toán
                 bg_text = (
-                    r"{\\blur15\\bord8\\xbord4\\ybord4\\3c&H000000&\\alpha&H80&"
-                    fr"\\p1}}m 0 0 l {play_res_x} 0 {play_res_x} {play_res_y} 0 {play_res_y}{{\\p0}}"
+                    r"{\\blur2\\bord24\\xbord12\\ybord12\\3c&H000000&\\alpha&H90&\\p1}"
+                    f"m {bg_x_start} {bg_y_start} l {bg_x_end} {bg_y_start} {bg_x_end} {bg_y_end} {bg_x_start} {bg_y_end}"
+                    r"{\\p0}"
                 )
                 bg_line = f"Dialogue: 0,{start_time},{end_time},Background,,0,0,0,,{bg_text}\n"
 
-                # Kiểm tra xem text có chứa tag karaoke không
-                has_karaoke = "\\k" in text
-                
-                # Chỉnh sửa text gốc: thêm viền trắng và blur nhẹ nếu chưa có
-                # Đảm bảo không làm mất các tag karaoke
-                if has_karaoke:
-                    # Nếu có tag karaoke, chỉ thêm các tag style vào đầu
-                    if "\\blur" not in text and "\\bord" not in text:
-                        # Tìm vị trí của tag karaoke đầu tiên
-                        k_pos = text.find("{\\k")
-                        if k_pos > 0 and text.startswith("{\\"):
-                            # Nếu có tag style khác trước tag karaoke
-                            first_brace_end = text.find("}")
-                            if first_brace_end > 0 and first_brace_end < k_pos:
-                                # Chèn style vào tag đầu tiên
-                                modified_text = text.replace(
-                                    "{\\", 
-                                    r"{\\blur2\\bord2\\3c&HFFFFFF&\\1a&H00&\\alpha&H00&", 
-                                    1
-                                )
-                            else:
-                                # Thêm tag style mới trước tag karaoke
-                                modified_text = r"{\\blur2\\bord2\\3c&HFFFFFF&\\1a&H00&\\alpha&H00&}" + text
-                        else:
-                            # Thêm tag style mới vào đầu
-                            modified_text = r"{\\blur2\\bord2\\3c&HFFFFFF&\\1a&H00&\\alpha&H00&}" + text
-                    else:
-                        modified_text = text
-                else:
-                    # Nếu không có tag karaoke, xử lý bình thường
-                    if "\\blur" not in text and "\\bord" not in text:
-                        modified_text = text.replace(
-                            "{\\",
-                            r"{\\blur2\\bord2\\3c&HFFFFFF&\\1a&H00&\\alpha&H00&", 
-                            1
-                        ) if text.startswith("{\\") else r"{\\blur2\\bord2\\3c&HFFFFFF&\\1a&H00&\\alpha&H00&}" + text
-                    else:
-                        modified_text = text
+                # QUAN TRỌNG: KHÔNG thêm tag style vào trước tag karaoke
+                # Giữ nguyên text gốc để đảm bảo hiệu ứng karaoke hoạt động đúng
+                modified_text = text
                 
                 # Thêm layer background TRƯỚC layer text
                 new_events.append(bg_line)
