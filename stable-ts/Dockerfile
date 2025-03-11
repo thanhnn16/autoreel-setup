@@ -8,6 +8,10 @@ RUN apt-get update && apt-get install -y \
     libfreetype6-dev \
     libfribidi-dev \
     libharfbuzz-dev \
+    libgl1-mesa-glx \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
     # Bỏ các package sau vì không cần thiết
     # curl \
     # build-essential \

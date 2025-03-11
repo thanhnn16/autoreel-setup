@@ -651,114 +651,59 @@ def process_audio_with_attention_mask(model, audio_path, language="vi", regroup=
 
 def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int = 10):
     """
-    Áp dụng bo góc cho file ASS bằng cách chỉnh sửa trực tiếp file
-    
-    Args:
-        input_ass (Path): Đường dẫn file ASS đầu vào
-        output_ass (Path): Đường dẫn file ASS đầu ra
-        border_radius (int): Bán kính bo góc
+    Áp dụng bo góc và background blur cho file ASS
     """
     try:
-        # Đọc nội dung file ASS
         with open(input_ass, 'r', encoding='utf-8') as f:
             lines = f.readlines()
+
+        # Thêm style cho background
+        bg_style = (
+            "Style: Background,Arial,20,&H80FFFFFF,&H000000FF,&H00000000,&H00000000,"
+            "0,0,0,0,100,100,0,0,1,2,2,7,0,0,0,1\n"
+        )
         
-        # Tìm section [V4+ Styles]
-        style_section_idx = -1
+        # Tìm và chèn style background
         for i, line in enumerate(lines):
-            if line.strip() == '[V4+ Styles]':
-                style_section_idx = i
+            if line.startswith("[V4+ Styles]"):
+                lines.insert(i+2, bg_style)
                 break
-        
-        if style_section_idx == -1:
-            raise ValueError("Không tìm thấy section [V4+ Styles]")
-        
-        # Thêm style mới cho background với bo góc
-        style_format = None
-        format_fields = None
-        for i in range(style_section_idx + 1, len(lines)):
-            if lines[i].startswith('Format:'):
-                style_format = lines[i].strip()
-                format_fields = [f.strip() for f in style_format.replace('Format:', '').split(',')]
-                break
-        
-        if not style_format:
-            raise ValueError("Không tìm thấy dòng Format trong section [V4+ Styles]")
-        
-        # Tạo style mới cho background với các giá trị mặc định
-        style_values = {
-            'Name': 'Background',
-            'Fontname': 'Arial',
-            'Fontsize': '20',
-            'PrimaryColour': '&H80000000',
-            'SecondaryColour': '&H000000FF',
-            'OutlineColour': '&H00000000',
-            'BackColour': '&H00000000',
-            'Bold': '0',
-            'Italic': '0',
-            'Underline': '0',
-            'StrikeOut': '0',
-            'ScaleX': '100',
-            'ScaleY': '100',
-            'Spacing': '0',
-            'Angle': '0',
-            'BorderStyle': '1',
-            'Outline': str(border_radius),  # Sử dụng border_radius cho outline
-            'Shadow': '0',
-            'Alignment': '7',
-            'MarginL': '0',
-            'MarginR': '0',
-            'MarginV': '0',
-            'Encoding': '1'
-        }
-        
-        # Tạo dòng style mới theo đúng thứ tự các trường từ Format
-        style_parts = ['Style: Background']
-        for field in format_fields[1:]:  # Bỏ qua trường đầu tiên (Name) vì đã thêm ở trên
-            value = style_values.get(field, '0')  # Giá trị mặc định là '0' nếu không tìm thấy
-            style_parts.append(value)
-        
-        bg_style = ','.join(style_parts) + '\n'
-        
-        # Chèn style mới vào sau dòng Format
-        lines.insert(style_section_idx + 2, bg_style)
-        
-        # Tìm section [Events]
-        events_section_idx = -1
-        for i, line in enumerate(lines):
-            if line.strip() == '[Events]':
-                events_section_idx = i
-                break
-        
-        if events_section_idx == -1:
-            raise ValueError("Không tìm thấy section [Events]")
-        
-        # Đọc các dòng dialogue và thêm background style
-        for i in range(events_section_idx + 1, len(lines)):
-            if lines[i].startswith('Dialogue:'):
-                # Thêm hiệu ứng bo góc vào text hiện có
-                parts = lines[i].split(',', 9)  # Tách thành 10 phần (9 dấu phẩy)
-                if len(parts) == 10:
-                    text = parts[9]
-                    # Kiểm tra và thêm tag background vào đầu text
-                    if text.startswith('{'):
-                        # Nếu đã có tag, thêm vào sau tag đầu tiên
-                        text = text.replace('}{', '}{\\bord0\\shad0\\1a&H80&\\c&H000000&}', 1)
-                    else:
-                        # Nếu chưa có tag, thêm vào đầu
-                        text = '{\\bord0\\shad0\\1a&H80&\\c&H000000&}' + text
-                    
-                    # Cập nhật lại text trong dòng dialogue
-                    parts[9] = text
-                    lines[i] = ','.join(parts)
-        
-        # Ghi file đầu ra
+
+        # Xử lý các event
+        new_events = []
+        for line in lines:
+            if line.startswith("Dialogue:"):
+                # Tách các thành phần
+                parts = line.split(',', 9)
+                start_time = parts[1]
+                end_time = parts[2]
+                text = parts[9]
+
+                # Tạo background layer
+                bg_text = (
+                    r"{\\blur5\\bord8\\xbord4\\ybord4\\3c&H000000&\\alpha&H80&"
+                    r"\\p4}m 0 0 l 0 0 l 0 0 l 0 0 {\\p0}"
+                )
+                bg_line = f"Dialogue: 0,{start_time},{end_time},Background,,0,0,0,,{bg_text}\n"
+
+                # Chỉnh sửa text gốc
+                text = text.replace(
+                    "{\\",
+                    r"{\\blur2\\bord2\\3c&HFFFFFF&\\1a&H00&\\alpha&H00&", 1
+                )
+                
+                new_events.append(bg_line)
+                new_events.append(f"Dialogue: 0,{parts[1]},{parts[2]},Default,,0,0,0,,{text}")
+
+        # Thay thế các event cũ bằng event mới
+        lines = [line for line in lines if not line.startswith("Dialogue:")]
+        lines += new_events
+
         with open(output_ass, 'w', encoding='utf-8') as f:
             f.writelines(lines)
-            
+
     except Exception as e:
-        logger.error(f"Lỗi khi áp dụng bo góc: {str(e)}")
-        # Nếu có lỗi, sao chép file gốc
+        logger.error(f"Lỗi khi áp dụng hiệu ứng: {str(e)}")
         shutil.copy(input_ass, output_ass)
         raise
 
