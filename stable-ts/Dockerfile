@@ -29,15 +29,16 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Clone và build aegisub-cli (với nhiều phương pháp dự phòng)
-RUN git clone https://github.com/Myaamori/aegisub-cli.git && \
+RUN apt-get update && apt-get install -y libffms2-dev && rm -rf /var/lib/apt/lists/* && \
+    git clone https://github.com/Myaamori/aegisub-cli.git && \
     cd aegisub-cli && \
-    (meson --prefix=/usr --buildtype=release -Dsystem_luajit=true --wrap-mode=forcefallback -Dluabins:shared=false builddir && \
+    (meson --prefix=/usr --buildtype=release -Dsystem_luajit=true --wrap-mode=forcefallback builddir && \
     ninja -C builddir src/aegisub-cli || \
     (rm -rf builddir && \
      meson --prefix=/usr --buildtype=release -Dsystem_luajit=true --wrap-mode=nofallback builddir && \
      ninja -C builddir src/aegisub-cli) || \
     (rm -rf builddir && \
-     meson --prefix=/usr --buildtype=release -Dsystem_luajit=true -Dluabins=disabled builddir && \
+     meson --prefix=/usr --buildtype=release -Dsystem_luajit=true builddir && \
      ninja -C builddir src/aegisub-cli)) && \
     cp builddir/src/aegisub-cli /usr/local/bin/ && \
     cd .. && rm -rf aegisub-cli || \
@@ -47,6 +48,7 @@ RUN git clone https://github.com/Myaamori/aegisub-cli.git && \
      cd /tmp/aegisub-cli && \
      curl -L -o aegisub-cli.tar.gz https://github.com/Myaamori/aegisub-cli/archive/refs/tags/db0e4f9.tar.gz && \
      tar -xzf aegisub-cli.tar.gz && \
+     chmod +x aegisub-cli && \
      cp aegisub-cli /usr/local/bin/ && \
      cd /app && rm -rf /tmp/aegisub-cli)
 
