@@ -261,16 +261,62 @@ async def transcribe_audio(
         }
         
         # Tạo ASS subtitle với word-level timing
+        logger.info(f"Tạo file ASS với highlight_color: {highlight_color}, font_size: {font_size}")
         result.to_ass(
             str(temp_ass),
             highlight_color=highlight_color,
             **ass_style_kwargs
         )
         
+        # Log 15 dòng đầu của file ASS trước khi áp dụng bo góc
+        logger.info("=== 15 dòng đầu của file ASS TRƯỚC KHI áp dụng bo góc ===")
+        try:
+            with open(temp_ass, 'r', encoding='utf-8') as f:
+                first_15_lines = [next(f) for _ in range(15)]
+                for i, line in enumerate(first_15_lines):
+                    logger.info(f"Dòng {i+1}: {line.strip()}")
+                
+                # Tìm và log một số dòng Dialogue
+                logger.info("=== Một số dòng Dialogue TRƯỚC KHI áp dụng bo góc ===")
+                dialogue_count = 0
+                # Đặt lại con trỏ file về đầu
+                f.seek(0)
+                for line in f:
+                    if line.startswith("Dialogue:"):
+                        logger.info(f"Dialogue: {line.strip()}")
+                        dialogue_count += 1
+                        if dialogue_count >= 5:  # Chỉ log 5 dòng Dialogue đầu tiên
+                            break
+        except Exception as e:
+            logger.error(f"Lỗi khi đọc file ASS ban đầu: {str(e)}")
+        
         # Áp dụng bo góc
         logger.info(f"Áp dụng bo góc với bán kính {border_radius}")
         try:
             apply_rounded_borders(temp_ass, output_path, border_radius)
+            
+            # Log 15 dòng đầu của file ASS sau khi áp dụng bo góc
+            logger.info("=== 15 dòng đầu của file ASS SAU KHI áp dụng bo góc ===")
+            try:
+                with open(output_path, 'r', encoding='utf-8') as f:
+                    first_15_lines = [next(f) for _ in range(15)]
+                    for i, line in enumerate(first_15_lines):
+                        logger.info(f"Dòng {i+1}: {line.strip()}")
+                    
+                    # Tìm và log một số dòng Dialogue
+                    logger.info("=== Một số dòng Dialogue SAU KHI áp dụng bo góc ===")
+                    dialogue_count = 0
+                    # Đặt lại con trỏ file về đầu
+                    f.seek(0)
+                    for line in f:
+                        if line.startswith("Dialogue:"):
+                            logger.info(f"Dialogue: {line.strip()}")
+                            dialogue_count += 1
+                            if dialogue_count >= 10:  # Log 10 dòng Dialogue đầu tiên (bao gồm cả background)
+                                break
+            except Exception as e:
+                logger.error(f"Lỗi khi đọc file ASS sau khi áp dụng bo góc: {str(e)}")
+            
             # Xóa file tạm sau khi xử lý
             temp_ass.unlink(missing_ok=True)
         except Exception as e:
@@ -424,6 +470,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         for line in lines:
             if line.startswith("Style: Default,"):
                 default_style = line
+                logger.info(f"Style Default trong file ASS: {default_style.strip()}")
                 break
         
         # Phân tích style để lấy thông tin font size và margin
@@ -500,37 +547,47 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         
         # Xử lý các event, giữ nguyên hiệu ứng highlight từng từ
         new_events = []
+        events_section = False
         
-        # Phân tích các dòng Dialogue để xác định số dòng text và độ dài
-        dialogues = []
-        for line in lines:
-            if line.startswith("Dialogue:") and "Background" not in line:
-                parts = line.split(',', 9)
-                if len(parts) >= 10:
-                    dialogues.append({
-                        "line": line,
-                        "start_time": parts[1],
-                        "end_time": parts[2],
-                        "style": parts[3],
-                        "text": parts[9],
-                        "text_length": len(parts[9].strip())
-                    })
-        
-        # Xử lý từng dòng Dialogue
-        for line in lines:
+        # Tìm phần [Events] trong file
+        for i, line in enumerate(lines):
+            # Giữ nguyên tất cả các dòng cho đến khi gặp phần [Events]
+            if line.strip() == "[Events]":
+                events_section = True
+                new_events.append(line)
+                
+                # Thêm dòng Format nếu có
+                if i+1 < len(lines) and lines[i+1].startswith("Format:"):
+                    new_events.append(lines[i+1])
+                continue
+            
+            # Nếu chưa đến phần [Events], giữ nguyên dòng
+            if not events_section:
+                new_events.append(line)
+                continue
+            
+            # Bỏ qua dòng Format trong phần [Events] (đã thêm ở trên)
+            if line.startswith("Format:"):
+                continue
+            
+            # Xử lý các dòng Dialogue
             if line.startswith("Dialogue:"):
                 parts = line.split(',', 9)
                 if len(parts) < 10:
+                    # Nếu dòng Dialogue không đúng định dạng, giữ nguyên
+                    new_events.append(line)
                     continue
                 
                 # Lấy thông tin từ dòng Dialogue
+                layer = parts[0].split(':')[1].strip()
                 start_time = parts[1]
                 end_time = parts[2]
                 style = parts[3]
                 text = parts[9]
                 
-                # Nếu đã là background, bỏ qua
-                if style == "Background":
+                # Nếu đã là background hoặc có style Background, giữ nguyên
+                if style == "Background" or "Background" in line:
+                    new_events.append(line)
                     continue
                 
                 # Tính toán kích thước background dựa trên độ dài text và font size
@@ -568,27 +625,30 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 # Đảm bảo layer của background luôn là 0
                 bg_line = f"Dialogue: 0,{start_time},{end_time},Background,,0,0,0,,{bg_text}\n"
 
-                # QUAN TRỌNG: KHÔNG thêm tag style vào trước tag karaoke
-                # Giữ nguyên text gốc để đảm bảo hiệu ứng karaoke hoạt động đúng
+                # QUAN TRỌNG: KHÔNG thay đổi text gốc để đảm bảo hiệu ứng karaoke hoạt động đúng
+                # Giữ nguyên text gốc với tất cả các tag style
                 modified_text = text
                 
-                # Đảm bảo layer của dialogue luôn là 1
-                dialogue_line = f"Dialogue: 1,{start_time},{end_time},{style},,0,0,0,,{modified_text}\n"
+                # Đảm bảo layer của dialogue luôn là 1 (giữ nguyên layer gốc nếu lớn hơn 1)
+                dialogue_layer = max(1, int(layer))
+                
+                # Tạo lại dòng Dialogue với các thông số gốc, chỉ thay đổi layer nếu cần
+                dialogue_parts = line.split(',', 1)  # Tách phần layer và phần còn lại
+                dialogue_line = f"Dialogue: {dialogue_layer}," + dialogue_parts[1]  # Giữ nguyên phần còn lại
                 
                 # Thêm layer background TRƯỚC layer text
                 new_events.append(bg_line)
                 new_events.append(dialogue_line)
+            else:
+                # Giữ lại các dòng không phải Dialogue
+                new_events.append(line)
 
-        # Thay thế các event cũ bằng event mới
-        lines = [line for line in lines if not line.startswith("Dialogue:")]
-        lines += new_events  # Giữ nguyên các phần khác của file
-
+        # Ghi file mới
         with open(output_ass, 'w', encoding='utf-8') as f:
-            f.writelines(lines)
+            f.writelines(new_events)
 
     except Exception as e:
         logger.error(f"Lỗi khi áp dụng hiệu ứng: {str(e)}")
-        shutil.copy(input_ass, output_ass)
         raise
 
 def extract_sentence_segments(result):
