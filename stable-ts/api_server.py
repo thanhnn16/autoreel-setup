@@ -141,8 +141,8 @@ async def transcribe_audio(
     
     # Tham số cho ASS
     font: str = Form("Montserrat"),
-    font_size: int = Form(24),
-    highlight_color: str = Form('05c2ed'),
+    font_size: int = Form(72),
+    highlight_color: str = Form('05C2ED'),
     border_radius: int = Form(10),
     
     # Các tham số định dạng ASS
@@ -154,7 +154,7 @@ async def transcribe_audio(
     alignment: int = Form(2),
     margin_l: int = Form(16),
     margin_r: int = Form(16),
-    margin_v: int = Form(48),
+    margin_v: int = Form(56),
     encoding: int = Form(163)
 ):
     """
@@ -239,8 +239,8 @@ async def transcribe_audio(
             'Name': 'Default',
             'Fontname': font,
             'Fontsize': font_size,
-            'PrimaryColour': f"&H{primary_color}",
-            'OutlineColour': f"&H{outline_color}",
+            'PrimaryColour': f"&H00{primary_color}",
+            'OutlineColour': f"&H00{outline_color}",
             'BackColour': f"&H{background_color}",
             'Bold': 0,
             'Italic': 0,
@@ -386,6 +386,8 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
     """
     Áp dụng bo góc cho file ASS và đảm bảo giữ nguyên hiệu ứng highlight từng từ
     Tối ưu cho video kích thước 1080x1920 (chiều rộng x chiều cao)
+    Xử lý tốt các trường hợp text 1 dòng, 2 dòng, text ngắn và dài
+    Đảm bảo layer của dialogue luôn là 1 và layer của background luôn là 0
     """
     try:
         with open(input_ass, 'r', encoding='utf-8') as f:
@@ -417,48 +419,111 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                         lines.insert(i+1, f"PlayResY: {video_height}\n")
                     break
 
+        # Lấy thông tin style từ file ASS
+        default_style = None
+        for line in lines:
+            if line.startswith("Style: Default,"):
+                default_style = line
+                break
+        
+        # Phân tích style để lấy thông tin font size và margin
+        font_size = 72  # Giá trị mặc định
+        margin_v = 56   # Giá trị mặc định
+        
+        if default_style:
+            style_parts = default_style.split(',')
+            if len(style_parts) > 2:
+                try:
+                    font_size = int(style_parts[2])
+                except ValueError:
+                    pass
+            
+            if len(style_parts) > 18:
+                try:
+                    margin_v = int(style_parts[18])
+                except ValueError:
+                    pass
+
         # Thêm style cho background theo yêu cầu
         bg_style = (
             "Style: Background,Arial,20,&H80000000,&H000000FF,&H00000000,&H00000000,"
-            "0,0,0,0,100,100,0,0,1,2,2,2,16,16,48,1\n"
+            "0,0,0,0,100,100,0,0,3,2,2,2,16,16,56,1\n"
         )
         
-        # Tìm và chèn style background nếu chưa có
-        has_bg_style = False
+        # Định dạng Format cho phần Styles
+        format_line = "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        
+        # Tìm và sắp xếp lại phần [V4+ Styles] để đảm bảo Format xuất hiện trước Style
+        v4_styles_index = -1
         for i, line in enumerate(lines):
-            if line.startswith("Style: Background,"):
-                lines[i] = bg_style  # Thay thế style hiện có
-                has_bg_style = True
+            if line.strip() == "[V4+ Styles]":
+                v4_styles_index = i
                 break
-                
-        if not has_bg_style:
-            for i, line in enumerate(lines):
-                if line.startswith("[V4+ Styles]"):
-                    lines.insert(i+1, bg_style)  # Chèn ngay sau section header
+        
+        if v4_styles_index >= 0:
+            # Xóa phần [V4+ Styles] cũ
+            styles_section = []
+            i = v4_styles_index
+            styles_section.append(lines[i])  # Thêm dòng [V4+ Styles]
+            i += 1
+            
+            # Thu thập tất cả các dòng trong phần Styles
+            while i < len(lines) and not lines[i].strip().startswith('['):
+                if not lines[i].strip().startswith('Format:') and not lines[i].strip().startswith('Style:'):
+                    styles_section.append(lines[i])
+                i += 1
+            
+            # Thêm Format và các Style theo đúng thứ tự
+            styles_section.append(format_line)
+            
+            # Thu thập tất cả các Style hiện có
+            styles = []
+            for line in lines:
+                if line.strip().startswith('Style:'):
+                    styles.append(line)
+            
+            # Thêm Style Background nếu chưa có
+            has_bg_style = False
+            for style in styles:
+                if style.startswith("Style: Background,"):
+                    has_bg_style = True
                     break
-
+            
+            if not has_bg_style:
+                styles.append(bg_style)
+            
+            # Thêm tất cả các Style vào phần Styles
+            styles_section.extend(styles)
+            
+            # Xóa phần [V4+ Styles] cũ và thay thế bằng phần mới
+            lines = lines[:v4_styles_index] + styles_section + lines[i:]
+        
         # Xử lý các event, giữ nguyên hiệu ứng highlight từng từ
         new_events = []
         
-        # Tính toán kích thước background phù hợp
-        # Sử dụng chiều rộng là 80% của video và chiều cao cố định 100px
-        bg_width = int(video_width * 0.8)  # 80% chiều rộng video
-        bg_height = 100  # Chiều cao cố định
+        # Phân tích các dòng Dialogue để xác định số dòng text và độ dài
+        dialogues = []
+        for line in lines:
+            if line.startswith("Dialogue:") and "Background" not in line:
+                parts = line.split(',', 9)
+                if len(parts) >= 10:
+                    dialogues.append({
+                        "line": line,
+                        "start_time": parts[1],
+                        "end_time": parts[2],
+                        "style": parts[3],
+                        "text": parts[9],
+                        "text_length": len(parts[9].strip())
+                    })
         
-        # Tính toán vị trí để căn giữa background
-        bg_x_start = int((video_width - bg_width) / 2)
-        bg_y_start = int(video_height * 0.8)  # Đặt ở khoảng 80% chiều cao video
-        
-        bg_x_end = bg_x_start + bg_width
-        bg_y_end = bg_y_start + bg_height
-        
+        # Xử lý từng dòng Dialogue
         for line in lines:
             if line.startswith("Dialogue:"):
                 parts = line.split(',', 9)
                 if len(parts) < 10:
                     continue
                 
-                layer = parts[0].split(":")[1].strip()
+                # Lấy thông tin từ dòng Dialogue
                 start_time = parts[1]
                 end_time = parts[2]
                 style = parts[3]
@@ -468,21 +533,51 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 if style == "Background":
                     continue
                 
+                # Tính toán kích thước background dựa trên độ dài text và font size
+                text_length = len(text.strip())
+                
+                # Tính toán chiều rộng background dựa trên độ dài text
+                # Công thức ước lượng: mỗi ký tự chiếm khoảng 0.6 * font_size pixel chiều rộng
+                estimated_width = min(int(text_length * 0.6 * font_size), int(video_width * 0.9))
+                
+                # Đảm bảo chiều rộng tối thiểu
+                bg_width = max(estimated_width, int(video_width * 0.3))
+                
+                # Tính toán chiều cao background dựa trên số dòng text
+                # Ước tính số dòng dựa trên độ dài text và chiều rộng background
+                estimated_chars_per_line = int(bg_width / (0.6 * font_size))
+                estimated_lines = max(1, int(text_length / estimated_chars_per_line) + 1)
+                
+                # Chiều cao background: mỗi dòng text chiếm khoảng 1.2 * font_size pixel
+                bg_height = int(estimated_lines * 1.2 * font_size) + margin_v
+                
+                # Tính toán vị trí để căn giữa background
+                bg_x_start = int((video_width - bg_width) / 2)
+                bg_y_start = int(video_height * 0.75) - bg_height  # Đặt ở khoảng 75% chiều cao video
+                
+                bg_x_end = bg_x_start + bg_width
+                bg_y_end = bg_y_start + bg_height
+                
                 # Tạo background layer với định dạng theo yêu cầu và vị trí đã tính toán
                 bg_text = (
                     r"{\\blur2\\bord24\\xbord12\\ybord12\\3c&H000000&\\alpha&H90&\\p1}"
                     f"m {bg_x_start} {bg_y_start} l {bg_x_end} {bg_y_start} {bg_x_end} {bg_y_end} {bg_x_start} {bg_y_end}"
                     r"{\\p0}"
                 )
+                
+                # Đảm bảo layer của background luôn là 0
                 bg_line = f"Dialogue: 0,{start_time},{end_time},Background,,0,0,0,,{bg_text}\n"
 
                 # QUAN TRỌNG: KHÔNG thêm tag style vào trước tag karaoke
                 # Giữ nguyên text gốc để đảm bảo hiệu ứng karaoke hoạt động đúng
                 modified_text = text
                 
+                # Đảm bảo layer của dialogue luôn là 1
+                dialogue_line = f"Dialogue: 1,{start_time},{end_time},{style},,0,0,0,,{modified_text}\n"
+                
                 # Thêm layer background TRƯỚC layer text
                 new_events.append(bg_line)
-                new_events.append(f"Dialogue: {layer},{start_time},{end_time},{style},,0,0,0,,{modified_text}")
+                new_events.append(dialogue_line)
 
         # Thay thế các event cũ bằng event mới
         lines = [line for line in lines if not line.startswith("Dialogue:")]
