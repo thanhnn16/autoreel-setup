@@ -2,12 +2,8 @@
  * Khởi tạo ứng dụng Express
  */
 // Import các đường dẫn
-import { paths } from './utils/alias.js';
-import { join } from 'path-browserify';
 
 import express from 'express';
-import path from 'path-browserify';
-import fs from 'fs';
 import config from './config/index.js';
 import routes from './routes/index.js';
 import logger from './utils/logger.js';
@@ -62,7 +58,7 @@ async function ensureDirectories() {
 app.use('/api', routes);
 
 // Route mặc định
-app.get('/', (req, res) => {
+app.get('/', (_req, res) => {
   res.json({
     name: 'FFmpeg Wrapper API',
     version: '1.0.0',
@@ -71,14 +67,14 @@ app.get('/', (req, res) => {
 });
 
 // Middleware xử lý lỗi
-app.use((req, res, next) => {
+app.use((req, res, _next) => {
   res.status(404).json({
     error: 'Not Found',
     message: `Route ${req.method} ${req.url} không tồn tại`
   });
 });
 
-app.use((err, req, res, next) => {
+app.use((err, _req, res, _next) => {
   logger.error(`Lỗi server: ${err.message}`, 'App');
   res.status(err.status || 500).json({
     error: err.name || 'Internal Server Error',
@@ -123,7 +119,7 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason, _promise) => {
   logger.error(`Promise không được xử lý: ${reason}`, 'App');
   process.exit(1);
 });

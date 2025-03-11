@@ -12,7 +12,7 @@ const router = express.Router();
 /**
  * Route lấy danh sách logs
  */
-router.get('/', (req, res) => {
+router.get('/', (_req, res) => {
   try {
     const logsDir = config.paths.logs;
     

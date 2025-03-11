@@ -2,11 +2,10 @@
  * Module xử lý các tác vụ liên quan đến FFmpeg và FFprobe
  */
 import { spawn } from 'child_process';
-import fs from 'fs';
-import path from 'path';
 import config from '../config/index.js';
 import ffmpegConfig from '../config/ffmpeg.js';
-import logger, { originalConsoleLog, originalConsoleError } from './logger.js';
+import logger, {  } from './logger.js';
+import fs from 'fs';
 
 /**
  * Chạy lệnh FFmpeg và trả về Promise
@@ -19,11 +18,37 @@ function runFFmpeg(args, options = {}) {
     const startTime = Date.now();
     const logPrefix = options.taskId ? `[Task ${options.taskId}] [FFmpeg]` : '[FFmpeg]';
     
+    // Xử lý đường dẫn trên Windows
+    const processedArgs = args.map(arg => {
+      // Nếu arg là đường dẫn file, đảm bảo sử dụng dấu gạch chéo thuận (/)
+      if (typeof arg === 'string') {
+        return arg.replace(/\\/g, '/');
+      }
+      return arg;
+    });
+    
+    // Kiểm tra đường dẫn đầu ra
+    const outputIndex = processedArgs.findIndex(arg => !arg.startsWith('-'));
+    if (outputIndex > 0 && outputIndex === processedArgs.length - 1) {
+      const outputPath = processedArgs[outputIndex];
+      const outputDir = outputPath.substring(0, outputPath.lastIndexOf('/'));
+      
+      // Đảm bảo thư mục đầu ra tồn tại
+      try {
+        if (!fs.existsSync(outputDir)) {
+          logger.info(`${logPrefix} Tạo thư mục đầu ra: ${outputDir}`, 'FFmpeg');
+          fs.mkdirSync(outputDir, { recursive: true });
+        }
+      } catch (error) {
+        logger.error(`${logPrefix} Không thể tạo thư mục đầu ra ${outputDir}: ${error.message}`, 'FFmpeg');
+      }
+    }
+    
     // Log lệnh FFmpeg
-    logger.info(`${logPrefix} Bắt đầu thực thi lệnh: ffmpeg ${args.join(' ')}`, 'FFmpeg');
+    logger.info(`${logPrefix} Bắt đầu thực thi lệnh: ffmpeg ${processedArgs.join(' ')}`, 'FFmpeg');
 
     // Thiết lập timeout
-    const timeout = options.timeout || config.timeouts.ffmpeg;
+    const timeout = options.timeout || ffmpegConfig.timeout;
     let timeoutId;
     
     if (timeout) {
@@ -39,7 +64,7 @@ function runFFmpeg(args, options = {}) {
     }
 
     // Khởi chạy FFmpeg
-    const ffmpeg = spawn(ffmpegConfig.ffmpegPath, args);
+    const ffmpeg = spawn(ffmpegConfig.ffmpegPath, processedArgs);
     let stdout = '';
     let stderr = '';
 
@@ -74,6 +99,22 @@ function runFFmpeg(args, options = {}) {
       
       if (code === 0) {
         logger.info(`${logPrefix} Hoàn thành thành công sau ${duration}s`, 'FFmpeg');
+        
+        // Kiểm tra file đầu ra nếu có
+        if (outputIndex > 0 && outputIndex === processedArgs.length - 1) {
+          const outputPath = processedArgs[outputIndex];
+          try {
+            if (fs.existsSync(outputPath)) {
+              const stats = fs.statSync(outputPath);
+              logger.info(`${logPrefix} File đầu ra: ${outputPath} (${stats.size} bytes)`, 'FFmpeg');
+            } else {
+              logger.warn(`${logPrefix} File đầu ra không tồn tại: ${outputPath}`, 'FFmpeg');
+            }
+          } catch (error) {
+            logger.warn(`${logPrefix} Không thể kiểm tra file đầu ra: ${error.message}`, 'FFmpeg');
+          }
+        }
+        
         resolve({ stdout, stderr, code });
       } else {
         const errorMsg = `${logPrefix} Quá trình xử lý thất bại với mã lỗi ${code} sau ${duration}s`;
@@ -100,7 +141,7 @@ function runFFprobe(args, options = {}) {
     logger.info(`${logPrefix} Bắt đầu thực thi lệnh: ffprobe ${args.join(' ')}`, 'FFprobe');
 
     // Thiết lập timeout
-    const timeout = options.timeout || 60000; // 1 phút mặc định cho FFprobe
+    const timeout = options.timeout || ffmpegConfig.probeTimeout;
     let timeoutId;
     
     if (timeout) {

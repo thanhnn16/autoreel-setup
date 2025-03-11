@@ -6,7 +6,7 @@ import path from 'path';
 import ffmpegConfig from '../config/ffmpeg.js';
 import logger from '../utils/logger.js';
 import { formatAssTime } from '../utils/ffmpeg.js';
-import { saveToFile, readFromFile } from '../utils/fileManager.js';
+import { saveToFile } from '../utils/fileManager.js';
 import { downloadFile } from './fileDownloader.js';
 import { ensureDir } from '../utils/fileManager.js';
 

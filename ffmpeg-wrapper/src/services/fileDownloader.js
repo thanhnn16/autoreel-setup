@@ -6,7 +6,7 @@ import path from 'path';
 import fetch from 'node-fetch';
 import config from '../config/index.js';
 import logger from '../utils/logger.js';
-import { ensureDir, saveToFile } from '../utils/fileManager.js';
+import { ensureDir } from '../utils/fileManager.js';
 
 /**
  * Tải file từ URL hoặc sao chép từ đường dẫn cục bộ

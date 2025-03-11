@@ -6,7 +6,6 @@ import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { processTask } from '../services/videoProcessor.js';
-import { runFFmpeg, runFFprobe } from '../utils/ffmpeg.js';
 import logger from '../utils/logger.js';
 import config from '../config/index.js';
 
@@ -53,7 +52,7 @@ router.post('/task', validateTaskInput, async (req, res) => {
     
     // Xử lý task bất đồng bộ
     processTask(task)
-      .then(result => {
+      .then(() => {
         logger.info(`Task ${task.id} đã hoàn thành thành công`, 'API');
       })
       .catch(error => {

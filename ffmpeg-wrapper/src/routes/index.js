@@ -12,7 +12,7 @@ router.use('/process', processRoutes);
 router.use('/logs', logsRoutes);
 
 // Route mặc định
-router.get('/', (req, res) => {
+router.get('/', (_req, res) => {
   res.json({
     status: 'ok',
     message: 'FFmpeg Wrapper API',
