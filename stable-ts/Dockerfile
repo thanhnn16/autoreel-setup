@@ -16,7 +16,10 @@ RUN apt-get update && apt-get install -y \
     libfribidi-dev \
     libharfbuzz-dev \
     meson \
-    curl && rm -rf /var/lib/apt/lists/*
+    curl \
+    libiconv-hook-dev \
+    libintl-perl \
+    zlib1g-dev && rm -rf /var/lib/apt/lists/*
 
 # Thiết lập thư mục làm việc
 WORKDIR /app
@@ -24,7 +27,7 @@ WORKDIR /app
 # Clone và build aegisub-cli
 RUN git clone https://github.com/Myaamori/aegisub-cli.git && \
     cd aegisub-cli && \
-    meson --prefix=/usr --buildtype=release builddir && \
+    meson --prefix=/usr --buildtype=release -Dwx=false builddir && \
     ninja -C builddir src/aegisub-cli && \
     cp builddir/src/aegisub-cli /usr/local/bin/ && \
     cd .. && rm -rf aegisub-cli
