@@ -442,7 +442,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 # Sử dụng hình chữ nhật thực tế thay vì shape rỗng
                 bg_text = (
                     r"{\\blur15\\bord8\\xbord4\\ybord4\\3c&H000000&\\alpha&H80&"
-                    fr"\\p1}m 0 0 l {play_res_x} 0 {play_res_x} {play_res_y} 0 {play_res_y}{{\\p0}}"
+                    fr"\\p1}}m 0 0 l {play_res_x} 0 {play_res_x} {play_res_y} 0 {play_res_y}{{\\p0}}"
                 )
                 bg_line = f"Dialogue: 0,{start_time},{end_time},Background,,0,0,0,,{bg_text}\n"
 
