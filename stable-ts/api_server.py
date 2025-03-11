@@ -643,7 +643,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         script_path = automation_dir / "rounded_borders.lua"
         
         # Nội dung script bo góc
-        script_content = f"""script_name = "Rounded Borders"
+        script_content = """script_name = "Rounded Borders"
 script_description = "Add rounded borders to subtitles"
 script_author = "AutoReel"
 script_version = "1.0"
@@ -661,7 +661,7 @@ local depctrl = require("DependencyControl")({
 local ILL = depctrl:requireModules().ILL
 
 function apply_rounded_borders(subtitles, selected_lines, active_line)
-    local radius = {border_radius}
+    local radius = BORDER_RADIUS_PLACEHOLDER
     for _, i in ipairs(selected_lines) do
         local line = subtitles[i]
         local text = line.text
@@ -678,14 +678,14 @@ function apply_rounded_borders(subtitles, selected_lines, active_line)
         -- Thêm layer background
         local bg_line = line:copy()
         bg_line.text = string.format([[
-            {\\\\an7\\\\pos(0,0)\\\\bord0\\\\shad0\\\\1a&H80&\\\\c&H000000&\\\\p1}%s
+            {\\an7\\pos(0,0)\\bord0\\shad0\\1a&H80&\\c&H000000&\\p1}%s
         ]], drawing)
         bg_line.layer = 0
         
         -- Điều chỉnh text gốc
         line.text = string.format([[
-            {\\\\an7\\\\pos(5,5)}%s
-        ]], text:gsub("^{\\\\\\\\[^}]*}", ""))
+            {\\an7\\pos(5,5)}%s
+        ]], text:gsub("^{\\[^}]*}", ""))
         line.layer = 1
         
         subtitles[i] = line
@@ -696,6 +696,9 @@ end
 
 depctrl:registerMacro(apply_rounded_borders)
 """
+        # Thay thế placeholder bằng giá trị thực
+        script_content = script_content.replace("BORDER_RADIUS_PLACEHOLDER", str(border_radius))
+        
         # Ghi script vào file
         with open(script_path, "w", encoding="utf-8") as f:
             f.write(script_content)
