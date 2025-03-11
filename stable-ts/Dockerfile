@@ -8,9 +8,11 @@ RUN apt-get update && apt-get install -y \
     libfreetype6-dev \
     libfribidi-dev \
     libharfbuzz-dev \
-    curl \
-    build-essential \
-    git && rm -rf /var/lib/apt/lists/*
+    # Bỏ các package sau vì không cần thiết
+    # curl \
+    # build-essential \
+    # git \
+    && rm -rf /var/lib/apt/lists/*
 
 # Thiết lập thư mục làm việc
 WORKDIR /app
