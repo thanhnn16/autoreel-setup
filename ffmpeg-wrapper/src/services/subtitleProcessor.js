@@ -57,8 +57,15 @@ function createTitleWithEffect(titleText, duration = 3) {
   const startTime = 0;
   const endTime = startTime + duration;
   
-  // Hiệu ứng fade in + di chuyển từ dưới lên
-  const effect = `\\fad(500,0)\\move(${ffmpegConfig.video.width / 2},${ffmpegConfig.video.height + 100},${ffmpegConfig.video.width / 2},${ffmpegConfig.video.height - 150})`;
+  // Hiệu ứng fade in + di chuyển từ dưới lên cho video dọc 1080x1920
+  // Đảm bảo tiêu đề hiển thị ở giữa màn hình
+  const videoWidth = 1080;
+  const videoHeight = 1920;
+  const centerX = videoWidth / 2;
+  const startY = videoHeight + 100;
+  const endY = videoHeight * 0.75; // Vị trí kết thúc ở 3/4 chiều cao màn hình
+  
+  const effect = `\\fad(800,200)\\move(${centerX},${startY},${centerX},${endY})\\blur5\\t(0,500,\\blur0)\\c&HFFFFFF&\\3c&H0000FF&`;
 
   return `Dialogue: 0,${formatAssTime(startTime)},${formatAssTime(endTime)},Title,,0,0,0,,{${effect}}${titleText}`;
 }
@@ -121,7 +128,7 @@ async function createCombinedAss(subtitlePath, titleText, outputDir, taskId) {
     }
     
     // Thêm style Title vào phần [V4+ Styles]
-    const titleStyle = 'Style: Title,Bungee Spice,82,&H000000FF,&H00FFFFFF,&H0000E4FF,&H00FFFFFF,-1,0,0,0,110,100,1,0,1,2,2,5,10,10,10,163\n';
+    const titleStyle = 'Style: Title,Bungee Spice,124,&H000000FF,&H00FFFFFF,&H0000E4FF,&H00FFFFFF,-1,0,0,0,110,100,1,0,1,2,2,5,10,10,10,163\n';
     
     // Kiểm tra xem style Title đã tồn tại chưa
     if (!sections['[V4+ Styles]'].includes('Style: Title,')) {
