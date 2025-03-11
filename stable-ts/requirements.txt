@@ -4,6 +4,6 @@ stable-ts>=2.13.1
 torch>=2.2.1
 python-multipart>=0.0.7
 aiofiles>=24.1.0
-pydantic: 2.10.6
-ffmpeg-python: 0.2.0
-numpy: 1.25.0​
+pydantic>=2.10.6
+ffmpeg-python>=0.2.0
+numpy>=1.25.0

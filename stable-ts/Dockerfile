@@ -27,7 +27,7 @@ WORKDIR /app
 # Clone và build aegisub-cli
 RUN git clone https://github.com/Myaamori/aegisub-cli.git && \
     cd aegisub-cli && \
-    meson --prefix=/usr --buildtype=release -Dwx=false builddir && \
+    meson --prefix=/usr --buildtype=release -Dgui=false builddir && \
     ninja -C builddir src/aegisub-cli && \
     cp builddir/src/aegisub-cli /usr/local/bin/ && \
     cd .. && rm -rf aegisub-cli
