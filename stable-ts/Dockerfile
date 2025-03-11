@@ -30,7 +30,16 @@ WORKDIR /app
 
 # Clone và build aegisub-cli (với nhiều phương pháp dự phòng)
 RUN apt-get update && apt-get install -y libffms2-dev && rm -rf /var/lib/apt/lists/* && \
-    git clone https://github.com/Myaamori/aegisub-cli.git && \
+    (git clone --config http.sslVerify=false https://github.com/Myaamori/aegisub-cli.git || \
+     git clone --config http.sslVerify=false --depth 1 https://github.com/Myaamori/aegisub-cli.git || \
+     git clone git://github.com/Myaamori/aegisub-cli.git || \
+     (echo "Không thể clone aegisub-cli, tải xuống từ releases..." && \
+      mkdir -p /tmp/aegisub-cli && cd /tmp/aegisub-cli && \
+      curl -L -o aegisub-cli.zip https://github.com/Myaamori/aegisub-cli/releases/download/v0.1.0/aegisub-cli-v0.1.0-linux.zip && \
+      unzip aegisub-cli.zip && \
+      cp aegisub-cli /usr/local/bin/ && \
+      cd .. && rm -rf /tmp/aegisub-cli && \
+      exit 0)) && \
     cd aegisub-cli && \
     # Thử phương pháp 1: Tắt luabins
     (meson --prefix=/usr --buildtype=release -Dsystem_luajit=true -Dluabins=false builddir && \
@@ -48,7 +57,9 @@ RUN apt-get update && apt-get install -y libffms2-dev && rm -rf /var/lib/apt/lis
      apt-get update && apt-get install -y \
      libfftw3-dev libhunspell-dev libuchardet-dev libcurl4-gnutls-dev libgl1-mesa-dev && \
      rm -rf /var/lib/apt/lists/* && \
-     git clone https://github.com/Myaamori/aegisub-cli.git && \
+     (git clone --config http.sslVerify=false https://github.com/Myaamori/aegisub-cli.git || \
+      git clone --config http.sslVerify=false --depth 1 https://github.com/Myaamori/aegisub-cli.git || \
+      git clone git://github.com/Myaamori/aegisub-cli.git) && \
      cd aegisub-cli && \
      meson --prefix=/usr --buildtype=release -Dsystem_luajit=true -Dluabins=false -Ddefault_library=static builddir && \
      ninja -C builddir src/aegisub-cli && \
@@ -57,7 +68,9 @@ RUN apt-get update && apt-get install -y libffms2-dev && rm -rf /var/lib/apt/lis
     # Thử phương pháp 4: Sử dụng tag cụ thể và tùy chọn khác
     (cd /app && rm -rf aegisub-cli && \
      echo "Đang thử biên dịch aegisub-cli từ tag cụ thể..." && \
-     git clone -b v0.1.0 --depth 1 https://github.com/Myaamori/aegisub-cli.git && \
+     (git clone --config http.sslVerify=false -b v0.1.0 --depth 1 https://github.com/Myaamori/aegisub-cli.git || \
+      git clone --config http.sslVerify=false --depth 1 https://github.com/Myaamori/aegisub-cli.git || \
+      git clone git://github.com/Myaamori/aegisub-cli.git) && \
      cd aegisub-cli && \
      meson --prefix=/usr --buildtype=release -Dsystem_luajit=true -Ddefault_library=static -Dluabins=false builddir && \
      ninja -C builddir src/aegisub-cli && \
@@ -66,19 +79,37 @@ RUN apt-get update && apt-get install -y libffms2-dev && rm -rf /var/lib/apt/lis
     # Thử phương pháp 5: Sử dụng phiên bản cũ hơn của meson
     (cd /app && rm -rf aegisub-cli && \
      pip install meson==0.59.4 && \
-     git clone https://github.com/Myaamori/aegisub-cli.git && \
+     (git clone --config http.sslVerify=false https://github.com/Myaamori/aegisub-cli.git || \
+      git clone --config http.sslVerify=false --depth 1 https://github.com/Myaamori/aegisub-cli.git || \
+      git clone git://github.com/Myaamori/aegisub-cli.git) && \
      cd aegisub-cli && \
      meson --prefix=/usr --buildtype=release -Dsystem_luajit=true builddir && \
      ninja -C builddir src/aegisub-cli && \
      cp builddir/src/aegisub-cli /usr/local/bin/ && \
      cd .. && rm -rf aegisub-cli) || \
+    # Thử phương pháp 6: Tải xuống binary trực tiếp
+    (cd /app && \
+     echo "Đang tải xuống aegisub-cli binary trực tiếp..." && \
+     apt-get update && apt-get install -y unzip && rm -rf /var/lib/apt/lists/* && \
+     mkdir -p /tmp/aegisub-cli && cd /tmp/aegisub-cli && \
+     curl -L -o aegisub-cli.zip https://github.com/Myaamori/aegisub-cli/releases/download/v0.1.0/aegisub-cli-v0.1.0-linux.zip && \
+     unzip aegisub-cli.zip && \
+     cp aegisub-cli /usr/local/bin/ && \
+     chmod +x /usr/local/bin/aegisub-cli && \
+     cd .. && rm -rf /tmp/aegisub-cli) || \
     # Nếu tất cả đều thất bại, hiển thị thông báo lỗi
-    (echo "Không thể biên dịch aegisub-cli bằng bất kỳ phương pháp nào. Vui lòng kiểm tra lại các phụ thuộc và cấu hình." && exit 1)
+    (echo "Không thể cài đặt aegisub-cli bằng bất kỳ phương pháp nào. Vui lòng kiểm tra lại các phụ thuộc và cấu hình." && exit 1)
 
 # Cài đặt automation scripts (DependencyControl & ILL)
 RUN mkdir -p /root/.aegisub/automation/autoload && \
-    git clone https://github.com/TypesettingTools/DependencyControl.git /root/.aegisub/automation/autoload/DependencyControl && \
-    git clone https://github.com/TypesettingTools/ILL.git /root/.aegisub/automation/autoload/ILL
+    (git clone --config http.sslVerify=false https://github.com/TypesettingTools/DependencyControl.git /root/.aegisub/automation/autoload/DependencyControl || \
+     git clone --config http.sslVerify=false --depth 1 https://github.com/TypesettingTools/DependencyControl.git /root/.aegisub/automation/autoload/DependencyControl || \
+     git clone git://github.com/TypesettingTools/DependencyControl.git /root/.aegisub/automation/autoload/DependencyControl || \
+     echo "Không thể clone DependencyControl, bỏ qua...") && \
+    (git clone --config http.sslVerify=false https://github.com/TypesettingTools/ILL.git /root/.aegisub/automation/autoload/ILL || \
+     git clone --config http.sslVerify=false --depth 1 https://github.com/TypesettingTools/ILL.git /root/.aegisub/automation/autoload/ILL || \
+     git clone git://github.com/TypesettingTools/ILL.git /root/.aegisub/automation/autoload/ILL || \
+     echo "Không thể clone ILL, bỏ qua...")
 
 # Cài đặt font hỗ trợ Unicode đầy đủ
 RUN apt-get update && apt-get install -y fonts-noto fonts-noto-cjk fonts-noto-color-emoji && rm -rf /var/lib/apt/lists/*
