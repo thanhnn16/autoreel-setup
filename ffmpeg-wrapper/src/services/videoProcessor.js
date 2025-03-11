@@ -15,6 +15,7 @@ import {
   cleanupTaskResources } from '../utils/fileManager.js';
 import { downloadFile, downloadMultipleFiles } from './fileDownloader.js';
 import process from 'process';
+import { formatAssTime } from '../utils/ffmpeg.js';
 
 /**
  * Lớp xử lý task video
@@ -530,35 +531,155 @@ class TaskProcessor {
       logger.task.info(this.id, 'Đã xử lý âm thanh voice (không có nhạc nền)');
     }
 
-    // --- Bước 4: Kết hợp video và âm thanh ---
+    // --- Bước 4: Xử lý subtitle và tạo video cuối cùng ---
+    let processedSubtitlePath = null;
+    if (this.resources.subtitle) {
+      try {
+        processedSubtitlePath = await this.processSubtitle(this.resources.subtitle);
+        logger.task.info(this.id, `Đã xử lý subtitle: ${processedSubtitlePath}`);
+      } catch (error) {
+        logger.task.warn(this.id, `Lỗi khi xử lý subtitle: ${error.message}. Tiếp tục mà không có subtitle.`);
+      }
+    }
+
+    // Tạo video cuối cùng
     this.outputPath = path.join('output', `output_${this.id}.mp4`);
     await ensureOutputDir(path.dirname(this.outputPath));
 
     const finalArgs = [
       "-y", "-threads", "0",
       "-i", temp_video_no_audio,
-      "-i", temp_audio,
-      "-map", "0:v",
-      "-map", "1:a",
-      "-c:v", ffmpegConfig.video.codec,
-      "-c:a", ffmpegConfig.audio.codec,
-      this.outputPath
+      "-i", temp_audio
     ];
 
+    // Thêm filter cho subtitle nếu có
+    if (processedSubtitlePath) {
+      finalArgs.push(
+        "-vf", `ass=${processedSubtitlePath}`,
+        "-metadata:s:v", `title="Video with burned subtitles"`
+      );
+    }
+
+    // Thêm các tham số còn lại
+    finalArgs.push(
+      "-map", "0:v",
+      "-map", "1:a",
+      "-c:v", "libx264",
+      "-c:a", "aac",
+      this.outputPath
+    );
+
     await runFFmpeg(finalArgs);
-    logger.task.info(this.id, 'Đã kết hợp video và âm thanh thành công');
+    logger.task.info(this.id, 'Đã tạo video cuối cùng thành công');
 
     // Xóa các file tạm
     const tempFiles = [
       temp_video_no_audio,
       temp_audio,
-      ...videoList
-    ];
+      processedSubtitlePath
+    ].filter(Boolean);
 
     for (const file of tempFiles) {
       if (fs.existsSync(file)) {
         fs.unlinkSync(file);
+        logger.task.info(this.id, `Đã xóa file tạm: ${file}`);
       }
+    }
+  }
+
+  /**
+   * Xử lý subtitle ASS
+   * @param {string} subtitleUrl - URL hoặc đường dẫn file subtitle ASS
+   * @returns {Promise<string>} - Đường dẫn đến file subtitle đã xử lý
+   */
+  async processSubtitle(subtitleUrl) {
+    try {
+      logger.task.info(this.id, `Bắt đầu xử lý subtitle từ ${subtitleUrl}`);
+
+      // Kiểm tra định dạng file
+      if (!subtitleUrl.toLowerCase().endsWith('.ass')) {
+        throw new Error('Chỉ hỗ trợ file subtitle định dạng ASS');
+      }
+
+      // Tạo tên file subtitle trong thư mục tạm
+      const subtitleFilename = `subtitle_${this.id}.ass`;
+      const subtitlePath = path.join(this.tempDir, subtitleFilename).replace(/\\/g, '/');
+
+      // Tải file subtitle
+      await downloadFile(subtitleUrl, subtitlePath, {
+        taskId: this.id,
+        timeout: config.timeouts.download,
+        retries: config.retry.maxAttempts,
+        retryDelay: config.retry.delay
+      });
+
+      // Kiểm tra file có tồn tại không
+      if (!fs.existsSync(subtitlePath)) {
+        throw new Error(`File subtitle không tồn tại sau khi tải: ${subtitlePath}`);
+      }
+
+      // Đọc nội dung file ASS
+      const assContent = fs.readFileSync(subtitlePath, 'utf8');
+
+      // Tách phần header và dialogue
+      const headerEndIndex = assContent.indexOf('[Events]');
+      if (headerEndIndex === -1) {
+        throw new Error('File ASS không hợp lệ: không tìm thấy phần [Events]');
+      }
+
+      // Lấy phần header bao gồm cả [Events] và Format line
+      let headerPart = assContent.substring(0, headerEndIndex);
+      const formatLineStart = assContent.indexOf('Format:', headerEndIndex);
+      const dialogueStart = assContent.indexOf('Dialogue:', formatLineStart);
+
+      if (formatLineStart === -1 || dialogueStart === -1) {
+        throw new Error('File ASS không hợp lệ: không tìm thấy Format hoặc Dialogue');
+      }
+
+      // Lấy phần header và dialogue
+      headerPart = assContent.substring(0, dialogueStart);
+      const dialoguePart = assContent.substring(dialogueStart);
+
+      // Cập nhật style cho subtitle từ config
+      const {
+        fontName,
+        fontSize,
+        primaryColor,
+        outlineColor,
+        outlineWidth
+      } = ffmpegConfig.subtitle;
+
+      // Tạo style mới
+      const styleSection = `[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,${fontName},${fontSize},&H${primaryColor},&H000000FF,&H${outlineColor},&H00000000,0,0,0,0,100,100,0,0,1,${outlineWidth},0,2,10,10,10,1
+`;
+
+      // Tìm vị trí của [V4+ Styles] hoặc [V4 Styles] trong header
+      const styleStartIndex = headerPart.indexOf('[V4+ Styles]');
+      const styleEndIndex = headerPart.indexOf('[Events]');
+
+      // Thay thế phần style cũ bằng style mới
+      if (styleStartIndex !== -1 && styleEndIndex !== -1) {
+        headerPart = headerPart.substring(0, styleStartIndex) + styleSection + headerPart.substring(styleEndIndex);
+      } else {
+        // Nếu không tìm thấy phần style, thêm vào trước [Events]
+        headerPart = headerPart.replace('[Events]', styleSection + '[Events]');
+      }
+
+      // Tạo nội dung file ASS mới
+      const newAssContent = headerPart + dialoguePart;
+
+      // Ghi file ASS mới
+      const processedSubtitlePath = path.join(this.tempDir, `processed_${subtitleFilename}`).replace(/\\/g, '/');
+      fs.writeFileSync(processedSubtitlePath, newAssContent);
+
+      logger.task.info(this.id, `Đã xử lý subtitle thành công: ${processedSubtitlePath}`);
+      return processedSubtitlePath;
+
+    } catch (error) {
+      logger.task.error(this.id, `Lỗi khi xử lý subtitle: ${error.message}`);
+      throw error;
     }
   }
 

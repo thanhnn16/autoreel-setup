@@ -2,19 +2,25 @@ FROM linuxserver/ffmpeg:latest
 
 USER root
 
-# Update package list and install Node.js and npm (for Debian/Ubuntu)
+# Install curl and unzip for Bun installation
 RUN apt-get update && \
-    apt-get install -y nodejs npm && \
+    apt-get install -y curl unzip && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Install Bun
+RUN curl -fsSL https://bun.sh/install | bash
+
+# Add Bun to PATH
+ENV PATH="/root/.bun/bin:${PATH}"
 
 WORKDIR /app
 
 # Override the base image's ENTRYPOINT
 ENTRYPOINT []
 
-# Copy package.json and install dependencies
-COPY package.json .
-RUN npm install
+# Copy package.json and bun.lock, then install dependencies
+COPY package.json bun.lock ./
+RUN bun install
 
 # Copy source code
 COPY src/ ./src/
@@ -23,4 +29,4 @@ COPY src/ ./src/
 EXPOSE 3000
 
 # Start the server
-CMD ["node", "src/app.js"]
+CMD ["bun", "src/app.js"]
