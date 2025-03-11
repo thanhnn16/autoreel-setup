@@ -62,14 +62,13 @@ def get_model(force_cpu=False):
     
     # Tải mô hình đơn giản
     try:
-        # _model = stable_whisper.load_model("turbo", device=_device)
         _model = stable_whisper.load_model("large-v3", device=_device)
-        logger.info(f"Đã tải mô hình turbo trên {_device}")
+        logger.info(f"Đã tải mô hình large-v3 trên {_device}")
     except Exception as e:
-        logger.warning(f"Không thể tải mô hình turbo: {str(e)}")
-        logger.info("Thử tải mô hình medium...")
-        _model = stable_whisper.load_model("medium", device=_device)
-        logger.info("Đã tải mô hình medium")
+        logger.warning(f"Không thể tải mô hình large-v3: {str(e)}")
+        logger.info("Thử tải mô hình turbo...")
+        _model = stable_whisper.load_model("turbo", device=_device)
+        logger.info("Đã tải mô hình turbo")
     
     return _model
 
@@ -264,9 +263,6 @@ async def transcribe_audio(
         # Tạo ASS subtitle với word-level timing
         result.to_ass(
             str(temp_ass),
-            word_level=True,
-            min_dur=0.2,
-            strip=True,
             highlight_color=highlight_color,
             **ass_style_kwargs
         )
@@ -388,7 +384,7 @@ def process_audio_with_attention_mask(model, audio_path, language="vi"):
 
 def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int = 10):
     """
-    Áp dụng bo góc cho file ASS
+    Áp dụng bo góc cho file ASS và đảm bảo giữ nguyên hiệu ứng highlight từng từ
     """
     try:
         with open(input_ass, 'r', encoding='utf-8') as f:
@@ -400,15 +396,31 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
             "0,0,0,0,100,100,0,0,1,2,2,7,0,0,0,1\n"
         )
         
-        # Tìm và chèn style background
-        for i, line in enumerate(lines):
-            if line.startswith("[V4+ Styles]"):
-                lines.insert(i+1, bg_style)  # Chèn ngay sau section header
+        # Tìm và chèn style background nếu chưa có
+        has_bg_style = False
+        for line in lines:
+            if line.startswith("Style: Background,"):
+                has_bg_style = True
                 break
+                
+        if not has_bg_style:
+            for i, line in enumerate(lines):
+                if line.startswith("[V4+ Styles]"):
+                    lines.insert(i+1, bg_style)  # Chèn ngay sau section header
+                    break
 
-        # Xử lý các event, giới hạn 2 dòng
+        # Xử lý các event, giữ nguyên hiệu ứng highlight từng từ
         new_events = []
-        active_events = []
+        
+        # Lấy thông tin PlayResX và PlayResY từ file ASS
+        play_res_x = 384  # Giá trị mặc định
+        play_res_y = 288  # Giá trị mặc định
+        
+        for line in lines:
+            if line.startswith("PlayResX:"):
+                play_res_x = int(line.split(":", 1)[1].strip())
+            elif line.startswith("PlayResY:"):
+                play_res_y = int(line.split(":", 1)[1].strip())
         
         for line in lines:
             if line.startswith("Dialogue:"):
@@ -416,26 +428,66 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 if len(parts) < 10:
                     continue
                 
+                layer = parts[0].split(":")[1].strip()
                 start_time = parts[1]
                 end_time = parts[2]
+                style = parts[3]
                 text = parts[9]
-
+                
+                # Nếu đã là background, bỏ qua
+                if style == "Background":
+                    continue
+                
                 # Tạo background layer với blur và bo góc
+                # Sử dụng hình chữ nhật thực tế thay vì shape rỗng
                 bg_text = (
                     r"{\\blur15\\bord8\\xbord4\\ybord4\\3c&H000000&\\alpha&H80&"
-                    r"\\p4}m 0 0 l 0 0 l 0 0 l 0 0 {\\p0}"
+                    fr"\\p1}m 0 0 l {play_res_x} 0 {play_res_x} {play_res_y} 0 {play_res_y}{{\\p0}}"
                 )
                 bg_line = f"Dialogue: 0,{start_time},{end_time},Background,,0,0,0,,{bg_text}\n"
 
-                # Chỉnh sửa text gốc: thêm viền trắng và blur nhẹ
-                modified_text = text.replace(
-                    "{\\",
-                    r"{\\blur2\\bord2\\3c&HFFFFFF&\\1a&H00&\\alpha&H00&", 1
-                )
+                # Kiểm tra xem text có chứa tag karaoke không
+                has_karaoke = "\\k" in text
+                
+                # Chỉnh sửa text gốc: thêm viền trắng và blur nhẹ nếu chưa có
+                # Đảm bảo không làm mất các tag karaoke
+                if has_karaoke:
+                    # Nếu có tag karaoke, chỉ thêm các tag style vào đầu
+                    if "\\blur" not in text and "\\bord" not in text:
+                        # Tìm vị trí của tag karaoke đầu tiên
+                        k_pos = text.find("{\\k")
+                        if k_pos > 0 and text.startswith("{\\"):
+                            # Nếu có tag style khác trước tag karaoke
+                            first_brace_end = text.find("}")
+                            if first_brace_end > 0 and first_brace_end < k_pos:
+                                # Chèn style vào tag đầu tiên
+                                modified_text = text.replace(
+                                    "{\\", 
+                                    r"{\\blur2\\bord2\\3c&HFFFFFF&\\1a&H00&\\alpha&H00&", 
+                                    1
+                                )
+                            else:
+                                # Thêm tag style mới trước tag karaoke
+                                modified_text = r"{\\blur2\\bord2\\3c&HFFFFFF&\\1a&H00&\\alpha&H00&}" + text
+                        else:
+                            # Thêm tag style mới vào đầu
+                            modified_text = r"{\\blur2\\bord2\\3c&HFFFFFF&\\1a&H00&\\alpha&H00&}" + text
+                    else:
+                        modified_text = text
+                else:
+                    # Nếu không có tag karaoke, xử lý bình thường
+                    if "\\blur" not in text and "\\bord" not in text:
+                        modified_text = text.replace(
+                            "{\\",
+                            r"{\\blur2\\bord2\\3c&HFFFFFF&\\1a&H00&\\alpha&H00&", 
+                            1
+                        ) if text.startswith("{\\") else r"{\\blur2\\bord2\\3c&HFFFFFF&\\1a&H00&\\alpha&H00&}" + text
+                    else:
+                        modified_text = text
                 
                 # Thêm layer background TRƯỚC layer text
                 new_events.append(bg_line)
-                new_events.append(f"Dialogue: 0,{parts[1]},{parts[2]},Default,,0,0,0,,{modified_text}")
+                new_events.append(f"Dialogue: {layer},{start_time},{end_time},{style},,0,0,0,,{modified_text}")
 
         # Thay thế các event cũ bằng event mới
         lines = [line for line in lines if not line.startswith("Dialogue:")]
