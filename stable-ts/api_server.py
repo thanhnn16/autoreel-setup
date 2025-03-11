@@ -176,10 +176,10 @@ async def transcribe_audio(
     outline: int = Form(2),
     shadow: int = Form(2),
     alignment: int = Form(2),
-    margin_l: int = Form(10),
-    margin_r: int = Form(10),
-    margin_v: int = Form(72),
-    encoding: int = Form(1)
+    margin_l: int = Form(16),
+    margin_r: int = Form(16),
+    margin_v: int = Form(56),
+    encoding: int = Form(163)
 ):
     """
     API endpoint để phiên âm file audio thành văn bản.
@@ -599,7 +599,7 @@ def process_audio_with_attention_mask(model, audio_path, language="vi", regroup=
     """
     # Thực hiện phiên âm với word_timestamps=True để có timestamps cho từng từ
     # Luôn thực hiện phiên âm với regroup=False để giữ nguyên segments gốc cho ASS
-    result = model.transcribe(str(audio_path), language=language, regroup=False)
+    result = model.transcribe(str(audio_path), language=language, regroup=False, word_timestamps=True)
     
     # Biến lưu kết quả đã regroup
     result_regrouped = None
@@ -642,59 +642,68 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         automation_dir.mkdir(parents=True, exist_ok=True)
         script_path = automation_dir / "rounded_borders.lua"
         
-        # Nội dung script bo góc
+        # Nội dung script bo góc - đơn giản hóa script để tránh phụ thuộc vào DependencyControl và ILL
         script_content = """script_name = "Rounded Borders"
 script_description = "Add rounded borders to subtitles"
 script_author = "AutoReel"
 script_version = "1.0"
 
-local depctrl = require("DependencyControl")({
-    feed = "https://raw.githubusercontent.com/TypesettingTools/DependencyControl/master/feed/manifest.json",
-    {
-        "ILL.ILL",
-        version = "1.0.0",
-        url = "https://github.com/TypesettingTools/ILL",
-        modules = "ILL.lua"
-    }
-})
-
-local ILL = depctrl:requireModules().ILL
-
 function apply_rounded_borders(subtitles, selected_lines, active_line)
     local radius = BORDER_RADIUS_PLACEHOLDER
-    for _, i in ipairs(selected_lines) do
-        local line = subtitles[i]
-        local text = line.text
-        
-        -- Tạo hình chữ nhật bo góc
-        local drawing = string.format([[
-            m 0 0
-            l 100 0
-            l 100 100
-            l 0 100
-            l 0 0
-        ]])
-        
-        -- Thêm layer background
-        local bg_line = line:copy()
-        bg_line.text = string.format([[
-            {\\an7\\pos(0,0)\\bord0\\shad0\\1a&H80&\\c&H000000&\\p1}%s
-        ]], drawing)
-        bg_line.layer = 0
-        
-        -- Điều chỉnh text gốc
-        line.text = string.format([[
-            {\\an7\\pos(5,5)}%s
-        ]], text:gsub("^{\\[^}]*}", ""))
-        line.layer = 1
-        
-        subtitles[i] = line
-        subtitles.insert(i, bg_line)
+    
+    -- Xử lý tất cả các dòng nếu không có dòng nào được chọn
+    if #selected_lines == 0 then
+        for i = 1, #subtitles do
+            if subtitles[i].class == "dialogue" then
+                table.insert(selected_lines, i)
+            end
+        end
     end
+    
+    -- Xử lý từng dòng được chọn
+    local offset = 0
+    for _, i in ipairs(selected_lines) do
+        local line = subtitles[i + offset]
+        
+        -- Bỏ qua nếu không phải dòng dialogue
+        if not line or line.class ~= "dialogue" then
+            goto continue
+        end
+        
+        -- Tạo dòng background
+        local bg_line = {
+            class = "dialogue",
+            comment = false,
+            layer = 0,
+            start_time = line.start_time,
+            end_time = line.end_time,
+            style = line.style,
+            actor = line.actor,
+            margin_l = line.margin_l,
+            margin_r = line.margin_r,
+            margin_t = line.margin_t,
+            margin_b = line.margin_b,
+            effect = line.effect,
+            text = string.format("{\\an7\\pos(0,0)\\bord0\\shad0\\1a&H80&\\c&H000000&\\p1}m 0 %d l %d 0 l 100 0 l 100 %d l %d 100 l 0 100 l 0 %d",
+                radius, 100-radius, radius, radius, 100-radius)
+        }
+        
+        -- Cập nhật dòng gốc
+        line.layer = 1
+        line.text = string.format("{\\an7\\pos(5,5)}%s", line.text:gsub("^{\\[^}]*}", ""))
+        
+        -- Cập nhật dòng gốc và thêm dòng background
+        subtitles[i + offset] = line
+        subtitles.insert(i + offset, bg_line)
+        offset = offset + 1
+        
+        ::continue::
+    end
+    
     aegisub.set_undo_point("Rounded Borders")
 end
 
-depctrl:registerMacro(apply_rounded_borders)
+aegisub.register_macro("Rounded Borders", "Apply rounded borders to subtitles", apply_rounded_borders)
 """
         # Thay thế placeholder bằng giá trị thực
         script_content = script_content.replace("BORDER_RADIUS_PLACEHOLDER", str(border_radius))
