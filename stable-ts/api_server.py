@@ -735,37 +735,24 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         if events_section_idx == -1:
             raise ValueError("Không tìm thấy section [Events]")
         
-        # Đọc các dòng dialogue
-        dialogues = []
-        for line in lines[events_section_idx:]:
-            if line.startswith('Dialogue:'):
-                dialogues.append(line)
-        
-        # Tạo background cho mỗi dòng dialogue
-        new_dialogues = []
-        for dialogue in dialogues:
-            # Tạo dòng background với style Background
-            bg_dialogue = dialogue.replace('Style: Default,', 'Style: Background,')
-            # Thêm hiệu ứng bo góc vào text
-            bg_text = '{\\bord0\\shad0\\1a&H80&\\c&H000000&}'
-            bg_dialogue = bg_dialogue.replace('}{', '}{' + bg_text + '}')
-            if not '}{' in bg_dialogue:
-                # Nếu không có tag, thêm vào đầu text
-                text_start = bg_dialogue.rindex(',') + 1
-                bg_dialogue = bg_dialogue[:text_start] + '{' + bg_text + '}' + bg_dialogue[text_start:]
-            
-            # Thêm cả dòng background và dialogue gốc
-            new_dialogues.extend([bg_dialogue, dialogue])
-        
-        # Cập nhật section [Events]
-        events_end = len(lines)
+        # Đọc các dòng dialogue và thêm background style
         for i in range(events_section_idx + 1, len(lines)):
-            if lines[i].startswith('['):
-                events_end = i
-                break
-        
-        # Xóa các dòng dialogue cũ và thêm các dòng mới
-        lines[events_section_idx + 1:events_end] = [line for line in lines[events_section_idx + 1:events_end] if not line.startswith('Dialogue:')] + new_dialogues
+            if lines[i].startswith('Dialogue:'):
+                # Thêm hiệu ứng bo góc vào text hiện có
+                parts = lines[i].split(',', 9)  # Tách thành 10 phần (9 dấu phẩy)
+                if len(parts) == 10:
+                    text = parts[9]
+                    # Kiểm tra và thêm tag background vào đầu text
+                    if text.startswith('{'):
+                        # Nếu đã có tag, thêm vào sau tag đầu tiên
+                        text = text.replace('}{', '}{\\bord0\\shad0\\1a&H80&\\c&H000000&}', 1)
+                    else:
+                        # Nếu chưa có tag, thêm vào đầu
+                        text = '{\\bord0\\shad0\\1a&H80&\\c&H000000&}' + text
+                    
+                    # Cập nhật lại text trong dòng dialogue
+                    parts[9] = text
+                    lines[i] = ','.join(parts)
         
         # Ghi file đầu ra
         with open(output_ass, 'w', encoding='utf-8') as f:
