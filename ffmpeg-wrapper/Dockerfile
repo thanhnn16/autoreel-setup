@@ -16,11 +16,11 @@ ENTRYPOINT []
 COPY package.json .
 RUN npm install
 
-# Copy server source code
-COPY server.js .
+# Copy source code
+COPY src/ ./src/
 
 # Expose port for HTTP server
 EXPOSE 3000
 
 # Start the server
-CMD ["node", "server.js"]
+CMD ["node", "src/app.js"]
