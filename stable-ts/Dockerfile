@@ -32,34 +32,43 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y libffms2-dev && rm -rf /var/lib/apt/lists/* && \
     git clone https://github.com/Myaamori/aegisub-cli.git && \
     cd aegisub-cli && \
-    # Thử phương pháp 1: Sử dụng --wrap-mode=default
-    (meson --prefix=/usr --buildtype=release -Dsystem_luajit=true --wrap-mode=default builddir && \
+    # Thử phương pháp 1: Tắt luabins
+    (meson --prefix=/usr --buildtype=release -Dsystem_luajit=true -Dluabins=false builddir && \
     ninja -C builddir src/aegisub-cli && \
     cp builddir/src/aegisub-cli /usr/local/bin/ && \
     cd .. && rm -rf aegisub-cli) || \
-    # Thử phương pháp 2: Sử dụng --wrap-mode=nodownload
+    # Thử phương pháp 2: Sử dụng --wrap-mode=forcefallback
     (cd /app/aegisub-cli && rm -rf builddir && \
-     meson --prefix=/usr --buildtype=release -Dsystem_luajit=true --wrap-mode=nodownload builddir && \
+     meson --prefix=/usr --buildtype=release -Dsystem_luajit=true --wrap-mode=forcefallback builddir && \
      ninja -C builddir src/aegisub-cli && \
      cp builddir/src/aegisub-cli /usr/local/bin/ && \
      cd .. && rm -rf aegisub-cli) || \
-    # Thử phương pháp 3: Cài đặt thêm các phụ thuộc và thử lại
+    # Thử phương pháp 3: Cài đặt thêm các phụ thuộc và thử lại với tùy chọn khác
     (cd /app && rm -rf aegisub-cli && \
      apt-get update && apt-get install -y \
      libfftw3-dev libhunspell-dev libuchardet-dev libcurl4-gnutls-dev libgl1-mesa-dev && \
      rm -rf /var/lib/apt/lists/* && \
      git clone https://github.com/Myaamori/aegisub-cli.git && \
      cd aegisub-cli && \
-     meson --prefix=/usr --buildtype=release -Dsystem_luajit=true builddir && \
+     meson --prefix=/usr --buildtype=release -Dsystem_luajit=true -Dluabins=false -Ddefault_library=static builddir && \
      ninja -C builddir src/aegisub-cli && \
      cp builddir/src/aegisub-cli /usr/local/bin/ && \
      cd .. && rm -rf aegisub-cli) || \
     # Thử phương pháp 4: Sử dụng tag cụ thể và tùy chọn khác
     (cd /app && rm -rf aegisub-cli && \
      echo "Đang thử biên dịch aegisub-cli từ tag cụ thể..." && \
-     git clone -b db0e4f9 --depth 1 https://github.com/Myaamori/aegisub-cli.git && \
+     git clone -b v0.1.0 --depth 1 https://github.com/Myaamori/aegisub-cli.git && \
      cd aegisub-cli && \
-     meson --prefix=/usr --buildtype=release -Dsystem_luajit=true -Ddefault_library=static builddir && \
+     meson --prefix=/usr --buildtype=release -Dsystem_luajit=true -Ddefault_library=static -Dluabins=false builddir && \
+     ninja -C builddir src/aegisub-cli && \
+     cp builddir/src/aegisub-cli /usr/local/bin/ && \
+     cd .. && rm -rf aegisub-cli) || \
+    # Thử phương pháp 5: Sử dụng phiên bản cũ hơn của meson
+    (cd /app && rm -rf aegisub-cli && \
+     pip install meson==0.59.4 && \
+     git clone https://github.com/Myaamori/aegisub-cli.git && \
+     cd aegisub-cli && \
+     meson --prefix=/usr --buildtype=release -Dsystem_luajit=true builddir && \
      ninja -C builddir src/aegisub-cli && \
      cp builddir/src/aegisub-cli /usr/local/bin/ && \
      cd .. && rm -rf aegisub-cli) || \
