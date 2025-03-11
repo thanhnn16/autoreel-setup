@@ -653,7 +653,7 @@ def process_audio_with_attention_mask(model, audio_path, language="vi", regroup=
 
 def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int = 10):
     """
-    Áp dụng bo góc cho file ASS sử dụng aegisub-cli
+    Áp dụng bo góc cho file ASS bằng cách chỉnh sửa trực tiếp file
     
     Args:
         input_ass (Path): Đường dẫn file ASS đầu vào
@@ -661,93 +661,81 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         border_radius (int): Bán kính bo góc
     """
     try:
-        # Tạo script automation tạm thời
-        automation_dir = Path.home() / ".aegisub/automation/autoload"
-        automation_dir.mkdir(parents=True, exist_ok=True)
-        script_path = automation_dir / "rounded_borders.lua"
+        # Đọc nội dung file ASS
+        with open(input_ass, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
         
-        # Nội dung script bo góc - đơn giản hóa script để tránh phụ thuộc vào DependencyControl và ILL
-        script_content = """script_name = "Rounded Borders"
-script_description = "Add rounded borders to subtitles"
-script_author = "AutoReel"
-script_version = "1.0"
-
-function apply_rounded_borders(subtitles, selected_lines, active_line)
-    local radius = BORDER_RADIUS_PLACEHOLDER
-    
-    -- Xử lý tất cả các dòng nếu không có dòng nào được chọn
-    if #selected_lines == 0 then
-        for i = 1, #subtitles do
-            if subtitles[i].class == "dialogue" then
-                table.insert(selected_lines, i)
-            end
-        end
-    end
-    
-    -- Xử lý từng dòng được chọn
-    local offset = 0
-    for _, i in ipairs(selected_lines) do
-        local line = subtitles[i + offset]
+        # Tìm section [V4+ Styles]
+        style_section_idx = -1
+        for i, line in enumerate(lines):
+            if line.strip() == '[V4+ Styles]':
+                style_section_idx = i
+                break
         
-        -- Bỏ qua nếu không phải dòng dialogue
-        if not line or line.class ~= "dialogue" then
-            goto continue
-        end
+        if style_section_idx == -1:
+            raise ValueError("Không tìm thấy section [V4+ Styles]")
         
-        -- Tạo dòng background
-        local bg_line = {
-            class = "dialogue",
-            comment = false,
-            layer = 0,
-            start_time = line.start_time,
-            end_time = line.end_time,
-            style = line.style,
-            actor = line.actor,
-            margin_l = line.margin_l,
-            margin_r = line.margin_r,
-            margin_t = line.margin_t,
-            margin_b = line.margin_b,
-            effect = line.effect,
-            text = string.format("{\\an7\\pos(0,0)\\bord0\\shad0\\1a&H80&\\c&H000000&\\p1}m 0 %d l %d 0 l 100 0 l 100 %d l %d 100 l 0 100 l 0 %d",
-                radius, 100-radius, radius, radius, 100-radius)
-        }
+        # Thêm style mới cho background với bo góc
+        style_format_line = ''
+        for i in range(style_section_idx + 1, len(lines)):
+            if lines[i].startswith('Format:'):
+                style_format_line = lines[i]
+                break
         
-        -- Cập nhật dòng gốc
-        line.layer = 1
-        line.text = string.format("{\\an7\\pos(5,5)}%s", line.text:gsub("^{\\[^}]*}", ""))
+        if not style_format_line:
+            raise ValueError("Không tìm thấy dòng Format trong section [V4+ Styles]")
         
-        -- Cập nhật dòng gốc và thêm dòng background
-        subtitles[i + offset] = line
-        subtitles.insert(i + offset, bg_line)
-        offset = offset + 1
+        # Tạo style mới cho background
+        bg_style = style_format_line.replace('Format:', 'Style: Background,')
+        bg_style = bg_style.replace('Default,', f'Arial,20,&H80000000,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,{border_radius},0,0,7,0,0,0,1,')
         
-        ::continue::
-    end
-    
-    aegisub.set_undo_point("Rounded Borders")
-end
-
-aegisub.register_macro("Rounded Borders", "Apply rounded borders to subtitles", apply_rounded_borders)
-"""
-        # Thay thế placeholder bằng giá trị thực
-        script_content = script_content.replace("BORDER_RADIUS_PLACEHOLDER", str(border_radius))
+        # Chèn style mới vào sau dòng Format
+        lines.insert(style_section_idx + 2, bg_style)
         
-        # Ghi script vào file
-        with open(script_path, "w", encoding="utf-8") as f:
-            f.write(script_content)
+        # Tìm section [Events]
+        events_section_idx = -1
+        for i, line in enumerate(lines):
+            if line.strip() == '[Events]':
+                events_section_idx = i
+                break
         
-        # Chạy aegisub-cli
-        cmd = [
-            "aegisub-cli",
-            "--automation", str(script_path),
-            str(input_ass),
-            str(output_ass),
-            "Rounded Borders/apply_rounded_borders"
-        ]
-        subprocess.run(cmd, check=True, capture_output=True)
+        if events_section_idx == -1:
+            raise ValueError("Không tìm thấy section [Events]")
         
+        # Đọc các dòng dialogue
+        dialogues = []
+        for line in lines[events_section_idx:]:
+            if line.startswith('Dialogue:'):
+                dialogues.append(line)
+        
+        # Tạo background cho mỗi dòng dialogue
+        new_dialogues = []
+        for dialogue in dialogues:
+            # Tạo dòng background
+            bg_dialogue = dialogue.replace('Style: Default,', 'Style: Background,')
+            bg_dialogue = bg_dialogue.replace('\\N', '')  # Loại bỏ xuống dòng trong background
+            
+            # Thêm cả dòng background và dialogue gốc
+            new_dialogues.extend([bg_dialogue, dialogue])
+        
+        # Cập nhật section [Events]
+        events_end = len(lines)
+        for i in range(events_section_idx + 1, len(lines)):
+            if lines[i].startswith('['):
+                events_end = i
+                break
+        
+        # Xóa các dòng dialogue cũ và thêm các dòng mới
+        lines[events_section_idx + 1:events_end] = [line for line in lines[events_section_idx + 1:events_end] if not line.startswith('Dialogue:')] + new_dialogues
+        
+        # Ghi file đầu ra
+        with open(output_ass, 'w', encoding='utf-8') as f:
+            f.writelines(lines)
+            
     except Exception as e:
         logger.error(f"Lỗi khi áp dụng bo góc: {str(e)}")
+        # Nếu có lỗi, sao chép file gốc
+        shutil.copy(input_ass, output_ass)
         raise
 
 def extract_sentence_segments(result):
