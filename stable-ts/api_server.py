@@ -147,7 +147,7 @@ async def transcribe_audio(
     
     # Các tham số định dạng ASS
     background_color: str = Form('80000000'),
-    primary_color: str = Form('FFFFFF'),
+    primary_color: str = Form('05C2ED'),
     outline_color: str = Form('000000'),
     outline: int = Form(2),
     shadow: int = Form(2),
