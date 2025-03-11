@@ -72,7 +72,40 @@ export default {
     transitionDuration: 0.3,
     
     // Danh sách hiệu ứng chuyển cảnh
-    transitions: ['distance'],
+    transitions: [
+      'fade',
+      'fadeblack', 
+      'fadewhite',
+      'distance',
+      'wipeleft',
+      'wiperight',
+      'wipeup',
+      'wipedown',
+      'slideleft',
+      'slideright', 
+      'slideup',
+      'slidedown',
+      'circlecrop',
+      'rectcrop',
+      'circleclose',
+      'circleopen',
+      'horzclose',
+      'horzopen',
+      'vertclose',
+      'vertopen',
+      'diagbl',
+      'diagbr',
+      'diagtl',
+      'diagtr',
+      'hlslice',
+      'hrslice',
+      'vuslice',
+      'vdslice',
+      'dissolve',
+      'pixelize',
+      'radial',
+      'hblur'
+    ],
     
     // Các kiểu zoom và pan
     kenBurns: {

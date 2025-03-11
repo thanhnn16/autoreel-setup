@@ -440,15 +440,38 @@ class TaskProcessor {
     let filterComplex = '';
     const concatArgs = ["-y", "-threads", "0"];
     
+    // Thêm input cho tất cả video
     for (const videoPath of videoList) {
       concatArgs.push("-i", videoPath);
     }
+
+    // Tính toán thời lượng của từng video để đặt offset chính xác
+    let currentOffset = 0;
+    const { transitionDuration, transitions } = ffmpegConfig.effects;
     
     // Tạo filter complex với hiệu ứng xfade
-    for (let i = 0; i < videoList.length; i++) {
-      filterComplex += `[${i}:v]`;
+    for (let i = 0; i < videoList.length - 1; i++) {
+      // Chọn hiệu ứng ngẫu nhiên từ danh sách
+      const randomTransition = transitions[Math.floor(Math.random() * transitions.length)];
+      
+      // Tính offset dựa trên thời lượng của video hiện tại
+      const duration = this.task.durations[i];
+      currentOffset += duration - transitionDuration;
+      
+      if (i === 0) {
+        filterComplex += `[0]`;
+      }
+      
+      // Thêm hiệu ứng xfade
+      filterComplex += `[${i + 1}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${currentOffset}`;
+      
+      if (i < videoList.length - 2) {
+        filterComplex += `[v${i}];[v${i}]`;
+      }
     }
-    filterComplex += `concat=n=${videoList.length}:v=1:a=0[outv]`;
+    
+    // Thêm output label cuối cùng
+    filterComplex += '[outv]';
     
     concatArgs.push(
       "-filter_complex", filterComplex,
