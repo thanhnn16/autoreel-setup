@@ -147,7 +147,7 @@ async def transcribe_audio(
     segment_by_sentence: bool = Form(True),
     
     # Tham số cho ASS
-    segment_level: bool = Form(True),
+    segment_level: bool = Form(False),
     word_level: bool = Form(True),
     min_dur: float = Form(0.2),
     font: str = Form("Montserrat"),
@@ -370,7 +370,7 @@ async def transcribe_audio(
                 result.to_ass(
                     str(temp_ass if rounded_corners else output_path),
                     segment_level=segment_level,
-                    word_level=True,  # Đảm bảo word_level luôn được bật
+                    word_level=True,
                     min_dur=min_dur,
                     strip=strip,
                     highlight_color=highlight_color,
@@ -445,7 +445,7 @@ async def transcribe_audio(
                     result.to_ass(
                         str(temp_ass if rounded_corners else output_path),
                         segment_level=segment_level,
-                        word_level=True,  # Đảm bảo word_level luôn được bật
+                        word_level=True,
                         min_dur=min_dur,
                         strip=strip,
                         highlight_color=highlight_color,
@@ -657,47 +657,50 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         with open(input_ass, 'r', encoding='utf-8') as f:
             lines = f.readlines()
 
-        # Thêm style cho background
+        # Thêm style cho background với blur và bo góc
         bg_style = (
-            "Style: Background,Arial,20,&H80FFFFFF,&H000000FF,&H00000000,&H00000000,"
+            "Style: Background,Arial,20,&H80000000,&H000000FF,&H00000000,&H00000000,"
             "0,0,0,0,100,100,0,0,1,2,2,7,0,0,0,1\n"
         )
         
         # Tìm và chèn style background
         for i, line in enumerate(lines):
             if line.startswith("[V4+ Styles]"):
-                lines.insert(i+2, bg_style)
+                lines.insert(i+1, bg_style)  # Chèn ngay sau section header
                 break
 
         # Xử lý các event
         new_events = []
         for line in lines:
             if line.startswith("Dialogue:"):
-                # Tách các thành phần
                 parts = line.split(',', 9)
+                if len(parts) < 10:
+                    continue
+                
                 start_time = parts[1]
                 end_time = parts[2]
                 text = parts[9]
 
-                # Tạo background layer
+                # Tạo background layer với blur và bo góc
                 bg_text = (
-                    r"{\\blur5\\bord8\\xbord4\\ybord4\\3c&H000000&\\alpha&H80&"
+                    r"{\\blur15\\bord8\\xbord4\\ybord4\\3c&H000000&\\alpha&H80&"
                     r"\\p4}m 0 0 l 0 0 l 0 0 l 0 0 {\\p0}"
                 )
                 bg_line = f"Dialogue: 0,{start_time},{end_time},Background,,0,0,0,,{bg_text}\n"
 
-                # Chỉnh sửa text gốc
-                text = text.replace(
+                # Chỉnh sửa text gốc: thêm viền trắng và blur nhẹ
+                modified_text = text.replace(
                     "{\\",
                     r"{\\blur2\\bord2\\3c&HFFFFFF&\\1a&H00&\\alpha&H00&", 1
                 )
                 
+                # Thêm layer background TRƯỚC layer text
                 new_events.append(bg_line)
-                new_events.append(f"Dialogue: 0,{parts[1]},{parts[2]},Default,,0,0,0,,{text}")
+                new_events.append(f"Dialogue: 0,{parts[1]},{parts[2]},Default,,0,0,0,,{modified_text}")
 
         # Thay thế các event cũ bằng event mới
         lines = [line for line in lines if not line.startswith("Dialogue:")]
-        lines += new_events
+        lines += new_events  # Giữ nguyên các phần khác của file
 
         with open(output_ass, 'w', encoding='utf-8') as f:
             f.writelines(lines)

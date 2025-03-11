@@ -15,6 +15,17 @@ ENV PATH="/root/.bun/bin:${PATH}"
 
 WORKDIR /app
 
+# Cài đặt font hỗ trợ Unicode đầy đủ
+RUN apt-get update && apt-get install -y fonts-noto fonts-noto-cjk fonts-noto-color-emoji && rm -rf /var/lib/apt/lists/*
+
+# Sao chép font từ thư mục /fonts vào hệ thống
+RUN mkdir -p /usr/share/fonts/truetype/custom
+COPY ./fonts/Montserrat/*.ttf /usr/share/fonts/truetype/custom/
+COPY ./fonts/Bungee_Spice/*.ttf /usr/share/fonts/truetype/custom/
+COPY ./fonts/Poppins/*.ttf /usr/share/fonts/truetype/custom/
+COPY ./fonts/Quicksand/*.ttf /usr/share/fonts/truetype/custom/
+RUN fc-cache -f -v
+
 # Override the base image's ENTRYPOINT
 ENTRYPOINT []
 

@@ -51,15 +51,6 @@ export default {
     }
   },
   
-  // Cấu hình cho subtitle
-  subtitle: {
-    fontName: 'Arial',
-    fontSize: 24,
-    primaryColor: 'white',
-    outlineColor: 'black',
-    outlineWidth: 1,
-  },
-  
   // Cấu hình cho slideshow
   slideshow: {
     transitionDuration: 1,
@@ -136,6 +127,14 @@ export default {
         x: 'iw/2-(iw/zoom/2)',
         y: 'ih/2-(ih/zoom/2)'
       }
+    }
+  },
+  
+  title: {
+    duration: 3, // Thời lượng hiển thị
+    effects: {
+      fadeInDuration: 0.5, // Giây
+      moveOffset: 100 // Pixel di chuyển
     }
   }
 }; 
