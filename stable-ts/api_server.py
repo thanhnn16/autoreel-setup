@@ -150,8 +150,8 @@ async def transcribe_audio(
     segment_level: bool = Form(True),
     word_level: bool = Form(True),
     min_dur: float = Form(0.2),
-    font: str = Form("Noto Sans"),
-    font_size: int = Form(14),
+    font: str = Form("Montserrat"),
+    font_size: int = Form(24),
     strip: bool = Form(True),
     highlight_color: str = Form('05c2ed'),
     karaoke: bool = Form(False),
@@ -676,18 +676,51 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
             raise ValueError("Không tìm thấy section [V4+ Styles]")
         
         # Thêm style mới cho background với bo góc
-        style_format_line = ''
+        style_format = None
+        format_fields = None
         for i in range(style_section_idx + 1, len(lines)):
             if lines[i].startswith('Format:'):
-                style_format_line = lines[i]
+                style_format = lines[i].strip()
+                format_fields = [f.strip() for f in style_format.replace('Format:', '').split(',')]
                 break
         
-        if not style_format_line:
+        if not style_format:
             raise ValueError("Không tìm thấy dòng Format trong section [V4+ Styles]")
         
-        # Tạo style mới cho background
-        bg_style = style_format_line.replace('Format:', 'Style: Background,')
-        bg_style = bg_style.replace('Default,', f'Arial,20,&H80000000,&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,{border_radius},0,0,7,0,0,0,1,')
+        # Tạo style mới cho background với các giá trị mặc định
+        style_values = {
+            'Name': 'Background',
+            'Fontname': 'Arial',
+            'Fontsize': '20',
+            'PrimaryColour': '&H80000000',
+            'SecondaryColour': '&H000000FF',
+            'OutlineColour': '&H00000000',
+            'BackColour': '&H00000000',
+            'Bold': '0',
+            'Italic': '0',
+            'Underline': '0',
+            'StrikeOut': '0',
+            'ScaleX': '100',
+            'ScaleY': '100',
+            'Spacing': '0',
+            'Angle': '0',
+            'BorderStyle': '1',
+            'Outline': str(border_radius),  # Sử dụng border_radius cho outline
+            'Shadow': '0',
+            'Alignment': '7',
+            'MarginL': '0',
+            'MarginR': '0',
+            'MarginV': '0',
+            'Encoding': '1'
+        }
+        
+        # Tạo dòng style mới theo đúng thứ tự các trường từ Format
+        style_parts = ['Style: Background']
+        for field in format_fields[1:]:  # Bỏ qua trường đầu tiên (Name) vì đã thêm ở trên
+            value = style_values.get(field, '0')  # Giá trị mặc định là '0' nếu không tìm thấy
+            style_parts.append(value)
+        
+        bg_style = ','.join(style_parts) + '\n'
         
         # Chèn style mới vào sau dòng Format
         lines.insert(style_section_idx + 2, bg_style)
@@ -711,9 +744,15 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         # Tạo background cho mỗi dòng dialogue
         new_dialogues = []
         for dialogue in dialogues:
-            # Tạo dòng background
+            # Tạo dòng background với style Background
             bg_dialogue = dialogue.replace('Style: Default,', 'Style: Background,')
-            bg_dialogue = bg_dialogue.replace('\\N', '')  # Loại bỏ xuống dòng trong background
+            # Thêm hiệu ứng bo góc vào text
+            bg_text = '{\\bord0\\shad0\\1a&H80&\\c&H000000&}'
+            bg_dialogue = bg_dialogue.replace('}{', '}{' + bg_text + '}')
+            if not '}{' in bg_dialogue:
+                # Nếu không có tag, thêm vào đầu text
+                text_start = bg_dialogue.rindex(',') + 1
+                bg_dialogue = bg_dialogue[:text_start] + '{' + bg_text + '}' + bg_dialogue[text_start:]
             
             # Thêm cả dòng background và dialogue gốc
             new_dialogues.extend([bg_dialogue, dialogue])
