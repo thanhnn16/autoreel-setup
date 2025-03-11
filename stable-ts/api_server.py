@@ -370,7 +370,7 @@ async def transcribe_audio(
                 result.to_ass(
                     str(temp_ass if rounded_corners else output_path),
                     segment_level=segment_level,
-                    word_level=word_level,
+                    word_level=True,  # Đảm bảo word_level luôn được bật
                     min_dur=min_dur,
                     strip=strip,
                     highlight_color=highlight_color,
@@ -397,7 +397,7 @@ async def transcribe_audio(
             except AttributeError as e:
                 if "'WordTiming' object has no attribute 'text'" in str(e):
                     logger.error(f"Lỗi khi xử lý: {str(e)}")
-                    # Chuyển đổi từ WordTiming sang định dạng chứa thuộc tính text
+                    # Kiểm tra và đảm bảo mỗi từ có thuộc tính text
                     for segment in result.segments:
                         if hasattr(segment, 'words') and segment.words:
                             # Kiểm tra và chuyển đổi các words nếu không có thuộc tính text
@@ -446,7 +446,7 @@ async def transcribe_audio(
                     result.to_ass(
                         str(temp_ass if rounded_corners else output_path),
                         segment_level=segment_level,
-                        word_level=word_level,
+                        word_level=True,  # Đảm bảo word_level luôn được bật
                         min_dur=min_dur,
                         strip=strip,
                         highlight_color=highlight_color,
