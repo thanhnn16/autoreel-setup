@@ -366,7 +366,7 @@ async def transcribe_audio(
                     temp_ass = TEMP_DIR / f"{uuid.uuid4()}.ass"
                     final_ass = output_path
                 
-                # Sử dụng phương thức to_ass với tất cả tham số, bỏ tham số tag
+                # Sử dụng phương thức to_ass với tất cả tham số
                 result.to_ass(
                     str(temp_ass if rounded_corners else output_path),
                     segment_level=segment_level,
@@ -601,6 +601,23 @@ def process_audio_with_attention_mask(model, audio_path, language="vi", regroup=
     # Luôn thực hiện phiên âm với regroup=False để giữ nguyên segments gốc cho ASS
     result = model.transcribe(str(audio_path), language=language, regroup=False, word_timestamps=True)
     
+    # Kiểm tra xem kết quả có timestamps cho từng từ không
+    has_word_timestamps = False
+    if hasattr(result, 'segments') and result.segments:
+        for segment in result.segments:
+            if hasattr(segment, 'words') and segment.words:
+                has_word_timestamps = True
+                # Đảm bảo mỗi từ có thuộc tính text
+                for word in segment.words:
+                    if not hasattr(word, 'text') and hasattr(word, 'word'):
+                        word.text = word.word
+                break
+    
+    if not has_word_timestamps:
+        logger.warning("Kết quả phiên âm không có timestamps cho từng từ. Thử lại với tham số word_timestamps=True.")
+        # Thử lại với tham số word_timestamps=True rõ ràng
+        result = model.transcribe(str(audio_path), language=language, regroup=False, word_timestamps=True)
+    
     # Biến lưu kết quả đã regroup
     result_regrouped = None
     
@@ -619,6 +636,13 @@ def process_audio_with_attention_mask(model, audio_path, language="vi", regroup=
                 .split_by_gap(0.8)  # Tách nếu khoảng cách giữa các từ quá lớn
                 .split_by_length(100)  # Giới hạn độ dài tối đa của mỗi segment
             )
+            
+            # Kiểm tra xem kết quả regrouped có giữ lại timestamps cho từng từ không
+            if hasattr(result_regrouped, 'segments') and result_regrouped.segments:
+                for segment in result_regrouped.segments:
+                    if not hasattr(segment, 'words') or not segment.words:
+                        logger.warning("Kết quả regrouped không có timestamps cho từng từ.")
+                        break
         except Exception as e:
             # Nếu có lỗi khi regrouping, ghi log và tiếp tục mà không có kết quả regrouped
             logger.warning(f"Không thể thực hiện regrouping: {str(e)}")
