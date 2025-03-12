@@ -715,22 +715,20 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 # Tính số ký tự tối đa trên một dòng
                 max_chars_per_line = int((video_width * 0.8) / char_width)
                 
-                # Tự động ngắt dòng nếu text quá dài
+                # Kiểm tra và tự động ngắt dòng nếu cần
                 if text_length > max_chars_per_line and '\\N' not in text and '\\n' not in text:
                     # Tìm vị trí ngắt dòng phù hợp (ưu tiên khoảng trắng)
                     split_pos = max_chars_per_line
                     while split_pos > 0 and clean_text[split_pos] != ' ':
                         split_pos -= 1
                     if split_pos > 0:
-                        # Chèn \\N vào text gốc tại vị trí tương ứng
-                        text = text[:split_pos] + '\\N' + text[split_pos+1:]
+                        # Chèn \\N vào text gốc tại vị trí phù hợp
+                        modified_text = text[:split_pos] + '\\N' + text[split_pos:].lstrip()
+                        text = modified_text
                         num_lines = 2  # Cập nhật số dòng
                 
-                # Đếm số dòng thực tế trong text
-                num_lines = 1 + text.count('\\N') + text.count('\\n')
-                
-                # Tính toán chiều cao background
-                line_height_factor = 1.3  # Giảm xuống 1.3 để text không bị quá xa
+                # Tính toán chiều cao background dựa trên số dòng text
+                line_height_factor = 1.3  # Giảm hệ số chiều cao xuống 1.3
                 padding_v = int(font_size * 0.3)  # Giảm padding dọc xuống 30% font size
                 
                 # Tính toán chiều cao dựa trên số dòng
@@ -745,7 +743,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 bg_x_end = bg_x_start + bg_width
                 
                 # Tính toán vị trí Y dựa trên marginV
-                bottom_padding = int(font_size * 0.3)  # Thêm padding dưới
+                bottom_padding = int(font_size * 0.3)  # Thêm padding dưới để tránh sát viền
                 bg_y_end = video_height - margin_v
                 bg_y_start = bg_y_end - bg_height - bottom_padding
                 
