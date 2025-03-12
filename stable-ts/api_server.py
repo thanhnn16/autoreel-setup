@@ -141,20 +141,20 @@ async def transcribe_audio(
     
     # Tham số cho ASS
     font: str = Form("Montserrat"),
-    font_size: int = Form(72),
+    font_size: int = Form(80),  # Tăng font size từ 72 lên 80 cho video dọc
     highlight_color: str = Form('05C2ED'),
-    border_radius: int = Form(10),
+    border_radius: int = Form(24),
     
     # Các tham số định dạng ASS
     background_color: str = Form('80000000'),
     primary_color: str = Form('05C2ED'),
     outline_color: str = Form('000000'),
-    outline: int = Form(2),
-    shadow: int = Form(2),
+    outline: int = Form(3),  # Tăng độ dày viền từ 2 lên 3
+    shadow: int = Form(3),   # Tăng độ đậm bóng từ 2 lên 3
     alignment: int = Form(2),
-    margin_l: int = Form(16),
-    margin_r: int = Form(16),
-    margin_v: int = Form(56),
+    margin_l: int = Form(20),  # Tăng lề trái từ 16 lên 20
+    margin_r: int = Form(20),  # Tăng lề phải từ 16 lên 20
+    margin_v: int = Form(80),  # Tăng lề dọc từ 56 lên 80
     encoding: int = Form(163)
 ):
     """
@@ -563,10 +563,10 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
 
         # QUAN TRỌNG: KHÔNG thay đổi style Default, giữ nguyên font size và các thuộc tính khác
         
-        # Thêm style cho background theo yêu cầu
+        # Thêm style cho background theo yêu cầu - tối ưu cho video dọc
         bg_style = (
-            "Style: Background,Arial,20,&H80000000,&H000000FF,&H00000000,&H00000000,"
-            "0,0,0,0,100,100,0,0,3,2,2,2,16,16,56,1\n"
+            "Style: Background,Arial,80,&H80000000,&H000000FF,&H00000000,&H00000000,"
+            "0,0,0,0,100,100,0,0,3,2,2,2,16,16,80,1\n"
         )
         
         # Định dạng Format cho phần Styles
@@ -665,31 +665,37 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 # Tính toán kích thước background dựa trên độ dài text và font size
                 text_length = len(text.strip())
                 
-                # Tính toán chiều rộng background dựa trên độ dài text
-                # Công thức ước lượng: mỗi ký tự chiếm khoảng 0.6 * font_size pixel chiều rộng
-                estimated_width = min(int(text_length * 0.6 * font_size), int(video_width * 0.9))
+                # Tối ưu cho video dọc: Giảm chiều rộng tối đa xuống 85% chiều rộng video
+                # Công thức ước lượng: mỗi ký tự chiếm khoảng 0.55 * font_size pixel chiều rộng (giảm xuống để phù hợp với video dọc)
+                estimated_width = min(int(text_length * 0.55 * font_size), int(video_width * 0.85))
                 
-                # Đảm bảo chiều rộng tối thiểu
-                bg_width = max(estimated_width, int(video_width * 0.3))
+                # Đảm bảo chiều rộng tối thiểu và tối đa cho video dọc
+                min_width = int(video_width * 0.4)  # Tăng chiều rộng tối thiểu lên 40% chiều rộng video
+                max_width = int(video_width * 0.85)  # Giới hạn chiều rộng tối đa 85% chiều rộng video
+                bg_width = max(min(estimated_width, max_width), min_width)
                 
                 # Tính toán chiều cao background dựa trên số dòng text
                 # Ước tính số dòng dựa trên độ dài text và chiều rộng background
-                estimated_chars_per_line = int(bg_width / (0.6 * font_size))
+                estimated_chars_per_line = int(bg_width / (0.55 * font_size))
                 estimated_lines = max(1, int(text_length / estimated_chars_per_line) + 1)
                 
-                # Chiều cao background: mỗi dòng text chiếm khoảng 1.2 * font_size pixel
-                bg_height = int(estimated_lines * 1.2 * font_size) + margin_v
+                # Tối ưu cho video dọc: Tăng hệ số chiều cao để text hiển thị tốt hơn
+                line_height_factor = 1.3  # Tăng từ 1.2 lên 1.3 để có thêm không gian
+                bg_height = int(estimated_lines * line_height_factor * font_size) + margin_v
                 
                 # Tính toán vị trí để căn giữa background
                 bg_x_start = int((video_width - bg_width) / 2)
-                bg_y_start = int(video_height * 0.75) - bg_height  # Đặt ở khoảng 75% chiều cao video
+                
+                # Tối ưu cho video dọc: Đặt phụ đề ở vị trí thấp hơn (80% chiều cao thay vì 75%)
+                bg_y_start = int(video_height * 0.8) - bg_height
                 
                 bg_x_end = bg_x_start + bg_width
                 bg_y_end = bg_y_start + bg_height
                 
                 # Tạo background layer với định dạng theo yêu cầu và vị trí đã tính toán
+                # Tối ưu cho video dọc: Tăng độ mờ và bo góc
                 bg_text = (
-                    r"{\\blur2\\bord24\\xbord12\\ybord12\\3c&H000000&\\alpha&H90&\\p1}"
+                    r"{\\blur3\\bord24\\xbord16\\ybord16\\3c&H000000&\\alpha&H85&\\p1}"
                     f"m {bg_x_start} {bg_y_start} l {bg_x_end} {bg_y_start} {bg_x_end} {bg_y_end} {bg_x_start} {bg_y_end}"
                     r"{\\p0}"
                 )
@@ -787,6 +793,7 @@ def extract_sentence_segments(result):
         if current_index < len(segments) - 1:
             next_segment = segments[current_index + 1]
             
+        # Nếu khoảng cách với segment tiếp theo > 0.8s, coi như kết thúc câu
         if next_segment and (next_segment.start - segment.end) > 0.8:
             is_end_of_sentence = True
         
