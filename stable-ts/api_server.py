@@ -142,12 +142,12 @@ async def transcribe_audio(
     # Tham số cho ASS
     font: str = Form("Montserrat"),
     font_size: int = Form(80),  # Tăng font size từ 72 lên 80 cho video dọc
-    highlight_color: str = Form('05C2ED'),
+    highlight_color: str = Form('EDA005'),
     border_radius: int = Form(24),
     
     # Các tham số định dạng ASS
     background_color: str = Form('80000000'),
-    primary_color: str = Form('05C2ED'),
+    primary_color: str = Form('EDA005'),
     outline_color: str = Form('000000'),
     outline: int = Form(3),  # Tăng độ dày viền từ 2 lên 3
     shadow: int = Form(3),   # Tăng độ đậm bóng từ 2 lên 3
