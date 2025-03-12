@@ -143,8 +143,7 @@ async def transcribe_audio(
     font: str = Form("Montserrat"),
     font_size: int = Form(80),  # Tăng font size từ 72 lên 80 cho video dọc
     highlight_color: str = Form('EDA005'),
-    border_radius: int = Form(0),  # Mặc định không bo góc
-    simple_background: bool = Form(True),  # Sử dụng background đơn giản
+    border_radius: int = Form(24),
     
     # Các tham số định dạng ASS
     background_color: str = Form('80000000'),
@@ -170,7 +169,6 @@ async def transcribe_audio(
         font_size (int): Kích thước font
         highlight_color (str): Màu highlight cho từng từ, định dạng BGR
         border_radius (int): Bán kính bo góc
-        simple_background (bool): Sử dụng background đơn giản
         
         # Các tham số định dạng ASS
         background_color (str): Màu nền dạng AABBGGRR
@@ -353,7 +351,7 @@ async def transcribe_audio(
         # Áp dụng bo góc
         logger.info(f"Áp dụng bo góc với bán kính {border_radius}")
         try:
-            apply_rounded_borders(temp_ass, output_path, border_radius, simple_background)
+            apply_rounded_borders(temp_ass, output_path, border_radius)
             
             # Log 15 dòng đầu của file ASS sau khi áp dụng bo góc
             logger.info("=== 15 dòng đầu của file ASS SAU KHI áp dụng bo góc ===")
@@ -512,18 +510,12 @@ def process_audio_with_attention_mask(model, audio_path, language="vi"):
     
     return result
 
-def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int = 0, simple_background: bool = True):
+def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int = 10):
     """
     Áp dụng bo góc cho file ASS và đảm bảo giữ nguyên hiệu ứng highlight từng từ
     Tối ưu cho video kích thước 1080x1920 (chiều rộng x chiều cao)
     Xử lý tốt các trường hợp text 1 dòng, 2 dòng, text ngắn và dài
     Đảm bảo layer của dialogue luôn là 1 và layer của background luôn là 0
-    
-    Args:
-        input_ass (Path): Đường dẫn đến file ASS đầu vào
-        output_ass (Path): Đường dẫn đến file ASS đầu ra
-        border_radius (int): Bán kính bo góc (mặc định là 0)
-        simple_background (bool): Sử dụng background đơn giản (mặc định là True)
     """
     try:
         with open(input_ass, 'r', encoding='utf-8') as f:
@@ -598,7 +590,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         # Thêm style cho background theo yêu cầu - tối ưu cho video dọc
         bg_style = (
             "Style: Background,Arial,80,&H80000000,&H000000FF,&H00000000,&H00000000,"
-            "0,0,0,0,100,100,0,0,1,0,0,2,16,16,80,1\n"
+            "0,0,0,0,100,100,0,0,4,2,2,2,40,40,80,1\n"
         )
         
         # Định dạng Format cho phần Styles
@@ -698,13 +690,13 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 text_content = text
                 # Loại bỏ các tag ASS để đếm số ký tự thực tế
                 import re
-                # Loại bỏ các tag ASS như {\k10}, {\1c&HEDC205&\k10}, v.v.
+                # Loại bỏ các tag ASS như {\\k10}, {\\1c&HEDC205&\\k10}, v.v.
                 clean_text = re.sub(r'\{\\[^}]*\}', '', text_content)
                 text_length = len(clean_text.strip())
                 
                 # Tính toán kích thước background dựa trên độ dài text và font size
                 # Tối ưu cho video dọc: Sử dụng 80% chiều rộng video cho background
-                bg_width = int(video_width * 0.9)  # Tăng lên 90% chiều rộng video
+                bg_width = int(video_width * 0.92)
                 
                 # Đếm số dòng thực tế trong text (nếu có \\N hoặc \\n)
                 num_lines = 1 + clean_text.count('\\N') + clean_text.count('\\n')
@@ -715,14 +707,14 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 
                 # Tính toán chiều cao background dựa trên số dòng text
                 # Tối ưu cho video dọc: Tăng hệ số chiều cao để text hiển thị tốt hơn
-                line_height_factor = 1.2  # Hệ số chiều cao cho mỗi dòng
-                padding_v = int(font_size * 0.5)  # Padding dọc bằng 50% font size
+                line_height_factor = 1.8  # Hệ số chiều cao cho mỗi dòng
+                padding_v = int(font_size * 0.6)  # Padding dọc bằng 60% font size
                 
                 # Tính toán chiều cao dựa trên số dòng
                 bg_height = int(num_lines * line_height_factor * font_size) + padding_v * 2
                 
                 # Đảm bảo chiều cao tối thiểu
-                min_height = int(font_size * 1.8)  # Chiều cao tối thiểu là 1.8 lần font size
+                min_height = int(font_size * 1.5)  # Chiều cao tối thiểu là 1.5 lần font size
                 bg_height = max(bg_height, min_height)
                 
                 # Tính toán vị trí để căn giữa background
@@ -740,31 +732,31 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 # Tạo background layer với bo góc thực sự
                 # Sử dụng đường cong Bezier để tạo góc bo tròn
                 # Tính toán bán kính bo góc dựa trên kích thước background
-                corner_radius = max(border_radius, 0)  # Có thể bỏ bo góc nếu muốn
+                corner_radius = min(border_radius, int(min(bg_width, bg_height) / 3))
+                corner_radius = max(corner_radius, 24)  # Đảm bảo tối thiểu 24px
                 
-                # Đảm bảo bán kính bo góc không quá lớn so với kích thước background
-                max_radius = min(bg_width, bg_height) / 5  # Giảm xuống 1/5 để bo góc nhỏ hơn
-                corner_radius = min(corner_radius, int(max_radius))
+                # Tạo đường dẫn với góc bo tròn sử dụng đường cong Bezier đơn giản hơn
+                # Sử dụng cú pháp ASS đơn giản: m = move, l = line, b = bezier curve
                 
-                # Tạo đường dẫn đơn giản hơn, tương tự như ví dụ người dùng cung cấp
-                # Sử dụng hình chữ nhật đơn giản thay vì bo góc phức tạp
-                path = f"m {bg_x_start} {bg_y_start} l {bg_x_end} {bg_y_start} {bg_x_end} {bg_y_end} {bg_x_start} {bg_y_end}"
+                # Tạo đường dẫn đơn giản với bo góc
+                path = (
+                    f"m {bg_x_start + corner_radius} {bg_y_start} "
+                    f"l {bg_x_start + bg_width - corner_radius} {bg_y_start} "
+                    f"b {bg_x_start + bg_width} {bg_y_start} {bg_x_start + bg_width} {bg_y_start} {bg_x_start + bg_width} {bg_y_start + corner_radius} "
+                    f"l {bg_x_start + bg_width} {bg_y_start + bg_height - corner_radius} "
+                    f"b {bg_x_start + bg_width} {bg_y_start + bg_height} {bg_x_start + bg_width} {bg_y_start + bg_height} {bg_x_start + bg_width - corner_radius} {bg_y_start + bg_height} "
+                    f"l {bg_x_start + corner_radius} {bg_y_start + bg_height} "
+                    f"b {bg_x_start} {bg_y_start + bg_height} {bg_x_start} {bg_y_start + bg_height} {bg_x_start} {bg_y_start + bg_height - corner_radius} "
+                    f"l {bg_x_start} {bg_y_start + corner_radius} "
+                    f"b {bg_x_start} {bg_y_start} {bg_x_start} {bg_y_start} {bg_x_start + corner_radius} {bg_y_start}"
+                )
                 
                 # Tạo background layer với định dạng theo yêu cầu và vị trí đã tính toán
-                if simple_background:
-                    # Sử dụng background đơn giản với blur và border
-                    bg_text = (
-                        r"{\\blur4\\bord16\\xbord8\\ybord8\\3c&H000000&\\alpha&H80&\\p1}"
-                        f"{path}"
-                        r"{\\p0}"
-                    )
-                else:
-                    # Sử dụng background với bo góc
-                    bg_text = (
-                        r"{\\blur2\\bord0\\3c&H000000&\\1a&H20&\\3a&H60&\\4a&H60&\\c&H000000&\\p1}"
-                        f"{path}"
-                        r"{\\p0}"
-                    )
+                bg_text = (
+                    r"{\\blur2\\bord4\\xbord4\\ybord4\\3c&H000000&\\alpha&H40&\\3a&H60&\\4a&H60&\\p1}"
+                    f"{path}"
+                    r"{\\p0}"
+                )
                 
                 # Đảm bảo layer của background luôn là 0
                 bg_line = f"Dialogue: 0,{start_time},{end_time},Background,,0,0,0,,{bg_text}\n"
