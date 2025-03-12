@@ -490,6 +490,18 @@ class TaskProcessor {
 
     // --- Bước 3: Mix âm thanh ---
     const temp_audio = path.join(this.tempDir, 'temp_audio.mp3');
+    const temp_audio_extended = path.join(this.tempDir, 'temp_audio_extended.mp3');
+    
+    // Tạo file audio với 2 giây silence ở cuối
+    const audioArgs = [
+      "-y", "-threads", "0",
+      "-i", path.join(this.tempDir, this.resources.audio),
+      "-af", "apad=pad_dur=2",
+      temp_audio_extended
+    ];
+    
+    await runFFmpeg(audioArgs);
+    logger.task.info(this.id, 'Đã thêm 2 giây silence vào cuối audio');
     
     if (this.resources.background) {
       // Mix âm thanh nếu có nhạc nền
@@ -501,9 +513,9 @@ class TaskProcessor {
         dynaudnorm
       } = ffmpegConfig.audio.mixing;
 
-      const audioArgs = [
+      const mixAudioArgs = [
         "-y", "-threads", "0",
-        "-i", path.join(this.tempDir, this.resources.audio),
+        "-i", temp_audio_extended,
         "-i", path.join(this.tempDir, this.resources.background),
         "-filter_complex",
         `[0:a]volume=${voiceVolume}[voice];
@@ -514,22 +526,28 @@ class TaskProcessor {
         temp_audio
       ];
 
-      await runFFmpeg(audioArgs);
+      await runFFmpeg(mixAudioArgs);
       logger.task.info(this.id, 'Đã mix âm thanh voice và nhạc nền thành công');
     } else {
       // Nếu không có nhạc nền, chỉ xử lý voice
       const { framelen } = ffmpegConfig.audio.mixing.dynaudnorm;
-      const audioArgs = [
+      const processAudioArgs = [
         "-y", "-threads", "0",
-        "-i", path.join(this.tempDir, this.resources.audio),
+        "-i", temp_audio_extended,
         "-filter_complex",
         `[0:a]dynaudnorm=f=${framelen}[out]`,
         "-map", "[out]",
         temp_audio
       ];
 
-      await runFFmpeg(audioArgs);
+      await runFFmpeg(processAudioArgs);
       logger.task.info(this.id, 'Đã xử lý âm thanh voice (không có nhạc nền)');
+    }
+
+    // Xóa file audio tạm thời
+    if (fs.existsSync(temp_audio_extended)) {
+      fs.unlinkSync(temp_audio_extended);
+      logger.task.info(this.id, 'Đã xóa file audio tạm thời');
     }
 
     // --- Bước 4: Xử lý subtitle ---

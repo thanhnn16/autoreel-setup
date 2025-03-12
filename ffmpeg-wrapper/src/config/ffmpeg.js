@@ -35,8 +35,8 @@ export default {
     channels: 2,
     mixing: {
       voiceVolume: 1,
-      bgVolume: 0.15,
-      bgFadeInDuration: 1,
+      bgVolume: 0.05,
+      bgFadeInDuration: 0.2,
       sidechain: {
         threshold: 0.02,
         ratio: 5,
