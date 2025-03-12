@@ -142,12 +142,12 @@ async def transcribe_audio(
     # Tham số cho ASS
     font: str = Form("Montserrat"),
     font_size: int = Form(80),  # Tăng font size từ 72 lên 80 cho video dọc
-    highlight_color: str = Form('E5B900'),
+    highlight_color: str = Form('05C2ED'),
     border_radius: int = Form(24),
     
     # Các tham số định dạng ASS
     background_color: str = Form('80000000'),
-    primary_color: str = Form('E5B900'),
+    primary_color: str = Form('05C2ED'),
     outline_color: str = Form('000000'),
     outline: int = Form(3),  # Tăng độ dày viền từ 2 lên 3
     shadow: int = Form(3),   # Tăng độ đậm bóng từ 2 lên 3
@@ -472,7 +472,7 @@ async def download_file(filename: str):
 
 def process_audio_with_attention_mask(model, audio_path, language="vi"):
     """
-    Xử lý audio với transcribe mặc định.
+    Xử lý audio với transcribe mặc định và tối ưu cho phụ đề 2 dòng.
     
     Args:
         model: Mô hình stable-ts đã tải
@@ -480,10 +480,34 @@ def process_audio_with_attention_mask(model, audio_path, language="vi"):
         language: Ngôn ngữ (mặc định là "vi")
         
     Returns:
-        WhisperResult: Kết quả phiên âm
+        WhisperResult: Kết quả phiên âm đã được tối ưu
     """
-    # Sử dụng transcribe mặc định
-    result = model.transcribe(str(audio_path), language=language)
+    # Sử dụng transcribe với các tùy chọn tối ưu cho phụ đề
+    result = model.transcribe(
+        str(audio_path), 
+        language=language,
+        regroup=True,  # Bật tính năng regroup mặc định
+        word_timestamps=True,  # Bật timestamps ở cấp độ từ
+        vad=True,      # Sử dụng VAD để phát hiện giọng nói chính xác hơn
+    )
+    
+    # Tối ưu thêm kết quả với các phương pháp chaining
+    # Tối ưu cho video 1080x1920 với font Montserrat kích thước 80
+    # Giới hạn 2 dòng cho phụ đề
+    (
+        result
+        .ignore_special_periods()  # Bỏ qua các dấu chấm đặc biệt
+        .clamp_max()               # Giới hạn thời gian tối đa
+        # Ngắt theo dấu câu tiếng Việt
+        .split_by_punctuation([('.', ' '), '。', '?', '？', '!', '！'])
+        .split_by_gap(0.5)         # Ngắt khi có khoảng trống > 0.5s
+        .split_by_punctuation([(',', ' '), '，', ';', '；'], min_chars=40)
+        .split_by_length(60)       # Ngắt khi dòng quá dài để phù hợp với font size 80
+        .clamp_max()               # Giới hạn lại thời gian tối đa
+    )
+    
+    logger.info(f"Đã tối ưu kết quả phiên âm với regroup và ngắt theo dấu câu")
+    
     return result
 
 def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int = 10):
