@@ -695,43 +695,63 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 text_length = len(clean_text.strip())
                 
                 # Tính toán kích thước background dựa trên độ dài text và font size
-                # Tối ưu cho video dọc: Sử dụng 80% chiều rộng video cho background
-                bg_width = int(video_width * 0.85)  # Giảm xuống 85% chiều rộng
+                # Tối ưu cho video dọc: Sử dụng kích thước linh hoạt theo độ dài text
                 
-                # Đếm số dòng thực tế trong text (nếu có \\N hoặc \\n)
-                num_lines = 1 + clean_text.count('\\N') + clean_text.count('\\n')
+                # Tính toán độ dài text thực tế (bỏ các tag ASS)
+                import re
+                # Loại bỏ các tag ASS như {\\k10}, {\\1c&HEDC205&\\k10}, v.v.
+                clean_text = re.sub(r'\{\\[^}]*\}', '', text_content)
+                text_length = len(clean_text.strip())
                 
-                # Kiểm tra thêm các ký tự xuống dòng khác
-                if '\\N' in text or '\\n' in text:
-                    logger.info(f"Phát hiện text nhiều dòng: {text}")
+                # Tính toán chiều rộng tối ưu dựa trên độ dài text
+                char_width = font_size * 0.6  # Ước tính độ rộng trung bình của mỗi ký tự
+                min_width = font_size * 15    # Chiều rộng tối thiểu
+                max_width = int(video_width * 0.9)  # Chiều rộng tối đa
                 
-                # Tính toán chiều cao background dựa trên số dòng text
-                # Tối ưu cho video dọc: Tăng hệ số chiều cao để text hiển thị tốt hơn
-                line_height_factor = 1.5  # Giảm hệ số chiều cao xuống 1.5
-                padding_v = int(font_size * 0.4)  # Giảm padding dọc xuống 40% font size
+                # Tính toán chiều rộng dựa trên text
+                calculated_width = int(text_length * char_width)
+                bg_width = min(max(calculated_width, min_width), max_width)
+                
+                # Tính số ký tự tối đa trên một dòng
+                max_chars_per_line = int((video_width * 0.8) / char_width)
+                
+                # Tự động ngắt dòng nếu text quá dài
+                if text_length > max_chars_per_line and '\\N' not in text and '\\n' not in text:
+                    # Tìm vị trí ngắt dòng phù hợp (ưu tiên khoảng trắng)
+                    split_pos = max_chars_per_line
+                    while split_pos > 0 and clean_text[split_pos] != ' ':
+                        split_pos -= 1
+                    if split_pos > 0:
+                        # Chèn \\N vào text gốc tại vị trí tương ứng
+                        text = text[:split_pos] + '\\N' + text[split_pos+1:]
+                        num_lines = 2  # Cập nhật số dòng
+                
+                # Đếm số dòng thực tế trong text
+                num_lines = 1 + text.count('\\N') + text.count('\\n')
+                
+                # Tính toán chiều cao background
+                line_height_factor = 1.3  # Giảm xuống 1.3 để text không bị quá xa
+                padding_v = int(font_size * 0.3)  # Giảm padding dọc xuống 30% font size
                 
                 # Tính toán chiều cao dựa trên số dòng
-                bg_height = int(num_lines * line_height_factor * font_size) + padding_v * 2
+                bg_height = int(num_lines * font_size * line_height_factor) + (padding_v * 2)
                 
                 # Đảm bảo chiều cao tối thiểu
-                min_height = int(font_size * 1.2)  # Giảm chiều cao tối thiểu xuống 1.2 lần font size
+                min_height = int(font_size * 1.2)
                 bg_height = max(bg_height, min_height)
                 
-                # Tính toán vị trí để căn giữa background
+                # Tính toán vị trí để căn giữa background theo chiều ngang
                 bg_x_start = int((video_width - bg_width) / 2)
-                
-                # Tối ưu cho video dọc: Đặt phụ đề ở vị trí thấp hơn
-                # Đặt đáy của background ở 92% chiều cao video, nhưng đảm bảo không vượt quá giới hạn
-                max_y_end = video_height - int(font_size * 0.5)  # Giới hạn tối đa cho đáy background
-                bg_y_end = min(int(video_height * 0.92), max_y_end)
-                bg_y_start = bg_y_end - bg_height
-                
                 bg_x_end = bg_x_start + bg_width
-                bg_y_end = bg_y_start + bg_height
                 
-                # Tạo background layer đơn giản với bo góc
+                # Tính toán vị trí Y dựa trên marginV
+                bottom_padding = int(font_size * 0.3)  # Thêm padding dưới
+                bg_y_end = video_height - margin_v
+                bg_y_start = bg_y_end - bg_height - bottom_padding
+                
+                # Tạo background layer với bo góc và visibility cải thiện
                 bg_text = (
-                    r"{\\blur5\\bord32\\xbord16\\ybord16\\3c&H000000&\\alpha&H90&\\p1}"
+                    r"{\\blur2\\bord24\\xbord12\\ybord12\\3c&H303030&\\alpha&H90&\\p1}"
                     f"m {bg_x_start} {bg_y_start} l {bg_x_end} {bg_y_start} "
                     f"{bg_x_end} {bg_y_end} {bg_x_start} {bg_y_end}"
                     r"{\\p0}"
