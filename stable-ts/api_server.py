@@ -587,10 +587,10 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
 
         # QUAN TRỌNG: KHÔNG thay đổi style Default, giữ nguyên font size và các thuộc tính khác
         
-        # Thêm style cho background theo yêu cầu - tối ưu cho video dọc
+        # Thêm style cho background đơn giản và hiệu quả
         bg_style = (
-            "Style: Background,Arial,80,&H80000000,&H000000FF,&H00000000,&H00000000,"
-            "0,0,0,0,100,100,0,0,4,2,2,2,40,40,80,1\n"
+            "Style: Background,Arial,20,&H80000000,&H000000FF,&H00000000,&H00000000,"
+            "0,0,0,0,100,100,0,0,1,2,2,2,16,16,48,1\n"
         )
         
         # Định dạng Format cho phần Styles
@@ -729,32 +729,11 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 bg_x_end = bg_x_start + bg_width
                 bg_y_end = bg_y_start + bg_height
                 
-                # Tạo background layer với bo góc thực sự
-                # Sử dụng đường cong Bezier để tạo góc bo tròn
-                # Tính toán bán kính bo góc dựa trên kích thước background
-                corner_radius = min(border_radius, int(min(bg_width, bg_height) / 3))
-                corner_radius = max(corner_radius, 24)  # Đảm bảo tối thiểu 24px
-                
-                # Tạo đường dẫn với góc bo tròn sử dụng đường cong Bezier đơn giản hơn
-                # Sử dụng cú pháp ASS đơn giản: m = move, l = line, b = bezier curve
-                
-                # Tạo đường dẫn đơn giản với bo góc
-                path = (
-                    f"m {bg_x_start + corner_radius} {bg_y_start} "
-                    f"l {bg_x_start + bg_width - corner_radius} {bg_y_start} "
-                    f"b {bg_x_start + bg_width} {bg_y_start} {bg_x_start + bg_width} {bg_y_start} {bg_x_start + bg_width} {bg_y_start + corner_radius} "
-                    f"l {bg_x_start + bg_width} {bg_y_start + bg_height - corner_radius} "
-                    f"b {bg_x_start + bg_width} {bg_y_start + bg_height} {bg_x_start + bg_width} {bg_y_start + bg_height} {bg_x_start + bg_width - corner_radius} {bg_y_start + bg_height} "
-                    f"l {bg_x_start + corner_radius} {bg_y_start + bg_height} "
-                    f"b {bg_x_start} {bg_y_start + bg_height} {bg_x_start} {bg_y_start + bg_height} {bg_x_start} {bg_y_start + bg_height - corner_radius} "
-                    f"l {bg_x_start} {bg_y_start + corner_radius} "
-                    f"b {bg_x_start} {bg_y_start} {bg_x_start} {bg_y_start} {bg_x_start + corner_radius} {bg_y_start}"
-                )
-                
-                # Tạo background layer với định dạng theo yêu cầu và vị trí đã tính toán
+                # Tạo background layer đơn giản với bo góc
                 bg_text = (
-                    r"{\\blur2\\bord4\\xbord4\\ybord4\\3c&H000000&\\alpha&H40&\\3a&H60&\\4a&H60&\\p1}"
-                    f"{path}"
+                    r"{\\blur4\\bord16\\xbord8\\ybord8\\3c&H000000&\\alpha&H80&\\p1}"
+                    f"m {bg_x_start} {bg_y_start} l {bg_x_end} {bg_y_start} "
+                    f"{bg_x_end} {bg_y_end} {bg_x_start} {bg_y_end}"
                     r"{\\p0}"
                 )
                 
