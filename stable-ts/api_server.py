@@ -13,6 +13,7 @@ import stable_whisper
 from stable_whisper import WhisperResult
 from typing import Optional
 import tempfile
+import re
 
 # Thiết lập logging
 logging.basicConfig(
@@ -590,7 +591,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         # Thêm style cho background đơn giản và hiệu quả
         bg_style = (
             "Style: Background,Montserrat,80,&H80000000,&H000000FF,&H00000000,&H00000000,"
-            "0,0,0,0,100,100,0,3,1,0.5,0.7,2,16,16,80,163\n"
+            "0,0,0,0,100,100,0,0,3,0.5,0.7,2,16,16,80,163\n"
         )
         
         # Định dạng Format cho phần Styles
@@ -689,49 +690,72 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 # Phân tích text để xác định số dòng thực tế
                 text_content = text
                 # Loại bỏ các tag ASS để đếm số ký tự thực tế
-                import re
-                # Loại bỏ các tag ASS như {\\k10}, {\\1c&HEDC205&\\k10}, v.v.
                 clean_text = re.sub(r'\{\\[^}]*\}', '', text_content)
                 text_length = len(clean_text.strip())
                 
                 # Tính toán kích thước background dựa trên độ dài text và font size
-                # Tối ưu cho video dọc: Sử dụng 80% chiều rộng video cho background
-                bg_width = int(video_width * 0.85)  # Giảm xuống 85% chiều rộng
+                # Tối ưu cho video dọc và tự động điều chỉnh theo độ dài text
                 
-                # Đếm số dòng thực tế trong text (nếu có \\N hoặc \\n)
-                num_lines = 1 + clean_text.count('\\N') + clean_text.count('\\n')
+                # Tính toán độ rộng cơ bản dựa trên độ dài text
+                chars_per_line = 25  # Số ký tự trung bình trên một dòng
+                avg_char_width = font_size * 0.6  # Độ rộng trung bình của mỗi ký tự
                 
-                # Kiểm tra thêm các ký tự xuống dòng khác
-                if '\\N' in text or '\\n' in text:
-                    logger.info(f"Phát hiện text nhiều dòng: {text}")
+                # Tính toán độ rộng dựa trên text dài nhất
+                if '\\N' in clean_text or '\\n' in clean_text:
+                    # Nếu có nhiều dòng, tìm dòng dài nhất
+                    lines = re.split(r'\\[Nn]', clean_text)
+                    max_line_length = max(len(line.strip()) for line in lines)
+                else:
+                    max_line_length = len(clean_text)
+                
+                # Tính toán độ rộng tự động
+                calculated_width = int(max_line_length * avg_char_width)
+                
+                # Giới hạn độ rộng trong khoảng hợp lý
+                min_width = int(video_width * 0.3)  # Tối thiểu 30% chiều rộng video
+                max_width = int(video_width * 0.85)  # Tối đa 85% chiều rộng video
+                
+                # Điều chỉnh độ rộng dựa trên độ dài text
+                if text_length < chars_per_line:
+                    # Text ngắn: thu nhỏ background
+                    bg_width = max(calculated_width + font_size * 2, min_width)
+                else:
+                    # Text dài: mở rộng background nhưng không quá max_width
+                    bg_width = min(calculated_width + font_size * 2, max_width)
                 
                 # Tính toán chiều cao background dựa trên số dòng text
-                # Tối ưu cho video dọc: Tăng hệ số chiều cao để text hiển thị tốt hơn
-                line_height_factor = 1.5  # Giảm hệ số chiều cao xuống 1.5
-                padding_v = int(font_size * 0.4)  # Giảm padding dọc xuống 40% font size
+                line_height_factor = 1.2  # Hệ số chiều cao cho mỗi dòng
+                padding_v = int(font_size * 0.6)  # Padding dọc 60% font size
                 
                 # Tính toán chiều cao dựa trên số dòng
                 bg_height = int(num_lines * line_height_factor * font_size) + padding_v * 2
                 
                 # Đảm bảo chiều cao tối thiểu
-                min_height = int(font_size * 1.2)  # Giảm chiều cao tối thiểu xuống 1.2 lần font size
+                min_height = int(font_size * 1.5)  # Chiều cao tối thiểu 1.5 lần font size
                 bg_height = max(bg_height, min_height)
                 
                 # Tính toán vị trí để căn giữa background
                 bg_x_start = int((video_width - bg_width) / 2)
                 
                 # Tối ưu cho video dọc: Đặt phụ đề ở vị trí thấp hơn
-                # Đặt đáy của background ở 92% chiều cao video, nhưng đảm bảo không vượt quá giới hạn
-                max_y_end = video_height - int(font_size * 0.5)  # Giới hạn tối đa cho đáy background
-                bg_y_end = min(int(video_height * 0.92), max_y_end)
+                # Tính toán vị trí Y để căn giữa text trong background
+                target_bottom = int(video_height * 0.92)  # Vị trí đáy mục tiêu (92% chiều cao video)
+                bg_y_end = min(target_bottom, video_height - int(font_size * 0.5))
                 bg_y_start = bg_y_end - bg_height
                 
-                bg_x_end = bg_x_start + bg_width
-                bg_y_end = bg_y_start + bg_height
+                # Điều chỉnh vị trí Y để căn giữa text trong background
+                text_height = num_lines * font_size
+                total_padding = bg_height - text_height
+                top_padding = total_padding / 2
+                bottom_padding = total_padding / 2
                 
-                # Tạo background layer đơn giản với bo góc
+                # Điều chỉnh vị trí background để căn đều padding trên và dưới
+                bg_y_start = bg_y_end - bg_height
+                bg_x_end = bg_x_start + bg_width
+                
+                # Tạo background layer với bo góc và blur
                 bg_text = (
-                    r"{\\blur4\\bord8\\xbord4\\ybord4\\3c&H000000&\\alpha&H80&\\p1}"
+                    r"{\\blur5\\bord32\\xbord16\\ybord16\\3c&H000000&\\alpha&H90&\\p1}"
                     f"m {bg_x_start} {bg_y_start} l {bg_x_end} {bg_y_start} "
                     f"{bg_x_end} {bg_y_end} {bg_x_start} {bg_y_end}"
                     r"{\\p0}"
