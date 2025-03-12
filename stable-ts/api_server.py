@@ -589,7 +589,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         
         # Thêm style cho background theo yêu cầu - tối ưu cho video dọc
         bg_style = (
-            "Style: Background,Arial,80,&H60000000,&H000000FF,&H00000000,&H00000000,"
+            "Style: Background,Arial,80,&H40000000,&H000000FF,&H00000000,&H00000000,"
             "0,0,0,0,100,100,0,0,1,0,0,2,16,16,80,1\n"
         )
         
@@ -701,6 +701,10 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 # Đếm số dòng thực tế trong text (nếu có \\N hoặc \\n)
                 num_lines = 1 + clean_text.count('\\N') + clean_text.count('\\n')
                 
+                # Kiểm tra thêm các ký tự xuống dòng khác
+                if '\\N' in text or '\\n' in text:
+                    logger.info(f"Phát hiện text nhiều dòng: {text}")
+                
                 # Tính toán chiều cao background dựa trên số dòng text
                 # Tối ưu cho video dọc: Tăng hệ số chiều cao để text hiển thị tốt hơn
                 line_height_factor = 1.2  # Hệ số chiều cao cho mỗi dòng
@@ -714,13 +718,20 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 # Đảm bảo chiều rộng tối đa
                 bg_width = min(bg_width, int(video_width * 0.85))
                 
+                # Tính toán chiều cao dựa trên số dòng
                 bg_height = int(num_lines * line_height_factor * font_size) + padding_v * 2
+                
+                # Đảm bảo chiều cao tối thiểu
+                min_height = int(font_size * 1.5)  # Chiều cao tối thiểu là 1.5 lần font size
+                bg_height = max(bg_height, min_height)
                 
                 # Tính toán vị trí để căn giữa background
                 bg_x_start = int((video_width - bg_width) / 2)
                 
-                # Tối ưu cho video dọc: Đặt phụ đề ở vị trí thấp hơn (85% chiều cao)
-                bg_y_end = int(video_height * 0.9)  # Đặt đáy của background ở 90% chiều cao video
+                # Tối ưu cho video dọc: Đặt phụ đề ở vị trí thấp hơn
+                # Đặt đáy của background ở 92% chiều cao video, nhưng đảm bảo không vượt quá giới hạn
+                max_y_end = video_height - int(font_size * 0.5)  # Giới hạn tối đa cho đáy background
+                bg_y_end = min(int(video_height * 0.92), max_y_end)
                 bg_y_start = bg_y_end - bg_height
                 
                 bg_x_end = bg_x_start + bg_width
@@ -729,47 +740,46 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 # Tạo background layer với bo góc thực sự
                 # Sử dụng đường cong Bezier để tạo góc bo tròn
                 # Tính toán bán kính bo góc dựa trên kích thước background
-                corner_radius = max(border_radius, 24)  # Đảm bảo bán kính tối thiểu là 24
+                corner_radius = max(border_radius, 16)  # Đảm bảo bán kính tối thiểu là 16
                 
                 # Đảm bảo bán kính bo góc không quá lớn so với kích thước background
-                max_radius = min(bg_width, bg_height) / 3  # Tăng từ 1/4 lên 1/3
+                max_radius = min(bg_width, bg_height) / 5  # Giảm xuống 1/5 để bo góc nhỏ hơn
                 corner_radius = min(corner_radius, int(max_radius))
                 
-                # Tạo đường dẫn với góc bo tròn sử dụng đường cong Bezier
-                # Format: m (move) x y l (line) x y b (bezier) x1 y1 x2 y2 x3 y3
+                # Tạo đường dẫn với góc bo tròn sử dụng đường cong Bezier đơn giản hơn
+                # Sử dụng cú pháp ASS đơn giản: m = move, l = line, b = bezier curve
                 
-                # Tạo đường dẫn đơn giản hơn với bo góc chính xác
-                # Sử dụng cú pháp ASS: m = move, l = line, b = bezier curve
-                path = f"m {bg_x_start + corner_radius} {bg_y_start}" # Điểm bắt đầu (trên cùng bên trái + corner_radius)
+                # Tạo đường dẫn đơn giản với bo góc
+                path = ""
                 
-                # Đường thẳng đến góc trên bên phải - corner_radius
-                path += f" l {bg_x_end - corner_radius} {bg_y_start}"
+                # Góc trên bên trái
+                path += f"m {bg_x_start} {bg_y_start + corner_radius} "
+                path += f"b {bg_x_start} {bg_y_start} {bg_x_start} {bg_y_start} {bg_x_start + corner_radius} {bg_y_start} "
                 
-                # Bo góc trên bên phải (bezier)
-                path += f" b {bg_x_end} {bg_y_start} {bg_x_end} {bg_y_start} {bg_x_end} {bg_y_start + corner_radius}"
+                # Cạnh trên
+                path += f"l {bg_x_end - corner_radius} {bg_y_start} "
                 
-                # Đường thẳng xuống góc dưới bên phải - corner_radius
-                path += f" l {bg_x_end} {bg_y_end - corner_radius}"
+                # Góc trên bên phải
+                path += f"b {bg_x_end} {bg_y_start} {bg_x_end} {bg_y_start} {bg_x_end} {bg_y_start + corner_radius} "
                 
-                # Bo góc dưới bên phải (bezier)
-                path += f" b {bg_x_end} {bg_y_end} {bg_x_end} {bg_y_end} {bg_x_end - corner_radius} {bg_y_end}"
+                # Cạnh phải
+                path += f"l {bg_x_end} {bg_y_end - corner_radius} "
                 
-                # Đường thẳng đến góc dưới bên trái + corner_radius
-                path += f" l {bg_x_start + corner_radius} {bg_y_end}"
+                # Góc dưới bên phải
+                path += f"b {bg_x_end} {bg_y_end} {bg_x_end} {bg_y_end} {bg_x_end - corner_radius} {bg_y_end} "
                 
-                # Bo góc dưới bên trái (bezier)
-                path += f" b {bg_x_start} {bg_y_end} {bg_x_start} {bg_y_end} {bg_x_start} {bg_y_end - corner_radius}"
+                # Cạnh dưới
+                path += f"l {bg_x_start + corner_radius} {bg_y_end} "
                 
-                # Đường thẳng lên góc trên bên trái + corner_radius
-                path += f" l {bg_x_start} {bg_y_start + corner_radius}"
+                # Góc dưới bên trái
+                path += f"b {bg_x_start} {bg_y_end} {bg_x_start} {bg_y_end} {bg_x_start} {bg_y_end - corner_radius} "
                 
-                # Bo góc trên bên trái và đóng đường dẫn (bezier)
-                path += f" b {bg_x_start} {bg_y_start} {bg_x_start} {bg_y_start} {bg_x_start + corner_radius} {bg_y_start}"
+                # Cạnh trái (đóng đường dẫn)
+                path += f"l {bg_x_start} {bg_y_start + corner_radius}"
                 
                 # Tạo background layer với định dạng theo yêu cầu và vị trí đã tính toán
-                # Tối ưu cho video dọc: Tăng độ mờ và bo góc
                 bg_text = (
-                    r"{\\blur2\\bord0\\3c&H000000&\\1a&H40&\\3a&H60&\\4a&H60&\\c&H000000&\\p1}"
+                    r"{\\blur1\\bord0\\3c&H000000&\\1a&H20&\\3a&H60&\\4a&H60&\\c&H000000&\\p1}"
                     f"{path}"
                     r"{\\p0}"
                 )
