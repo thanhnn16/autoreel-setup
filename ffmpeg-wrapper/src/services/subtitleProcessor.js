@@ -53,21 +53,81 @@ async function processAssSubtitle(subtitleUrl, outputDir, options = {}) {
 /**
  * Tạo phụ đề tiêu đề với hiệu ứng
  */
-function createTitleWithEffect(titleText, duration = 3) {
+function createTitleWithEffect(titleText, duration = 5) {
   const startTime = 0;
   const endTime = startTime + duration;
   
-  // Hiệu ứng fade in + di chuyển từ dưới lên cho video dọc 1080x1920
-  // Đảm bảo tiêu đề hiển thị ở giữa màn hình
+  // Hiệu ứng cho video dọc 1080x1920
   const videoWidth = 1080;
   const videoHeight = 1920;
   const centerX = videoWidth / 2;
-  const startY = videoHeight + 100;
-  const endY = videoHeight * 0.75; // Vị trí kết thúc ở 3/4 chiều cao màn hình
   
-  const effect = `\\fad(800,200)\\move(${centerX},${startY},${centerX},${endY})\\blur5\\t(0,500,\\blur0)\\c&HFFFFFF&\\3c&H0000FF&`;
+  // Vị trí hiển thị ở giữa màn hình
+  const posY = videoHeight * 0.4;
 
-  return `Dialogue: 0,${formatAssTime(startTime)},${formatAssTime(endTime)},Title,,0,0,0,,{${effect}}${titleText}`;
+  // Tách text thành các từ và ký tự
+  const words = titleText.split(' ');
+  const dialogues = [];
+  
+  // Tối ưu thời gian:
+  // - 2s cho typing effect
+  // - 1.5s cho fade out
+  // - 1.5s cho hiển thị ổn định
+  const typingDuration = 1.7;
+  
+  // Tính toán tổng số ký tự để chia thời gian
+  const totalChars = titleText.replace(/ /g, '').length;
+  const charDuration = (typingDuration * 1000) / totalChars;
+
+  // Tăng khoảng cách
+  const wordSpacing = 85; // Tăng từ 35 lên 40
+  const charSpacing = 65; // Tăng từ 15 lên 20
+
+  // Màu sắc cho hiệu ứng chuyển đổi
+  const startColor = "&H00FFA5FF";   // Màu cam vàng (BGR: FF A5 FF)
+  const endColor = "&H00FFFFFF";     // Màu trắng (BGR: FF FF FF)
+  const startOutline = "&H000000FF"; // Viền đỏ đậm (BGR: FF 00 00)
+  const endOutline = "&H002C3D55";   // Viền xanh đậm (như style gốc)
+
+  // Tính toán tổng độ rộng
+  const totalWidth = words.reduce((width, word, i) => {
+    return width + (word.length - 1) * charSpacing + (i < words.length - 1 ? wordSpacing : 0);
+  }, 0);
+  
+  const safeMargin = 40;
+  const maxWidth = videoWidth - (safeMargin * 2);
+  
+  // Tự động điều chỉnh tỷ lệ nếu vượt quá chiều rộng màn hình
+  const scale = totalWidth > maxWidth ? maxWidth / totalWidth : 1;
+  const finalCharSpacing = charSpacing * scale;
+  const finalWordSpacing = wordSpacing * scale;
+  
+  let currentX = centerX - (totalWidth * scale) / 2;
+  let charIndex = 0;
+
+  // Xử lý từng từ
+  words.forEach((word, wordIndex) => {
+    const chars = word.split('');
+    
+    // Xử lý từng ký tự trong từ
+    chars.forEach((char, charIndexInWord) => {
+      const charStart = formatAssTime(startTime + (charIndex * charDuration) / 1000);
+      const charEnd = formatAssTime(endTime);
+      
+      const charX = currentX + charIndexInWord * finalCharSpacing;
+      
+      // Thêm hiệu ứng màu vào charEffect
+      const charEffect = `\\fad(200,1500)\\pos(${charX},${posY})\\an5\\t(0,200,\\fscx110\\fscy110\\1c${startColor}\\3c${startOutline})\\t(200,400,\\fscx100\\fscy100\\1c${endColor}\\3c${endOutline})`;
+      
+      dialogues.push(`Dialogue: 0,${charStart},${charEnd},Title,,0,0,0,,{${charEffect}}${char}`);
+      charIndex++;
+    });
+    
+    // Di chuyển vị trí X cho từ tiếp theo
+    currentX += (chars.length - 1) * finalCharSpacing + finalWordSpacing;
+  });
+
+  return dialogues.join('\n');
 }
 
 /**
@@ -128,7 +188,7 @@ async function createCombinedAss(subtitlePath, titleText, outputDir, taskId) {
     }
     
     // Thêm style Title vào phần [V4+ Styles]
-    const titleStyle = 'Style: Title,Bungee Spice,124,&H000000FF,&H00FFFFFF,&H0000E4FF,&H00FFFFFF,-1,0,0,0,110,100,1,0,1,2,2,5,10,10,10,163\n';
+    const titleStyle = 'Style: Title,Bungee Spice,256,&H000000FF,&H00FFFFFF,&H0000E4FF,&H00FFFFFF,-1,0,0,0,110,100,1,0,1,2,2,5,10,10,10,163\n';
     
     // Kiểm tra xem style Title đã tồn tại chưa
     if (!sections['[V4+ Styles]'].includes('Style: Title,')) {
