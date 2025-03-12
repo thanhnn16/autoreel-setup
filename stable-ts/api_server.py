@@ -590,7 +590,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         # Thêm style cho background đơn giản và hiệu quả
         bg_style = (
             "Style: Background,Arial,20,&H80000000,&H000000FF,&H00000000,&H00000000,"
-            "0,0,0,0,100,100,0,0,1,2,2,2,16,16,48,1\n"
+            "0,0,0,0,100,100,0,0,1,0.5,0.7,2,16,16,48,1\n"
         )
         
         # Định dạng Format cho phần Styles
@@ -696,7 +696,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 
                 # Tính toán kích thước background dựa trên độ dài text và font size
                 # Tối ưu cho video dọc: Sử dụng 80% chiều rộng video cho background
-                bg_width = int(video_width * 0.92)
+                bg_width = int(video_width * 0.85)  # Giảm xuống 85% chiều rộng
                 
                 # Đếm số dòng thực tế trong text (nếu có \\N hoặc \\n)
                 num_lines = 1 + clean_text.count('\\N') + clean_text.count('\\n')
@@ -707,14 +707,14 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 
                 # Tính toán chiều cao background dựa trên số dòng text
                 # Tối ưu cho video dọc: Tăng hệ số chiều cao để text hiển thị tốt hơn
-                line_height_factor = 1.8  # Hệ số chiều cao cho mỗi dòng
-                padding_v = int(font_size * 0.6)  # Padding dọc bằng 60% font size
+                line_height_factor = 1.5  # Giảm hệ số chiều cao xuống 1.5
+                padding_v = int(font_size * 0.4)  # Giảm padding dọc xuống 40% font size
                 
                 # Tính toán chiều cao dựa trên số dòng
                 bg_height = int(num_lines * line_height_factor * font_size) + padding_v * 2
                 
                 # Đảm bảo chiều cao tối thiểu
-                min_height = int(font_size * 1.5)  # Chiều cao tối thiểu là 1.5 lần font size
+                min_height = int(font_size * 1.2)  # Giảm chiều cao tối thiểu xuống 1.2 lần font size
                 bg_height = max(bg_height, min_height)
                 
                 # Tính toán vị trí để căn giữa background
@@ -731,7 +731,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 
                 # Tạo background layer đơn giản với bo góc
                 bg_text = (
-                    r"{\\blur4\\bord16\\xbord8\\ybord8\\3c&H000000&\\alpha&H80&\\p1}"
+                    r"{\\blur4\\bord8\\xbord4\\ybord4\\3c&H000000&\\alpha&H80&\\p1}"
                     f"m {bg_x_start} {bg_y_start} l {bg_x_end} {bg_y_start} "
                     f"{bg_x_end} {bg_y_end} {bg_x_start} {bg_y_end}"
                     r"{\\p0}"
