@@ -694,26 +694,18 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 clean_text = re.sub(r'\{\\[^}]*\}', '', text_content)
                 text_length = len(clean_text.strip())
                 
-                # Tính toán kích thước background dựa trên độ dài text và font size
-                # Tối ưu cho video dọc: Sử dụng kích thước linh hoạt theo độ dài text
-                
-                # Tính toán độ dài text thực tế (bỏ các tag ASS)
-                import re
-                # Loại bỏ các tag ASS như {\\k10}, {\\1c&HEDC205&\\k10}, v.v.
-                clean_text = re.sub(r'\{\\[^}]*\}', '', text_content)
-                text_length = len(clean_text.strip())
-                
                 # Tính toán chiều rộng tối ưu dựa trên độ dài text
-                char_width = font_size * 0.6  # Ước tính độ rộng trung bình của mỗi ký tự
-                min_width = font_size * 15    # Chiều rộng tối thiểu
-                max_width = int(video_width * 0.9)  # Chiều rộng tối đa
+                char_width = font_size * 0.45  # Giảm độ rộng trung bình của mỗi ký tự xuống 45% font size
+                min_width = font_size * 8     # Giảm chiều rộng tối thiểu xuống 8 lần font size
+                max_width = int(video_width * 0.85)  # Giảm chiều rộng tối đa xuống 85% chiều rộng video
                 
-                # Tính toán chiều rộng dựa trên text
-                calculated_width = int(text_length * char_width)
+                # Tính toán chiều rộng dựa trên text và padding
+                padding_h = int(font_size * 0.8)  # Padding ngang bằng 80% font size
+                calculated_width = int(text_length * char_width) + (padding_h * 2)
                 bg_width = min(max(calculated_width, min_width), max_width)
                 
                 # Tính số ký tự tối đa trên một dòng
-                max_chars_per_line = int((video_width * 0.8) / char_width)
+                max_chars_per_line = int((max_width - padding_h * 2) / char_width)
                 
                 # Kiểm tra và tự động ngắt dòng nếu cần
                 if text_length > max_chars_per_line and '\\N' not in text and '\\n' not in text:
@@ -728,14 +720,14 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                         num_lines = 2  # Cập nhật số dòng
                 
                 # Tính toán chiều cao background dựa trên số dòng text
-                line_height_factor = 1.3  # Giảm hệ số chiều cao xuống 1.3
-                padding_v = int(font_size * 0.3)  # Giảm padding dọc xuống 30% font size
+                line_height_factor = 1.2  # Giảm hệ số chiều cao xuống 1.2
+                padding_v = int(font_size * 0.25)  # Giảm padding dọc xuống 25% font size
                 
                 # Tính toán chiều cao dựa trên số dòng
                 bg_height = int(num_lines * font_size * line_height_factor) + (padding_v * 2)
                 
                 # Đảm bảo chiều cao tối thiểu
-                min_height = int(font_size * 1.2)
+                min_height = int(font_size * 1.1)  # Giảm chiều cao tối thiểu xuống 1.1 lần font size
                 bg_height = max(bg_height, min_height)
                 
                 # Tính toán vị trí để căn giữa background theo chiều ngang
@@ -743,9 +735,9 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 bg_x_end = bg_x_start + bg_width
                 
                 # Tính toán vị trí Y dựa trên marginV
-                bottom_padding = int(font_size * 0.3)  # Thêm padding dưới để tránh sát viền
-                bg_y_end = video_height - margin_v
-                bg_y_start = bg_y_end - bg_height - bottom_padding
+                bottom_padding = int(font_size * 0.2)  # Giảm padding dưới xuống 20% font size
+                bg_y_end = video_height - margin_v - bottom_padding
+                bg_y_start = bg_y_end - bg_height
                 
                 # Tạo background layer với bo góc và visibility cải thiện
                 bg_text = (
