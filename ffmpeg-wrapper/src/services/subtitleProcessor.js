@@ -76,9 +76,9 @@ function createTitleWithEffect(titleText, duration = 5) {
   const maxWidth = videoWidth - (safeMargin * 2);
 
   // Màu sắc cho hiệu ứng chuyển đổi
-  const startColor = "&H00FFA5FF";   // Màu cam vàng (BGR: FF A5 FF)
-  const endColor = "&H00FFFFFF";     // Màu trắng (BGR: FF FF FF)
-  const startOutline = "&H000000FF"; // Viền đỏ đậm (BGR: FF 00 00)
+  const startColor = "&H00FFFFFF";   // Màu trắng
+  const endColor = "&H0000A2FF";     // Màu cam vàng
+  const startOutline = "&H000000FF"; // Viền đỏ đậm
   const endOutline = "&H002C3D55";   // Viền xanh đậm
 
   // Tách văn bản thành các từ
