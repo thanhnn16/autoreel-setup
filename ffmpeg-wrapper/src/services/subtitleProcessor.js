@@ -62,69 +62,110 @@ function createTitleWithEffect(titleText, duration = 5) {
   const videoHeight = 1920;
   const centerX = videoWidth / 2;
   
-  // Vị trí hiển thị ở giữa màn hình
-  const posY = videoHeight * 0.4;
+  // Vị trí hiển thị ở giữa màn hình, điều chỉnh cho nhiều dòng
+  const baseY = videoHeight * 0.45; // Đặt vị trí Y cao hơn một chút để có chỗ cho nhiều dòng
+  const lineHeight = 120; // Khoảng cách giữa các dòng
 
-  // Tách text thành các từ và ký tự
-  const words = titleText.split(' ');
-  const dialogues = [];
-  
-  // Tối ưu thời gian:
-  // - 2s cho typing effect
-  // - 1.5s cho fade out
-  // - 1.5s cho hiển thị ổn định
+  // Tối ưu thời gian
   const typingDuration = 1.7;
   
-  // Tính toán tổng số ký tự để chia thời gian
-  const totalChars = titleText.replace(/ /g, '').length;
-  const charDuration = (typingDuration * 1000) / totalChars;
-
-  // Tăng khoảng cách
-  const wordSpacing = 85; // Tăng từ 35 lên 40
-  const charSpacing = 65; // Tăng từ 15 lên 20
+  // Các thông số cố định
+  const charSpacing = 65;
+  const wordSpacing = 85;
+  const safeMargin = 40;
+  const maxWidth = videoWidth - (safeMargin * 2);
 
   // Màu sắc cho hiệu ứng chuyển đổi
   const startColor = "&H00FFA5FF";   // Màu cam vàng (BGR: FF A5 FF)
   const endColor = "&H00FFFFFF";     // Màu trắng (BGR: FF FF FF)
   const startOutline = "&H000000FF"; // Viền đỏ đậm (BGR: FF 00 00)
-  const endOutline = "&H002C3D55";   // Viền xanh đậm (như style gốc)
+  const endOutline = "&H002C3D55";   // Viền xanh đậm
 
-  // Tính toán tổng độ rộng
-  const totalWidth = words.reduce((width, word, i) => {
-    return width + (word.length - 1) * charSpacing + (i < words.length - 1 ? wordSpacing : 0);
-  }, 0);
+  // Tách văn bản thành các từ
+  const words = titleText.split(' ');
+  const lines = [];
+  let currentLine = [];
+  let currentWidth = 0;
+
+  // Phân chia từ thành các dòng với điều kiện đặc biệt cho dòng thứ 2
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    const wordWidth = (word.length - 1) * charSpacing + wordSpacing;
+    
+    // Nếu từ hiện tại sẽ làm dòng vượt quá maxWidth và dòng hiện tại không trống
+    if (currentWidth + wordWidth > maxWidth && currentLine.length > 0) {
+      // Kiểm tra xem đây có phải là lần xuống dòng đầu tiên không
+      if (lines.length === 0) {
+        // Nếu còn ít hơn 2 từ cho dòng tiếp theo
+        if (words.length - i < 2) {
+          // Chuyển từ cuối của dòng hiện tại xuống dòng mới
+          const lastWord = currentLine.pop();
+          lines.push(currentLine);
+          currentLine = [lastWord, word];
+          currentWidth = (lastWord.length - 1) * charSpacing + wordSpacing + wordWidth;
+        } else {
+          lines.push(currentLine);
+          currentLine = [word];
+          currentWidth = wordWidth;
+        }
+      } else {
+        lines.push(currentLine);
+        currentLine = [word];
+        currentWidth = wordWidth;
+      }
+    } else {
+      currentLine.push(word);
+      currentWidth += wordWidth;
+    }
+  }
   
-  const safeMargin = 40;
-  const maxWidth = videoWidth - (safeMargin * 2);
-  
-  // Tự động điều chỉnh tỷ lệ nếu vượt quá chiều rộng màn hình
-  const scale = totalWidth > maxWidth ? maxWidth / totalWidth : 1;
-  const finalCharSpacing = charSpacing * scale;
-  const finalWordSpacing = wordSpacing * scale;
-  
-  let currentX = centerX - (totalWidth * scale) / 2;
+  // Xử lý dòng cuối cùng
+  if (currentLine.length > 0) {
+    // Nếu chỉ có một dòng và dòng cuối chỉ có 1 từ, ghép với dòng trước
+    if (lines.length === 1 && currentLine.length === 1) {
+      const lastLineOfFirst = lines[0];
+      const lastWordOfFirst = lastLineOfFirst.pop();
+      lines[0] = lastLineOfFirst;
+      currentLine.unshift(lastWordOfFirst);
+    }
+    lines.push(currentLine);
+  }
+
+  // Tính tổng số ký tự để chia thời gian
+  const totalChars = titleText.replace(/ /g, '').length;
+  const charDuration = (typingDuration * 1000) / totalChars;
+
+  const dialogues = [];
   let charIndex = 0;
 
-  // Xử lý từng từ
-  words.forEach((word, wordIndex) => {
-    const chars = word.split('');
-    
-    // Xử lý từng ký tự trong từ
-    chars.forEach((char, charIndexInWord) => {
-      const charStart = formatAssTime(startTime + (charIndex * charDuration) / 1000);
-      const charEnd = formatAssTime(endTime);
+  // Xử lý từng dòng
+  lines.forEach((lineWords, lineIndex) => {
+    // Tính chiều rộng của dòng hiện tại
+    const lineWidth = lineWords.reduce((width, word, i) => {
+      return width + (word.length - 1) * charSpacing + (i < lineWords.length - 1 ? wordSpacing : 0);
+    }, 0);
+
+    let currentX = centerX - (lineWidth / 2);
+    const currentY = baseY + (lineIndex * lineHeight);
+
+    // Xử lý từng từ trong dòng
+    lineWords.forEach((word, wordIndex) => {
+      const chars = word.split('');
       
-      const charX = currentX + charIndexInWord * finalCharSpacing;
+      chars.forEach((char, charIndexInWord) => {
+        const charStart = formatAssTime(startTime + (charIndex * charDuration) / 1000);
+        const charEnd = formatAssTime(endTime);
+        
+        const charX = currentX + charIndexInWord * charSpacing;
+        
+        const charEffect = `\\fad(200,1500)\\pos(${charX},${currentY})\\an5\\t(0,200,\\fscx110\\fscy110\\1c${startColor}\\3c${startOutline})\\t(200,400,\\fscx100\\fscy100\\1c${endColor}\\3c${endOutline})`;
+        
+        dialogues.push(`Dialogue: 0,${charStart},${charEnd},Title,,0,0,0,,{${charEffect}}${char}`);
+        charIndex++;
+      });
       
-      // Thêm hiệu ứng màu vào charEffect
-      const charEffect = `\\fad(200,1500)\\pos(${charX},${posY})\\an5\\t(0,200,\\fscx110\\fscy110\\1c${startColor}\\3c${startOutline})\\t(200,400,\\fscx100\\fscy100\\1c${endColor}\\3c${endOutline})`;
-      
-      dialogues.push(`Dialogue: 0,${charStart},${charEnd},Title,,0,0,0,,{${charEffect}}${char}`);
-      charIndex++;
+      currentX += (chars.length - 1) * charSpacing + wordSpacing;
     });
-    
-    // Di chuyển vị trí X cho từ tiếp theo
-    currentX += (chars.length - 1) * finalCharSpacing + finalWordSpacing;
   });
 
   return dialogues.join('\n');
