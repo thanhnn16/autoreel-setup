@@ -12,3 +12,4 @@ ffmpeg-wrapper/*.txt
 ffmpeg-wrapper/temp/
 ffmpeg-wrapper/temp
 ffmpeg-wrapper/node_modules
+ffmpeg-wrapper/output/*.ass
