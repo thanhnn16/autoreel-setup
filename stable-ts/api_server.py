@@ -589,8 +589,8 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         
         # Thêm style cho background đơn giản và hiệu quả
         bg_style = (
-            "Style: Background,Arial,20,&H80000000,&H000000FF,&H00000000,&H00000000,"
-            "0,0,0,0,100,100,0,0,1,0.5,0.7,2,16,16,48,1\n"
+            "Style: Background,Montserrat,80,&H80000000,&H000000FF,&H00000000,&H00000000,"
+            "0,0,0,0,100,100,0,3,1,0.5,0.7,2,16,16,80,163\n"
         )
         
         # Định dạng Format cho phần Styles
