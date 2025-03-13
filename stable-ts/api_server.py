@@ -570,6 +570,10 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         # Phân tích style để lấy thông tin font size và margin
         font_size = 80  # Giá trị mặc định
         margin_v = 80   # Giá trị mặc định
+        alignment = 2   # Giá trị mặc định (2 = căn dưới-giữa)
+        scale_x = 100   # Giá trị mặc định
+        scale_y = 100   # Giá trị mặc định
+        spacing = 0     # Giá trị mặc định
         
         if default_style:
             style_parts = default_style.split(',')
@@ -580,18 +584,55 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 except ValueError:
                     pass
             
+            # Đọc thêm các thuộc tính style khác
             if len(style_parts) > 18:
                 try:
-                    margin_v = int(style_parts[18])
+                    alignment = int(style_parts[18])
+                except ValueError:
+                    pass
+            
+            if len(style_parts) > 11:
+                try:
+                    scale_x = float(style_parts[11])
+                except ValueError:
+                    pass
+            
+            if len(style_parts) > 12:
+                try:
+                    scale_y = float(style_parts[12])
+                except ValueError:
+                    pass
+            
+            if len(style_parts) > 13:
+                try:
+                    spacing = float(style_parts[13])
+                except ValueError:
+                    pass
+            
+            if len(style_parts) > 21:
+                try:
+                    margin_v = int(style_parts[21])
                 except ValueError:
                     pass
 
-        # QUAN TRỌNG: KHÔNG thay đổi style Default, giữ nguyên font size và các thuộc tính khác
+        # Thêm style cho background nếu chưa có
+        alpha = "80"  # Độ mờ mặc định (0-FF)
+        bg_color = "303030"  # Màu nền mặc định
         
-        # Thêm style cho background đơn giản và hiệu quả
+        # Cài đặt các hệ số cho tính toán kích thước background
+        padding_h_factor = 0.1  # Hệ số padding ngang
+        padding_v_factor = 0.2  # Hệ số padding dọc
+        char_width_factor = 0.5  # Hệ số chiều rộng ký tự
+        line_height_factor = 1.6  # Hệ số chiều cao dòng
+        min_width_factor = 1.2  # Hệ số chiều rộng tối thiểu
+        max_width_factor = 0.95  # Hệ số chiều rộng tối đa
+        min_height_factor = 0.8  # Hệ số chiều cao tối thiểu
+        corner_radius_factor = 0.15  # Hệ số bán kính bo góc
+        
+        # Thêm style Background
         bg_style = (
-            "Style: Background,Montserrat,80,&H80000000,&H000000FF,&H00000000,&H00000000,"
-            "0,0,0,0,100,100,0,0,3,0.5,0.7,2,16,16,80,163\n"
+            f"Style: Background,Arial,{font_size},&H{alpha}{bg_color},&H000000FF,&H00000000,&H00000000,"
+            f"0,0,0,0,100,100,0,0,0,0,0,{alignment},{margin_v},{margin_v},{margin_v},1\n"
         )
         
         # Định dạng Format cho phần Styles
@@ -642,6 +683,128 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
             # Xóa phần [V4+ Styles] cũ và thay thế bằng phần mới
             lines = lines[:v4_styles_index] + styles_section + lines[i:]
         
+        # Hàm tạo đường vẽ hình chữ nhật bo góc (từ test_ass.ps1)
+        def create_rounded_rectangle_drawing(width, height, radius, scale=1):
+            """
+            Tạo đường viền bo góc dưới dạng lệnh vẽ (drawing command) cho ASS.
+            
+            Args:
+                width: Chiều rộng của hình chữ nhật
+                height: Chiều cao của hình chữ nhật
+                radius: Bán kính bo góc
+                scale: Hệ số tỷ lệ để điều chỉnh độ phân giải của đường vẽ
+                
+            Returns:
+                Chuỗi lệnh vẽ ASS để tạo hình chữ nhật bo góc
+            """
+            # Chia tỷ lệ theo scale
+            scaled_width = width / scale
+            scaled_height = height / scale
+            scaled_radius = radius / scale
+            
+            # Tạo drawing command với điểm gốc (0,0) và đường cong Bezier cho các góc
+            drawing = f"m {scaled_radius} 0 " + \
+                      f"l {scaled_width - scaled_radius} 0 " + \
+                      f"b {scaled_width - scaled_radius/2} 0 {scaled_width} {scaled_radius/2} {scaled_width} {scaled_radius} " + \
+                      f"l {scaled_width} {scaled_height - scaled_radius} " + \
+                      f"b {scaled_width} {scaled_height - scaled_radius/2} {scaled_width - scaled_radius/2} {scaled_height} {scaled_width - scaled_radius} {scaled_height} " + \
+                      f"l {scaled_radius} {scaled_height} " + \
+                      f"b {scaled_radius/2} {scaled_height} 0 {scaled_height - scaled_radius/2} 0 {scaled_height - scaled_radius} " + \
+                      f"l 0 {scaled_radius} " + \
+                      f"b 0 {scaled_radius/2} {scaled_radius/2} 0 {scaled_radius} 0"
+            
+            return drawing
+        
+        # Hàm tính chiều rộng của văn bản (từ test_ass.ps1)
+        def calculate_text_width(text, font_size, scale_x, spacing, char_width_factor):
+            """
+            Tính toán chiều rộng của văn bản dựa trên các thuộc tính font.
+            
+            Args:
+                text: Văn bản cần tính toán chiều rộng
+                font_size: Kích thước font
+                scale_x: Hệ số co giãn theo chiều ngang
+                spacing: Khoảng cách giữa các ký tự
+                char_width_factor: Hệ số chiều rộng ký tự
+                
+            Returns:
+                Chiều rộng ước tính của văn bản (pixel)
+            """
+            # Tính toán chiều rộng dựa trên số ký tự, font size, scale và spacing
+            base_width = len(text) * (font_size * char_width_factor * scale_x / 100.0)
+            spacing_width = (len(text) - 1) * spacing  # Spacing giữa các ký tự
+            
+            return base_width + spacing_width
+        
+        # Hàm tính chiều cao của văn bản (từ test_ass.ps1)
+        def calculate_text_height(num_lines, font_size, scale_y, line_height_factor):
+            """
+            Tính toán chiều cao của văn bản dựa trên số dòng và thuộc tính font.
+            
+            Args:
+                num_lines: Số dòng của văn bản
+                font_size: Kích thước font
+                scale_y: Hệ số co giãn theo chiều dọc
+                line_height_factor: Hệ số khoảng cách giữa các dòng
+                
+            Returns:
+                Chiều cao ước tính của văn bản (pixel)
+            """
+            # Tính chiều cao mỗi dòng là fontsize * scaleY
+            # line_height_factor dùng để điều chỉnh khoảng cách giữa các dòng
+            scale_y_factor = scale_y / 100.0  # Chuyển từ phần trăm sang hệ số
+            base_height = (font_size * scale_y_factor * num_lines) + ((num_lines - 1) * font_size * scale_y_factor * (line_height_factor - 1))
+            
+            # Giảm 10% chiều cao nếu có 2 dòng để tối ưu hiển thị
+            if num_lines == 2:
+                base_height = base_height * 0.9
+            
+            return base_height
+        
+        # Hàm ước tính số dòng thực tế (từ test_ass.ps1)
+        def get_actual_lines(text, font_size, scale_x, char_width_factor, max_width):
+            """
+            Ước tính số dòng thực tế của văn bản khi hiển thị dựa trên chiều rộng tối đa cho phép.
+            
+            Args:
+                text: Văn bản cần tính toán số dòng
+                font_size: Kích thước font
+                scale_x: Hệ số co giãn theo chiều ngang
+                char_width_factor: Hệ số chiều rộng ký tự
+                max_width: Chiều rộng tối đa cho phép của một dòng (pixel)
+                
+            Returns:
+                Số dòng ước tính của văn bản
+            """
+            import re
+            
+            # Tính toán độ rộng ký tự trung bình
+            scale_x_factor = scale_x / 100.0  # Chuyển từ phần trăm sang hệ số
+            char_width = font_size * char_width_factor * scale_x_factor
+            
+            # Tính số ký tự tối đa có thể hiển thị trên một dòng
+            max_chars_per_line = int(max_width / char_width)
+            
+            # Tách văn bản thành các từ
+            words = text.split()
+            lines = 1
+            current_line_length = 0
+            
+            # Tính toán số dòng dựa trên chiều dài của các từ
+            for word in words:
+                word_length = len(word)
+                
+                # Nếu thêm từ mới + khoảng trắng vào dòng hiện tại vượt quá max_chars_per_line
+                # thì xuống dòng mới
+                if current_line_length + word_length + 1 > max_chars_per_line:
+                    lines += 1
+                    current_line_length = word_length
+                else:
+                    current_line_length += word_length + 1  # +1 cho khoảng trắng
+            
+            # Đảm bảo số dòng không vượt quá 2 (giới hạn phổ biến cho phụ đề)
+            return min(lines, 2)
+        
         # Xử lý các event, giữ nguyên hiệu ứng highlight từng từ
         new_events = []
         events_section = False
@@ -680,6 +843,11 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 start_time = parts[1]
                 end_time = parts[2]
                 style = parts[3]
+                name = parts[4]
+                margin_l = parts[5]
+                margin_r = parts[6]
+                margin_v = parts[7]
+                effect = parts[8]
                 text = parts[9]
                 
                 # Nếu đã là background hoặc có style Background, giữ nguyên
@@ -693,81 +861,121 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 import re
                 # Loại bỏ các tag ASS như {\\k10}, {\\1c&HEDC205&\\k10}, v.v.
                 clean_text = re.sub(r'\{\\[^}]*\}', '', text_content)
+                
+                # Đếm số dòng rõ ràng (có \\N)
+                num_lines = len(re.split('\\\\[Nn]', clean_text))
                 text_length = len(clean_text.strip())
                 
-                # Tính toán chiều rộng tối ưu dựa trên độ dài text
-                char_width = font_size * 0.5  # Tăng độ rộng trung bình lên 50% font size (từ 40%)
-                min_width = font_size * 5     # Giảm chiều rộng tối thiểu xuống 5 lần font size (từ 6)
-                max_width = int(video_width * 0.85)  # Giữ nguyên chiều rộng tối đa 85% video
+                # Tính toán chiều rộng tối đa cho phép
+                max_line_width = video_width * max_width_factor
                 
-                # Tính toán chiều rộng dựa trên text và padding
-                padding_h = int(font_size * 0.5)  # Giảm padding ngang xuống 50% font size (từ 60%)
-                calculated_width = int(text_length * char_width) + (padding_h * 2)
-                bg_width = min(max(calculated_width, min_width), max_width)
-                
-                # Tính số ký tự tối đa trên một dòng
-                max_chars_per_line = int((max_width - padding_h * 2) / char_width)
-                
-                # Kiểm tra và tự động ngắt dòng nếu cần
-                if text_length > max_chars_per_line and '\\N' not in text and '\\n' not in text:
-                    # Tìm vị trí ngắt dòng phù hợp (ưu tiên khoảng trắng)
-                    split_pos = max_chars_per_line
-                    while split_pos > 0 and clean_text[split_pos] != ' ':
-                        split_pos -= 1
-                    if split_pos > 0:
-                        # Chèn \\N vào text gốc tại vị trí phù hợp
-                        modified_text = text[:split_pos] + '\\N' + text[split_pos:].lstrip()
-                        text = modified_text
-                        num_lines = 2  # Cập nhật số dòng
-                
-                # Tính toán chiều cao background dựa trên số dòng text
-                line_height_factor = 1.05  # Giảm hệ số chiều cao xuống 1.05 (từ 1.1)
-                padding_v = int(font_size * 0.15)  # Giảm padding dọc xuống 15% font size (từ 20%)
-                
-                # Tính toán chiều cao dựa trên số dòng
-                bg_height = int(num_lines * font_size * line_height_factor) + (padding_v * 2)
-                
-                # Đảm bảo chiều cao tối thiểu
-                min_height = int(font_size * 0.9)  # Giảm chiều cao tối thiểu xuống 0.9 lần font size (từ 1.0)
-                bg_height = max(bg_height, min_height)
-                
-                # Tính toán vị trí để căn giữa background theo chiều ngang
-                bg_x_start = int((video_width - bg_width) / 2)
-                bg_x_end = bg_x_start + bg_width
-                
-                # Tính toán vị trí Y dựa trên marginV
-                # Điều chỉnh cách tính bg_y_start để giảm khoảng trống phía trên
-                bottom_padding = int(font_size * 0.05)  # Giảm padding dưới xuống 5% font size (từ 10%)
-                top_offset = int(font_size * 0.15)  # Thêm offset phía trên để giảm khoảng trống
-                
-                # Sử dụng cách tính mới cho bg_y_start và bg_y_end
-                bg_y_end = video_height - margin_v - bottom_padding
-                bg_y_start = bg_y_end - bg_height + top_offset  # Thêm offset để giảm khoảng trống trên
-                
-                # Tạo background layer với bo góc và visibility cải thiện
-                bg_text = (
-                    r"{\\blur2\\bord18\\xbord9\\ybord9\\3c&H303030&\\alpha&H90&\\p1}"
-                    f"m {bg_x_start} {bg_y_start} l {bg_x_end} {bg_y_start} "
-                    f"{bg_x_end} {bg_y_end} {bg_x_start} {bg_y_end}"
-                    r"{\\p0}"
+                # Tính số dòng thực tế dựa trên độ dài text và chiều rộng tối đa
+                num_lines = get_actual_lines(
+                    clean_text, 
+                    font_size, 
+                    scale_x, 
+                    char_width_factor, 
+                    max_line_width
                 )
                 
-                # Đảm bảo layer của background luôn là 0
+                # Tính toán padding dựa trên kích thước font
+                padding_h = int(font_size * padding_h_factor)
+                padding_v = int(font_size * padding_v_factor)
+                
+                # Giảm padding dọc thêm 10% nếu có 2 dòng để tối ưu hiển thị
+                if num_lines == 2:
+                    padding_v = int(padding_v * 0.9)
+                
+                # Tính chiều rộng văn bản
+                scale_x_factor = scale_x / 100.0  # Chuyển từ phần trăm sang hệ số
+                scale_y_factor = scale_y / 100.0  # Chuyển từ phần trăm sang hệ số
+                text_width = calculate_text_width(
+                    clean_text, 
+                    font_size, 
+                    scale_x_factor, 
+                    spacing, 
+                    char_width_factor
+                )
+                
+                # Tính chiều rộng nền với giới hạn min/max
+                calculated_width = int(text_width) + (padding_h * 2)
+                min_width = font_size * min_width_factor  # Đảm bảo nền không quá nhỏ
+                max_width = int(video_width * max_width_factor)  # Đảm bảo nền không vượt quá % màn hình
+                bg_width = min(max(calculated_width, min_width), max_width)
+                
+                # Tính chiều cao văn bản
+                text_height = calculate_text_height(
+                    num_lines, 
+                    font_size, 
+                    scale_y_factor, 
+                    line_height_factor
+                )
+                
+                # Tính chiều cao nền
+                bg_height = int(text_height) + (padding_v * 2)
+                
+                # Đảm bảo chiều cao tối thiểu
+                min_height = int(font_size * min_height_factor)
+                bg_height = max(bg_height, min_height)
+                
+                # Tính bán kính bo góc
+                corner_radius = min(int(font_size * corner_radius_factor), int(bg_height / 4))
+                if border_radius > 0:
+                    corner_radius = border_radius
+                
+                # Tính toán vị trí X của background (căn giữa ngang)
+                bg_x_start = int((video_width - bg_width) / 2)
+                
+                # Tính toán vị trí Y dựa trên alignment và marginV
+                bg_y_start = 0
+                bg_y_end = 0
+                
+                # Xử lý alignment để xác định vị trí Y
+                # Alignment: 1-3 (dưới), 4-6 (giữa), 7-9 (trên)
+                if alignment >= 1 and alignment <= 3:
+                    # Căn dưới - thêm offset 20px để nâng lên
+                    y_offset_bottom = -20  # Điều chỉnh giá trị này để thay đổi độ cao
+                    bg_y_end = video_height - int(margin_v) - y_offset_bottom
+                    bg_y_start = bg_y_end - bg_height
+                elif alignment >= 4 and alignment <= 6:
+                    # Căn giữa
+                    bg_y_start = int((video_height - bg_height) / 2)
+                    bg_y_end = bg_y_start + bg_height
+                else:
+                    # Căn trên
+                    bg_y_start = int(margin_v)
+                    bg_y_end = bg_y_start + bg_height
+                
+                # Điều chỉnh vị trí Y để căn giữa text trong background
+                # Tính toán offset dựa trên số dòng và alignment
+                y_offset = 0
+                if num_lines == 1:
+                    y_offset = int((bg_height - text_height) / 2)  # Điều chỉnh căn giữa dọc
+                
+                # Áp dụng offset dựa trên alignment
+                if alignment >= 7 and alignment <= 9:
+                    # Căn trên - điều chỉnh bg_y_start
+                    bg_y_start -= y_offset
+                    bg_y_end = bg_y_start + bg_height
+                
+                logger.info(f"Background: Width={bg_width}, Height={bg_height}, X={bg_x_start}, Y={bg_y_start}, Radius={corner_radius}")
+                
+                # Tạo đường bo góc bằng hàm helper
+                scale = 1  # Hệ số scale cho drawing
+                drawing = create_rounded_rectangle_drawing(bg_width, bg_height, corner_radius, scale)
+                
+                # Tạo background với bo góc
+                bg_text = f"{{\\an7\\pos({bg_x_start},{bg_y_start})\\p{scale}\\bord0\\shad0\\1c&H{bg_color}&\\1a&H{alpha}&}}{drawing}"
                 bg_line = f"Dialogue: 0,{start_time},{end_time},Background,,0,0,0,,{bg_text}\n"
-
-                # QUAN TRỌNG: KHÔNG thay đổi text gốc để đảm bảo hiệu ứng karaoke hoạt động đúng
-                # Giữ nguyên text gốc với tất cả các tag style
-                modified_text = text
+                
+                # Thêm background vào file ASS mới
+                new_events.append(bg_line)
                 
                 # Đảm bảo layer của dialogue luôn là 1 (giữ nguyên layer gốc nếu lớn hơn 1)
                 dialogue_layer = max(1, int(layer))
                 
-                # Tạo lại dòng Dialogue với các thông số gốc, chỉ thay đổi layer nếu cần
-                dialogue_parts = line.split(',', 1)  # Tách phần layer và phần còn lại
-                dialogue_line = f"Dialogue: {dialogue_layer}," + dialogue_parts[1]  # Giữ nguyên phần còn lại
-                
-                # Thêm layer background TRƯỚC layer text
-                new_events.append(bg_line)
+                # Tạo lại dòng Dialogue với layer mới
+                dialogue_line = f"Dialogue: {dialogue_layer},{start_time},{end_time},{style},{name},{margin_l},{margin_r},{margin_v},{effect},{text}\n"
                 new_events.append(dialogue_line)
             else:
                 # Giữ lại các dòng không phải Dialogue
