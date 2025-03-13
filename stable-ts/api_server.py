@@ -519,8 +519,27 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
     Đảm bảo layer của dialogue luôn là 1 và layer của background luôn là 0
     """
     try:
+        # Thiết lập các tham số mặc định (tương tự như trong test_ass.ps1)
+        padding_h_factor = 0.1     # Hệ số padding ngang
+        padding_v_factor = 0.2     # Hệ số padding dọc
+        char_width_factor = 0.5    # Hệ số chiều rộng ký tự
+        line_height_factor = 1.6   # Hệ số chiều cao dòng
+        min_width_factor = 1.2     # Hệ số chiều rộng tối thiểu
+        max_width_factor = 0.95    # Hệ số chiều rộng tối đa
+        min_height_factor = 0.8    # Hệ số chiều cao tối thiểu
+        corner_radius_factor = 0.15 # Hệ số bán kính bo góc
+        background_opacity = 0.6    # Độ mờ của background (0-1)
+        background_color = "303030" # Màu nền (RGB)
+
+        # Đọc nội dung file ASS đầu vào
         with open(input_ass, 'r', encoding='utf-8') as f:
             lines = f.readlines()
+
+        # Khởi tạo các đối tượng để lưu trữ dữ liệu từ file ASS
+        script_info = {}  # Lưu thông tin chung của script
+        styles = {}      # Lưu các style được định nghĩa
+        events = []      # Lưu các sự kiện (dialogue)
+        current_section = None  # Theo dõi section hiện tại đang phân tích
 
         # Kiểm tra highlight color trong các dòng Dialogue
         highlight_found = False
@@ -533,156 +552,152 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         if not highlight_found:
             logger.warning("Không tìm thấy highlight color trong file ASS trước khi áp dụng bo góc")
 
-        # Cập nhật PlayResX và PlayResY để phù hợp với kích thước video
-        video_width = 1080
-        video_height = 1920
-        
-        # Cập nhật hoặc thêm PlayResX và PlayResY
-        has_play_res_x = False
-        has_play_res_y = False
-        
-        for i, line in enumerate(lines):
-            if line.startswith("PlayResX:"):
-                lines[i] = f"PlayResX: {video_width}\n"
-                has_play_res_x = True
-            elif line.startswith("PlayResY:"):
-                lines[i] = f"PlayResY: {video_height}\n"
-                has_play_res_y = True
-        
-        # Thêm nếu chưa có
-        if not has_play_res_x or not has_play_res_y:
-            for i, line in enumerate(lines):
-                if line.startswith("[Script Info]"):
-                    if not has_play_res_x:
-                        lines.insert(i+1, f"PlayResX: {video_width}\n")
-                    if not has_play_res_y:
-                        lines.insert(i+1, f"PlayResY: {video_height}\n")
-                    break
-
-        # Lấy thông tin style từ file ASS
-        default_style = None
+        # Phân tích file ASS để lấy thông tin
         for line in lines:
-            if line.startswith("Style: Default,"):
-                default_style = line
-                logger.info(f"Style Default trong file ASS: {default_style.strip()}")
-                break
-        
-        # Phân tích style để lấy thông tin font size và margin
-        font_size = 80  # Giá trị mặc định
-        margin_v = 80   # Giá trị mặc định
-        alignment = 2   # Giá trị mặc định (dưới, giữa)
-        scale_x = 100   # Giá trị mặc định
-        scale_y = 100   # Giá trị mặc định
-        spacing = 0     # Giá trị mặc định
-        
-        if default_style:
-            style_parts = default_style.split(',')
-            if len(style_parts) > 2:
-                try:
-                    font_size = int(style_parts[2])
-                    logger.info(f"Đã đọc font size từ style: {font_size}")
-                except ValueError:
-                    pass
+            # Xác định section hiện tại
+            if line.strip() == "[Script Info]":
+                current_section = "ScriptInfo"
+                continue
+            elif line.strip() == "[V4+ Styles]":
+                current_section = "Styles"
+                continue
+            elif line.strip() == "[Events]":
+                current_section = "Events"
+                continue
             
-            if len(style_parts) > 18:
-                try:
-                    alignment = int(style_parts[18])
-                except ValueError:
-                    pass
-                
-                try:
-                    margin_v = int(style_parts[21])
-                except ValueError:
-                    pass
-                
-            # Lấy thêm scale_x và scale_y từ style
-            if len(style_parts) > 11:
-                try:
-                    scale_x = float(style_parts[11])
-                except ValueError:
-                    pass
-                
-            if len(style_parts) > 12:
-                try:
-                    scale_y = float(style_parts[12])
-                except ValueError:
-                    pass
-                
-            if len(style_parts) > 13:
-                try:
-                    spacing = float(style_parts[13])
-                except ValueError:
-                    pass
+            # Xử lý dữ liệu dựa trên section hiện tại
+            if current_section == "ScriptInfo":
+                # Lưu thông tin script (ví dụ: PlayResX, PlayResY, v.v.)
+                if line.strip() and ':' in line:
+                    key, value = line.split(':', 1)
+                    script_info[key.strip()] = value.strip()
+            elif current_section == "Styles" and line.startswith("Style:"):
+                # Phân tích và lưu thông tin style
+                style_data = line[6:].strip().split(',')
+                if len(style_data) >= 22:  # Đảm bảo đủ trường dữ liệu
+                    style_name = style_data[0]
+                    styles[style_name] = {
+                        'Name': style_name,
+                        'Fontname': style_data[1],
+                        'Fontsize': int(style_data[2]) if style_data[2].isdigit() else 80,
+                        'PrimaryColour': style_data[3],
+                        'SecondaryColour': style_data[4],
+                        'OutlineColour': style_data[5],
+                        'BackColour': style_data[6],
+                        'Bold': style_data[7],
+                        'Italic': style_data[8],
+                        'Underline': style_data[9],
+                        'StrikeOut': style_data[10],
+                        'ScaleX': float(style_data[11]) if style_data[11].replace('.', '', 1).isdigit() else 100,
+                        'ScaleY': float(style_data[12]) if style_data[12].replace('.', '', 1).isdigit() else 100,
+                        'Spacing': float(style_data[13]) if style_data[13].replace('.', '', 1).isdigit() else 0,
+                        'Angle': style_data[14],
+                        'BorderStyle': style_data[15],
+                        'Outline': style_data[16],
+                        'Shadow': style_data[17],
+                        'Alignment': int(style_data[18]) if style_data[18].isdigit() else 2,
+                        'MarginL': int(style_data[19]) if style_data[19].isdigit() else 20,
+                        'MarginR': int(style_data[20]) if style_data[20].isdigit() else 20,
+                        'MarginV': int(style_data[21]) if style_data[21].isdigit() else 80,
+                        'Encoding': style_data[22] if len(style_data) > 22 else "1"
+                    }
+            elif current_section == "Events" and line.startswith("Dialogue:"):
+                # Phân tích và lưu thông tin dialogue
+                dialogue_data = line[9:].strip().split(',', 9)  # Tách tối đa 10 phần
+                if len(dialogue_data) >= 10:
+                    events.append({
+                        'Layer': dialogue_data[0],
+                        'Start': dialogue_data[1],
+                        'End': dialogue_data[2],
+                        'Style': dialogue_data[3],
+                        'Name': dialogue_data[4],
+                        'MarginL': dialogue_data[5],
+                        'MarginR': dialogue_data[6],
+                        'MarginV': dialogue_data[7],
+                        'Effect': dialogue_data[8],
+                        'Text': dialogue_data[9]
+                    })
 
-        # Chuyển đổi scale thành hệ số
-        scale_x = scale_x / 100.0
-        scale_y = scale_y / 100.0
-                
-        # QUAN TRỌNG: KHÔNG thay đổi style Default, giữ nguyên font size và các thuộc tính khác
-        
-        # Thêm style cho background đơn giản và hiệu quả
-        bg_style = (
-            "Style: Background,Montserrat,80,&H80000000,&H000000FF,&H00000000,&H00000000,"
-            "0,0,0,0,100,100,0,0,3,0.5,0.7,2,16,16,80,163\n"
-        )
-        
-        # Định dạng Format cho phần Styles
-        format_line = "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
-        
-        # Tìm và sắp xếp lại phần [V4+ Styles] để đảm bảo Format xuất hiện trước Style
-        v4_styles_index = -1
-        for i, line in enumerate(lines):
-            if line.strip() == "[V4+ Styles]":
-                v4_styles_index = i
-                break
-        
-        if v4_styles_index >= 0:
-            # Xóa phần [V4+ Styles] cũ
-            styles_section = []
-            i = v4_styles_index
-            styles_section.append(lines[i])  # Thêm dòng [V4+ Styles]
-            i += 1
-            
-            # Thu thập tất cả các dòng trong phần Styles
-            while i < len(lines) and not lines[i].strip().startswith('['):
-                if not lines[i].strip().startswith('Format:') and not lines[i].strip().startswith('Style:'):
-                    styles_section.append(lines[i])
-                i += 1
-            
-            # Thêm Format và các Style theo đúng thứ tự
-            styles_section.append(format_line)
-            
-            # Thu thập tất cả các Style hiện có
-            styles = []
-            for line in lines:
-                if line.strip().startswith('Style:'):
-                    styles.append(line)
-            
-            # Thêm Style Background nếu chưa có
-            has_bg_style = False
-            for style in styles:
-                if style.startswith("Style: Background,"):
-                    has_bg_style = True
-                    break
-            
-            if not has_bg_style:
-                styles.append(bg_style)
-            
-            # Thêm tất cả các Style vào phần Styles
-            styles_section.extend(styles)
-            
-            # Xóa phần [V4+ Styles] cũ và thay thế bằng phần mới
-            lines = lines[:v4_styles_index] + styles_section + lines[i:]
-        
-        # Hàm để tính toán chiều rộng của văn bản
-        def calculate_text_width(text, font_size, scale_x, spacing, char_width_factor=0.5):
+        # Lấy thông tin kích thước video từ ScriptInfo
+        video_width = 1080  # Giá trị mặc định
+        video_height = 1920 # Giá trị mặc định
+
+        if "PlayResX" in script_info:
+            video_width = int(script_info["PlayResX"])
+        if "PlayResY" in script_info:
+            video_height = int(script_info["PlayResY"])
+
+        logger.info(f"Kích thước video: {video_width} x {video_height}")
+
+        # Lấy thông tin style mặc định để sử dụng cho các phép tính
+        default_style = None
+        if "Default" in styles:
+            default_style = styles["Default"]
+        else:
+            # Nếu không có style Default, lấy style đầu tiên
+            if styles:
+                default_style = list(styles.values())[0]
+            else:
+                # Tạo style mặc định nếu không có style nào
+                default_style = {
+                    'Name': 'Default',
+                    'Fontname': 'Montserrat',
+                    'Fontsize': 80,
+                    'PrimaryColour': '&H00FFFFFF',
+                    'SecondaryColour': '&H000000FF',
+                    'OutlineColour': '&H00000000',
+                    'BackColour': '&H80000000',
+                    'Bold': '0',
+                    'Italic': '0',
+                    'Underline': '0',
+                    'StrikeOut': '0',
+                    'ScaleX': 100.0,
+                    'ScaleY': 100.0,
+                    'Spacing': 0.0,
+                    'Angle': '0',
+                    'BorderStyle': '1',
+                    'Outline': '3',
+                    'Shadow': '3',
+                    'Alignment': 2,
+                    'MarginL': 20,
+                    'MarginR': 20,
+                    'MarginV': 80,
+                    'Encoding': '163'
+                }
+                styles['Default'] = default_style
+
+        # Lưu các thuộc tính style quan trọng để sử dụng sau
+        font_size = default_style['Fontsize']
+        margin_v = default_style['MarginV']
+        alignment = default_style['Alignment']
+        scale_x = default_style['ScaleX'] / 100.0  # Chuyển đổi từ phần trăm sang hệ số
+        scale_y = default_style['ScaleY'] / 100.0  # Chuyển đổi từ phần trăm sang hệ số
+        spacing = default_style['Spacing']
+
+        logger.info(f"Font size: {font_size}, MarginV: {margin_v}, Alignment: {alignment}, ScaleX: {scale_x}, ScaleY: {scale_y}, Spacing: {spacing}")
+
+        # Tạo header cho file ASS mới
+        new_ass_content = [
+            "[Script Info]\n",
+            f"PlayResX: {video_width}\n",
+            f"PlayResY: {video_height}\n",
+            "ScriptType: v4.00+\n",
+            "Title: ASS with Rounded Corners\n",
+            "ScaledBorderAndShadow: yes\n",
+            "\n",
+            "[V4+ Styles]\n",
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        ]
+
+        # Hàm tiện ích để tính chiều rộng của văn bản
+        def calculate_text_width(text, font_size, scale_x, spacing, char_width_factor):
             # Tính toán chiều rộng dựa trên số ký tự, font size, scale và spacing
             base_width = len(text) * (font_size * char_width_factor * scale_x)
             spacing_width = (len(text) - 1) * spacing  # Spacing giữa các ký tự
             return base_width + spacing_width
-        
-        # Hàm để tính toán chiều cao của văn bản
-        def calculate_text_height(num_lines, font_size, scale_y, line_height_factor=1.6):
+
+        # Hàm tiện ích để tính chiều cao của văn bản
+        def calculate_text_height(num_lines, font_size, scale_y, line_height_factor):
             # Tính chiều cao mỗi dòng là fontsize * scaleY
             # lineHeightFactor dùng để điều chỉnh khoảng cách giữa các dòng
             base_height = (font_size * scale_y * num_lines) + ((num_lines - 1) * font_size * scale_y * (line_height_factor - 1))
@@ -690,13 +705,17 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
             # Giảm 10% chiều cao nếu có 2 dòng để tối ưu hiển thị
             if num_lines == 2:
                 base_height = base_height * 0.9
-            
+                
             return base_height
-        
-        # Hàm để ước tính số dòng thực tế của văn bản khi hiển thị
+
+        # Hàm tiện ích để ước tính số dòng thực tế
         def get_actual_lines(text, font_size, scale_x, char_width_factor, max_width):
+            import re
+            # Loại bỏ các tag ASS như {\\k10}, {\\1c&HEDC205&\\k10}, v.v.
+            clean_text = re.sub(r'\{\\[^}]*\}', '', text)
+            
             # Tách văn bản thành các từ
-            words = text.split()
+            words = clean_text.split()
             current_line_length = 0
             lines = 1
             
@@ -710,10 +729,10 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                     current_line_length = word_length
                 else:
                     current_line_length += word_length + (font_size * char_width_factor * scale_x)  # Thêm khoảng trắng
-            
+                    
             return lines
-        
-        # Hàm để tạo đường viền bo góc
+
+        # Hàm tiện ích để tạo đường viền bo góc
         def create_rounded_rectangle_drawing(width, height, radius, scale=1):
             # Chia tỷ lệ theo scale
             scaled_width = width / scale
@@ -722,202 +741,166 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
             
             # Tạo drawing command với điểm gốc (0,0) và đường cong Bezier cho các góc
             drawing = f"m {scaled_radius} 0 " + \
-                   f"l {scaled_width - scaled_radius} 0 " + \
-                   f"b {scaled_width - scaled_radius/2} 0 {scaled_width} {scaled_radius/2} {scaled_width} {scaled_radius} " + \
-                   f"l {scaled_width} {scaled_height - scaled_radius} " + \
-                   f"b {scaled_width} {scaled_height - scaled_radius/2} {scaled_width - scaled_radius/2} {scaled_height} {scaled_width - scaled_radius} {scaled_height} " + \
-                   f"l {scaled_radius} {scaled_height} " + \
-                   f"b {scaled_radius/2} {scaled_height} 0 {scaled_height - scaled_radius/2} 0 {scaled_height - scaled_radius} " + \
-                   f"l 0 {scaled_radius} " + \
-                   f"b 0 {scaled_radius/2} {scaled_radius/2} 0 {scaled_radius} 0"
+                    f"l {scaled_width - scaled_radius} 0 " + \
+                    f"b {scaled_width - scaled_radius/2} 0 {scaled_width} {scaled_radius/2} {scaled_width} {scaled_radius} " + \
+                    f"l {scaled_width} {scaled_height - scaled_radius} " + \
+                    f"b {scaled_width} {scaled_height - scaled_radius/2} {scaled_width - scaled_radius/2} {scaled_height} {scaled_width - scaled_radius} {scaled_height} " + \
+                    f"l {scaled_radius} {scaled_height} " + \
+                    f"b {scaled_radius/2} {scaled_height} 0 {scaled_height - scaled_radius/2} 0 {scaled_height - scaled_radius} " + \
+                    f"l 0 {scaled_radius} " + \
+                    f"b 0 {scaled_radius/2} {scaled_radius/2} 0 {scaled_radius} 0"
             
             return drawing
-        
-        # Xử lý các event, giữ nguyên hiệu ứng highlight từng từ
+
+        # Thêm các style từ file gốc vào file mới (để giữ các style đã có)
+        for style in styles.values():
+            style_str = f"Style: {style['Name']},{style['Fontname']},{style['Fontsize']},{style['PrimaryColour']},{style['SecondaryColour']},{style['OutlineColour']},{style['BackColour']},{style['Bold']},{style['Italic']},{style['Underline']},{style['StrikeOut']},{style['ScaleX']},{style['ScaleY']},{style['Spacing']},{style['Angle']},{style['BorderStyle']},{style['Outline']},{style['Shadow']},{style['Alignment']},{style['MarginL']},{style['MarginR']},{style['MarginV']},{style['Encoding']}\n"
+            new_ass_content.append(style_str)
+
+        # Tính toán giá trị alpha cho background (0-255, trong đó 0 là hoàn toàn trong suốt, 255 là đục hoàn toàn)
+        alpha = int(255 * (1 - background_opacity))
+        alpha_hex = format(alpha, '02X').upper()  # Chuyển đổi sang hex và đảm bảo 2 ký tự
+
+        # Thêm style Background nếu chưa có
+        if not any(style['Name'] == 'Background' for style in styles.values()):
+            new_ass_content.append(f"Style: Background,Arial,{font_size},&H{alpha_hex}{background_color},&H000000FF,&H00000000,&H00000000,0,0,0,0,100,100,0,0,0,0,0,{alignment},{default_style['MarginL']},{default_style['MarginR']},{margin_v},1\n")
+
+        # Thêm phần Events header
+        new_ass_content.append("\n[Events]\n")
+        new_ass_content.append("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+
+        # Tạo danh sách các events mới (bao gồm background và dialogue)
         new_events = []
-        events_section = False
-        
-        # Tham số cho tính toán kích thước và vị trí background
-        padding_h_factor = 0.1     # Hệ số padding ngang
-        padding_v_factor = 0.2     # Hệ số padding dọc
-        char_width_factor = 0.5    # Hệ số chiều rộng ký tự
-        line_height_factor = 1.6   # Hệ số chiều cao dòng
-        min_width_factor = 1.2     # Hệ số chiều rộng tối thiểu
-        max_width_factor = 0.95    # Hệ số chiều rộng tối đa
-        min_height_factor = 0.8    # Hệ số chiều cao tối thiểu
-        corner_radius_factor = 0.15 # Hệ số bán kính bo góc
-        
-        # Tìm phần [Events] trong file
-        for i, line in enumerate(lines):
-            # Giữ nguyên tất cả các dòng cho đến khi gặp phần [Events]
-            if line.strip() == "[Events]":
-                events_section = True
-                new_events.append(line)
-                
-                # Thêm dòng Format nếu có
-                if i+1 < len(lines) and lines[i+1].startswith("Format:"):
-                    new_events.append(lines[i+1])
+
+        # Xử lý từng dialogue và tạo background tương ứng
+        for event in events:
+            # Bỏ qua nếu đã là background
+            if event['Style'] == "Background":
                 continue
             
-            # Nếu chưa đến phần [Events], giữ nguyên dòng
-            if not events_section:
-                new_events.append(line)
-                continue
+            # Lấy style tương ứng với dialogue
+            style = default_style
+            if event['Style'] in styles:
+                style = styles[event['Style']]
             
-            # Bỏ qua dòng Format trong phần [Events] (đã thêm ở trên)
-            if line.startswith("Format:"):
-                continue
+            # Lấy các thuộc tính font và style
+            font_size = style['Fontsize']
+            alignment = style['Alignment']
+            scale_x = style['ScaleX'] / 100.0
+            scale_y = style['ScaleY'] / 100.0
+            spacing = style['Spacing']
             
-            # Xử lý các dòng Dialogue
-            if line.startswith("Dialogue:"):
-                parts = line.split(',', 9)
-                if len(parts) < 10:
-                    # Nếu dòng Dialogue không đúng định dạng, giữ nguyên
-                    new_events.append(line)
-                    continue
-                
-                # Lấy thông tin từ dòng Dialogue
-                layer = parts[0].split(':')[1].strip()
-                start_time = parts[1]
-                end_time = parts[2]
-                style = parts[3]
-                name = parts[4]
-                margin_l = parts[5]
-                margin_r = parts[6]
-                margin_v = parts[7]
-                effect = parts[8]
-                text = parts[9]
-                
-                # Nếu đã là background hoặc có style Background, giữ nguyên
-                if style == "Background" or "Background" in line:
-                    new_events.append(line)
-                    continue
-                
-                # Phân tích text để xác định số dòng thực tế
-                # Loại bỏ các tag ASS để đếm số ký tự thực tế
-                import re
-                # Loại bỏ các tag ASS như {\\k10}, {\\1c&HEDC205&\\k10}, v.v.
-                clean_text = re.sub(r'\{\\[^}]*\}', '', text)
-                
-                # Tính toán padding dựa trên kích thước font
-                padding_h = int(font_size * padding_h_factor)
-                padding_v = int(font_size * padding_v_factor)
-                
-                # Tính chiều rộng tối đa cho văn bản
-                max_line_width = video_width * max_width_factor
-                
-                # Ước tính số dòng thực tế
-                num_lines = get_actual_lines(clean_text, font_size, scale_x, char_width_factor, max_line_width)
-                
-                # Giảm padding dọc thêm 10% nếu có 2 dòng để tối ưu hiển thị
-                if num_lines == 2:
-                    padding_v = int(padding_v * 0.9)
-                
-                # Tính chiều rộng văn bản
-                text_width = calculate_text_width(clean_text, font_size, scale_x, spacing, char_width_factor)
-                
-                # Tính chiều rộng nền với giới hạn min/max
-                calculated_width = int(text_width) + (padding_h * 2)
-                min_width = font_size * min_width_factor  # Đảm bảo nền không quá nhỏ
-                max_width = int(video_width * max_width_factor)  # Đảm bảo nền không vượt quá % màn hình
-                bg_width = min(max(calculated_width, min_width), max_width)
-                
-                # Tính chiều cao văn bản
-                text_height = calculate_text_height(num_lines, font_size, scale_y, line_height_factor)
-                
-                # Tính chiều cao nền với điều chỉnh cho số dòng
-                bg_height = int(text_height) + (padding_v * 2)
-                
-                # Giảm thêm 10% chiều cao nếu có 2 dòng để tối ưu hiển thị
-                if num_lines == 2:
-                    bg_height = int(bg_height * 0.9)
-                
-                # Đảm bảo chiều cao tối thiểu
-                min_height = int(font_size * min_height_factor)
-                bg_height = max(bg_height, min_height)
-                
-                # Tính bán kính bo góc tương ứng với kích thước nền
-                corner_radius = min(int(font_size * corner_radius_factor), int(bg_height / 4))
-                if border_radius > 0:
-                    corner_radius = border_radius
-                
-                # Tính toán vị trí X của background (căn giữa ngang)
-                bg_x_start = int((video_width - bg_width) / 2)
-                bg_x_end = bg_x_start + bg_width
-                
-                # Tính toán vị trí Y dựa trên alignment và marginV
-                bg_y_start = 0
-                bg_y_end = 0
-                
-                # Xử lý alignment để xác định vị trí Y
-                # Alignment: 1-3 (dưới), 4-6 (giữa), 7-9 (trên)
-                if alignment >= 1 and alignment <= 3:
-                    # Căn dưới - thêm offset 20px để nâng lên
-                    y_offset_bottom = -20  # Điều chỉnh giá trị này để thay đổi độ cao
-                    # Sử dụng margin_v như trong test_ass.ps1
-                    # Chuyển đổi margin_v thành int nếu là string
-                    margin_v_int = int(margin_v) if isinstance(margin_v, str) else margin_v
-                    bg_y_end = video_height - margin_v_int - y_offset_bottom
-                    bg_y_start = bg_y_end - bg_height
-                elif alignment >= 4 and alignment <= 6:
-                    # Căn giữa
-                    bg_y_start = int((video_height - bg_height) / 2)
-                    bg_y_end = bg_y_start + bg_height
-                else:
-                    # Căn trên
-                    # Chuyển đổi margin_v thành int nếu là string
-                    margin_v_int = int(margin_v) if isinstance(margin_v, str) else margin_v
-                    bg_y_start = margin_v_int
-                    bg_y_end = bg_y_start + bg_height
-                
-                # Điều chỉnh vị trí Y để căn giữa text trong background
-                # Tính toán offset dựa trên số dòng và alignment
-                y_offset = 0
-                if num_lines == 1:
-                    y_offset = int((bg_height - text_height) / 2)  # Điều chỉnh căn giữa dọc
-                
-                # Áp dụng offset dựa trên alignment
-                if alignment >= 1 and alignment <= 3:
-                    # Căn dưới - không cần điều chỉnh
-                    pass
-                elif alignment >= 4 and alignment <= 6:
-                    # Căn giữa - không cần điều chỉnh
-                    pass
-                else:
-                    # Căn trên - điều chỉnh bg_y_start
-                    bg_y_start -= y_offset
-                    bg_y_end = bg_y_start + bg_height
-                
-                # Log thông tin kích thước và vị trí background
-                logger.info(f"Background: Width={bg_width}, Height={bg_height}, X={bg_x_start}, Y={bg_y_start}, Radius={corner_radius}")
-                
-                # Tạo đường viền bo góc
-                scale = 1  # Hệ số scale cho drawing
-                drawing = create_rounded_rectangle_drawing(bg_width, bg_height, corner_radius, scale)
-                
-                # Tạo background với bo góc
-                bg_text = "{\\an7\\pos(" + str(bg_x_start) + "," + str(bg_y_start) + ")\\p" + str(scale) + "\\bord0\\shad0\\1c&H303030&\\1a&H60&}" + drawing
-                bg_line = f"Dialogue: 0,{start_time},{end_time},Background,,0,0,0,,{bg_text}\n"
-                
-                # Thêm background vào file ASS mới
-                new_events.append(bg_line)
-                
-                # Thêm dialogue gốc vào file ASS mới
-                # Đảm bảo layer của dialogue luôn là 1 (giữ nguyên layer gốc nếu lớn hơn 1)
-                dialogue_layer = max(1, int(layer))
-                
-                # Tạo lại dòng Dialogue với các thông số gốc, chỉ thay đổi layer nếu cần
-                dialogue_parts = line.split(',', 1)  # Tách phần layer và phần còn lại
-                dialogue_line = f"Dialogue: {dialogue_layer}," + dialogue_parts[1]  # Giữ nguyên phần còn lại
-                
-                new_events.append(dialogue_line)
+            # Lấy text từ dialogue và loại bỏ các tag ASS
+            text = event['Text']
+            import re
+            clean_text = re.sub(r'\{\\[^}]*\}', '', text)
+            
+            # Tính toán số dòng thực tế và chiều rộng tối đa
+            max_line_width = video_width * max_width_factor
+            num_lines = get_actual_lines(clean_text, font_size, scale_x, char_width_factor, max_line_width)
+            
+            # Tính toán padding dựa trên kích thước font
+            padding_h = int(font_size * padding_h_factor)
+            padding_v = int(font_size * padding_v_factor)
+            
+            # Giảm padding dọc thêm 10% nếu có 2 dòng để tối ưu hiển thị
+            if num_lines == 2:
+                padding_v = int(padding_v * 0.9)
+            
+            # Tính chiều rộng văn bản
+            text_width = calculate_text_width(clean_text, font_size, scale_x, spacing, char_width_factor)
+            
+            # Tính chiều rộng nền với giới hạn min/max
+            calculated_width = int(text_width) + (padding_h * 2)
+            min_width = font_size * min_width_factor  # Đảm bảo nền không quá nhỏ
+            max_width = int(video_width * max_width_factor)  # Đảm bảo nền không vượt quá % màn hình
+            bg_width = min(max(calculated_width, min_width), max_width)
+            
+            # Tính chiều cao văn bản
+            text_height = calculate_text_height(num_lines, font_size, scale_y, line_height_factor)
+            
+            # Tính chiều cao nền với điều chỉnh cho số dòng
+            bg_height = int(text_height) + (padding_v * 2)
+            
+            # Giảm thêm 10% chiều cao nếu có 2 dòng để tối ưu hiển thị
+            if num_lines == 2:
+                bg_height = int(bg_height * 0.9)
+            
+            # Đảm bảo chiều cao tối thiểu
+            min_height = int(font_size * min_height_factor)
+            bg_height = max(bg_height, min_height)
+            
+            # Tính bán kính bo góc tương ứng với kích thước nền
+            corner_radius = min(int(font_size * corner_radius_factor), int(bg_height / 4))
+            if border_radius > 0:
+                corner_radius = border_radius
+            
+            # Tính toán vị trí X của background (căn giữa ngang)
+            bg_x_start = int((video_width - bg_width) / 2)
+            bg_x_end = bg_x_start + bg_width
+            
+            # Tính toán vị trí Y dựa trên alignment và marginV
+            bg_y_start = 0
+            bg_y_end = 0
+            
+            # Xử lý alignment để xác định vị trí Y
+            # Alignment: 1-3 (dưới), 4-6 (giữa), 7-9 (trên)
+            if alignment >= 1 and alignment <= 3:
+                # Căn dưới - thêm offset 20px để nâng lên
+                y_offset_bottom = -20  # Điều chỉnh giá trị này để thay đổi độ cao
+                bg_y_end = video_height - margin_v - y_offset_bottom
+                bg_y_start = bg_y_end - bg_height
+            elif alignment >= 4 and alignment <= 6:
+                # Căn giữa
+                bg_y_start = int((video_height - bg_height) / 2)
+                bg_y_end = bg_y_start + bg_height
             else:
-                # Giữ lại các dòng không phải Dialogue
-                new_events.append(line)
+                # Căn trên
+                bg_y_start = margin_v
+                bg_y_end = bg_y_start + bg_height
+            
+            # Điều chỉnh vị trí Y để căn giữa text trong background
+            # Tính toán offset dựa trên số dòng và alignment
+            y_offset = 0
+            if num_lines == 1:
+                y_offset = int((bg_height - text_height) / 2) # Điều chỉnh căn giữa dọc
+            
+            # Áp dụng offset dựa trên alignment
+            if alignment >= 1 and alignment <= 3:
+                # Căn dưới - không cần điều chỉnh
+                pass
+            elif alignment >= 4 and alignment <= 6:
+                # Căn giữa - không cần điều chỉnh
+                pass
+            else:
+                # Căn trên - điều chỉnh bg_y_start
+                bg_y_start -= y_offset
+                bg_y_end = bg_y_start + bg_height
+            
+            logger.info(f"Background: Width={bg_width}, Height={bg_height}, X={bg_x_start}, Y={bg_y_start}, Radius={corner_radius}")
+            
+            # Tạo đường bo góc bằng hàm helper
+            scale = 1  # Hệ số scale cho drawing
+            drawing = create_rounded_rectangle_drawing(bg_width, bg_height, corner_radius, scale)
+            
+            # Tạo background với bo góc
+            bg_text = "{\\an7\\pos(" + f"{bg_x_start},{bg_y_start}" + ")\\p" + str(scale) + "\\bord0\\shad0\\1c&H" + f"{background_color}" + "&\\1a&H" + f"{alpha_hex}" + "&}" + drawing
+            bg_line = f"Dialogue: 0,{event['Start']},{event['End']},Background,,0,0,0,,{bg_text}\n"
+            
+            # Thêm background vào danh sách sự kiện mới
+            new_events.append(bg_line)
+            
+            # Thêm dialogue gốc vào danh sách sự kiện mới (giữ nguyên layer là 1)
+            dialogue_layer = max(1, int(event['Layer']))  # Đảm bảo layer dialogue luôn >= 1
+            dialogue_line = f"Dialogue: {dialogue_layer},{event['Start']},{event['End']},{event['Style']},{event['Name']},{event['MarginL']},{event['MarginR']},{event['MarginV']},{event['Effect']},{event['Text']}\n"
+            new_events.append(dialogue_line)
+
+        # Thêm tất cả các sự kiện mới vào nội dung ASS
+        new_ass_content.extend(new_events)
 
         # Ghi file mới
         with open(output_ass, 'w', encoding='utf-8') as f:
-            f.writelines(new_events)
+            f.writelines(new_ass_content)
             
         # Kiểm tra highlight color trong file đầu ra
         highlight_found = False
