@@ -854,8 +854,10 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 if alignment >= 1 and alignment <= 3:
                     # Căn dưới - thêm offset 20px để nâng lên
                     y_offset_bottom = -20  # Điều chỉnh giá trị này để thay đổi độ cao
-                    # Sử dụng margin_v từ style, không phải từ dòng Dialogue
-                    bg_y_end = video_height - margin_v - y_offset_bottom
+                    # Sử dụng margin_v như trong test_ass.ps1
+                    # Chuyển đổi margin_v thành int nếu là string
+                    margin_v_int = int(margin_v) if isinstance(margin_v, str) else margin_v
+                    bg_y_end = video_height - margin_v_int - y_offset_bottom
                     bg_y_start = bg_y_end - bg_height
                 elif alignment >= 4 and alignment <= 6:
                     # Căn giữa
@@ -863,7 +865,9 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                     bg_y_end = bg_y_start + bg_height
                 else:
                     # Căn trên
-                    bg_y_start = margin_v
+                    # Chuyển đổi margin_v thành int nếu là string
+                    margin_v_int = int(margin_v) if isinstance(margin_v, str) else margin_v
+                    bg_y_start = margin_v_int
                     bg_y_end = bg_y_start + bg_height
                 
                 # Điều chỉnh vị trí Y để căn giữa text trong background
@@ -883,6 +887,9 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                     # Căn trên - điều chỉnh bg_y_start
                     bg_y_start -= y_offset
                     bg_y_end = bg_y_start + bg_height
+                
+                # Log thông tin kích thước và vị trí background
+                logger.info(f"Background: Width={bg_width}, Height={bg_height}, X={bg_x_start}, Y={bg_y_start}, Radius={corner_radius}")
                 
                 # Tạo đường viền bo góc
                 scale = 1  # Hệ số scale cho drawing
