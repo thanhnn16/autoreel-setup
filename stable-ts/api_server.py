@@ -696,12 +696,12 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 text_length = len(clean_text.strip())
                 
                 # Tính toán chiều rộng tối ưu dựa trên độ dài text
-                char_width = font_size * 0.45  # Giảm độ rộng trung bình của mỗi ký tự xuống 45% font size
-                min_width = font_size * 8     # Giảm chiều rộng tối thiểu xuống 8 lần font size
-                max_width = int(video_width * 0.85)  # Giảm chiều rộng tối đa xuống 85% chiều rộng video
+                char_width = font_size * 0.5  # Tăng độ rộng trung bình lên 50% font size (từ 40%)
+                min_width = font_size * 5     # Giảm chiều rộng tối thiểu xuống 5 lần font size (từ 6)
+                max_width = int(video_width * 0.85)  # Giữ nguyên chiều rộng tối đa 85% video
                 
                 # Tính toán chiều rộng dựa trên text và padding
-                padding_h = int(font_size * 0.8)  # Padding ngang bằng 80% font size
+                padding_h = int(font_size * 0.5)  # Giảm padding ngang xuống 50% font size (từ 60%)
                 calculated_width = int(text_length * char_width) + (padding_h * 2)
                 bg_width = min(max(calculated_width, min_width), max_width)
                 
@@ -721,14 +721,14 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                         num_lines = 2  # Cập nhật số dòng
                 
                 # Tính toán chiều cao background dựa trên số dòng text
-                line_height_factor = 1.2  # Giảm hệ số chiều cao xuống 1.2
-                padding_v = int(font_size * 0.25)  # Giảm padding dọc xuống 25% font size
+                line_height_factor = 1.05  # Giảm hệ số chiều cao xuống 1.05 (từ 1.1)
+                padding_v = int(font_size * 0.15)  # Giảm padding dọc xuống 15% font size (từ 20%)
                 
                 # Tính toán chiều cao dựa trên số dòng
                 bg_height = int(num_lines * font_size * line_height_factor) + (padding_v * 2)
                 
                 # Đảm bảo chiều cao tối thiểu
-                min_height = int(font_size * 1.1)  # Giảm chiều cao tối thiểu xuống 1.1 lần font size
+                min_height = int(font_size * 0.9)  # Giảm chiều cao tối thiểu xuống 0.9 lần font size (từ 1.0)
                 bg_height = max(bg_height, min_height)
                 
                 # Tính toán vị trí để căn giữa background theo chiều ngang
@@ -736,13 +736,17 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 bg_x_end = bg_x_start + bg_width
                 
                 # Tính toán vị trí Y dựa trên marginV
-                bottom_padding = int(font_size * 0.2)  # Giảm padding dưới xuống 20% font size
+                # Điều chỉnh cách tính bg_y_start để giảm khoảng trống phía trên
+                bottom_padding = int(font_size * 0.05)  # Giảm padding dưới xuống 5% font size (từ 10%)
+                top_offset = int(font_size * 0.15)  # Thêm offset phía trên để giảm khoảng trống
+                
+                # Sử dụng cách tính mới cho bg_y_start và bg_y_end
                 bg_y_end = video_height - margin_v - bottom_padding
-                bg_y_start = bg_y_end - bg_height
+                bg_y_start = bg_y_end - bg_height + top_offset  # Thêm offset để giảm khoảng trống trên
                 
                 # Tạo background layer với bo góc và visibility cải thiện
                 bg_text = (
-                    r"{\\blur2\\bord24\\xbord12\\ybord12\\3c&H303030&\\alpha&H90&\\p1}"
+                    r"{\\blur2\\bord18\\xbord9\\ybord9\\3c&H303030&\\alpha&H90&\\p1}"
                     f"m {bg_x_start} {bg_y_start} l {bg_x_end} {bg_y_start} "
                     f"{bg_x_end} {bg_y_end} {bg_x_start} {bg_y_end}"
                     r"{\\p0}"
