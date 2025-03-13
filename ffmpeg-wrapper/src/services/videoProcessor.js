@@ -508,7 +508,6 @@ class TaskProcessor {
       const {
         voiceVolume,
         bgVolume,
-        bgFadeInDuration,
         sidechain,
         dynaudnorm
       } = ffmpegConfig.audio.mixing;
@@ -519,7 +518,7 @@ class TaskProcessor {
         "-i", path.join(this.tempDir, this.resources.background),
         "-filter_complex",
         `[0:a]volume=${voiceVolume}[voice];
-         [1:a]volume=${bgVolume},afade=t=in:st=0:d=${bgFadeInDuration}[bgfaded];
+         [1:a]volume=${bgVolume}[bgfaded];
          [bgfaded][0:a]sidechaincompress=threshold=${sidechain.threshold}:ratio=${sidechain.ratio}:attack=${sidechain.attack}:release=${sidechain.release}[duckedbg];
          [voice][duckedbg]amix=inputs=2:duration=first:dropout_transition=2,dynaudnorm=f=${dynaudnorm.framelen}[out]`,
         "-map", "[out]",
