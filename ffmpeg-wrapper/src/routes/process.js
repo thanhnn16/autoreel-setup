@@ -11,6 +11,9 @@ import config from '../config/index.js';
 
 const router = express.Router();
 
+// Lưu trữ danh sách các task đang xử lý
+const processingTasks = new Set();
+
 /**
  * Middleware kiểm tra dữ liệu đầu vào
  */
@@ -50,13 +53,20 @@ router.post('/task', validateTaskInput, async (req, res) => {
     const task = req.body;
     logger.info(`Nhận yêu cầu xử lý task ${task.id}`, 'API');
     
+    // Thêm task vào danh sách đang xử lý
+    processingTasks.add(task.id);
+    
     // Xử lý task bất đồng bộ
     processTask(task)
       .then(() => {
         logger.info(`Task ${task.id} đã hoàn thành thành công`, 'API');
+        // Xóa task khỏi danh sách đang xử lý
+        processingTasks.delete(task.id);
       })
       .catch(error => {
         logger.error(`Task ${task.id} thất bại: ${error.message}`, 'API');
+        // Xóa task khỏi danh sách đang xử lý
+        processingTasks.delete(task.id);
       });
     
     // Trả về ngay lập tức
@@ -97,8 +107,10 @@ router.get('/task/:id/status', (req, res) => {
           error: errorLog.error
         });
       } else {
+        // Kiểm tra xem task có đang được xử lý không
+        const isProcessing = processingTasks.has(taskId);
         res.json({
-          status: 'processing',
+          status: isProcessing ? 'processing' : 'unknown',
           taskId: taskId
         });
       }
@@ -210,6 +222,55 @@ router.post('/ffprobe', (req, res) => {
     });
   } catch (error) {
     logger.error(`Lỗi khi xử lý yêu cầu FFprobe: ${error.message}`, 'API');
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Route kiểm tra danh sách các task đang xử lý
+ */
+router.get('/processing', (req, res) => {
+  try {
+    const taskList = Array.from(processingTasks);
+    res.json({
+      status: 'success',
+      count: taskList.length,
+      tasks: taskList
+    });
+  } catch (error) {
+    logger.error(`Lỗi khi lấy danh sách task: ${error.message}`, 'API');
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Route tải video từ thư mục output
+ */
+router.get('/output/:filename', (req, res) => {
+  try {
+    const filename = req.params.filename;
+    const outputPath = path.join(config.paths.output, filename);
+    
+    if (!fs.existsSync(outputPath)) {
+      return res.status(404).json({
+        error: `Không tìm thấy file: ${filename}`
+      });
+    }
+    
+    // Kiểm tra xem đó có phải là file video không
+    const ext = path.extname(filename).toLowerCase();
+    const validVideoExts = ['.mp4', '.webm', '.mov', '.avi', '.mkv'];
+    
+    if (!validVideoExts.includes(ext)) {
+      return res.status(400).json({
+        error: `File không phải là video: ${filename}`
+      });
+    }
+    
+    logger.info(`Gửi file video: ${filename}`, 'API');
+    res.download(outputPath);
+  } catch (error) {
+    logger.error(`Lỗi khi tải file: ${error.message}`, 'API');
     res.status(500).json({ error: error.message });
   }
 });
