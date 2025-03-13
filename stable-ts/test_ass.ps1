@@ -11,28 +11,28 @@ param (
     [int]$BorderRadius = 24, # Bán kính bo góc mặc định
     
     [Parameter(Mandatory=$false)]
-    [double]$PaddingHFactor = 0.1, # Giảm padding ngang với chữ (từ 0.2 xuống 0.15)
+    [double]$PaddingHFactor = 0.1,  # Giảm từ 0.15 xuống 0.1
     
     [Parameter(Mandatory=$false)]
-    [double]$PaddingVFactor = 0.25,  # Giảm padding dọc (từ 0.15 xuống 0.1)
+    [double]$PaddingVFactor = 0.2,  # Giảm từ 0.25 xuống 0.1
     
     [Parameter(Mandatory=$false)]
-    [double]$CharWidthFactor = 0.55, # Giữ nguyên hệ số chiều rộng ký tự
+    [double]$CharWidthFactor = 0.5, # Giữ nguyên hệ số chiều rộng ký tự
     
     [Parameter(Mandatory=$false)]
-    [double]$LineHeightFactor = 2, # Tăng chiều cao dòng (từ 1.4 lên 1.5)
+    [double]$LineHeightFactor = 1.6, # Giảm từ 2 xuống 1.2
     
     [Parameter(Mandatory=$false)]
-    [double]$MinWidthFactor = 2, # Hệ số chiều rộng tối thiểu (tỷ lệ với font size) - giảm xuống
+    [double]$MinWidthFactor = 1.2,   # Giảm từ 1.5 xuống 1.2
     
     [Parameter(Mandatory=$false)]
-    [double]$MaxWidthFactor = 0.98,  # Giảm chiều rộng tối đa (từ 0.75 xuống 0.7)
+    [double]$MaxWidthFactor = 0.95,  # Giảm từ 0.98 xuống 0.85
     
     [Parameter(Mandatory=$false)]
-    [double]$MinHeightFactor = 0.85, # Giảm chiều cao tối thiểu (từ 0.9 xuống 0.8)
+    [double]$MinHeightFactor = 0.8,  # Giảm từ 0.85 xuống 0.7
     
     [Parameter(Mandatory=$false)]
-    [double]$CornerRadiusFactor = 0.25, # Hệ số bán kính bo góc (tỷ lệ với font size)
+    [double]$CornerRadiusFactor = 0.15, # Giảm từ 0.25 xuống 0.15
     
     [Parameter(Mandatory=$false)]
     [double]$BackgroundOpacity = 0.6, # Độ mờ của background (0-1)
@@ -227,8 +227,44 @@ function Calculate-TextHeight {
         [double]$lineHeightFactor
     )
     
-    # Tính toán chiều cao dựa trên số dòng, font size và scale
-    return $numLines * ($fontSize * $scaleY * $lineHeightFactor)
+    # Tính chiều cao mỗi dòng là fontsize * scaleY
+    # lineHeightFactor dùng để điều chỉnh khoảng cách giữa các dòng
+    $baseHeight = ($fontSize * $scaleY * $numLines) + (($numLines - 1) * $fontSize * $scaleY * ($lineHeightFactor - 1))
+    
+    # Giảm 10% chiều cao nếu có 2 dòng
+    if ($numLines -eq 2) {
+        $baseHeight = $baseHeight * 0.9
+    }
+    
+    return $baseHeight
+}
+
+# Hàm tính toán số dòng tự động
+function Get-ActualLines {
+    param (
+        [string]$text,
+        [int]$fontSize,
+        [double]$scaleX,
+        [double]$charWidthFactor,
+        [int]$maxWidth
+    )
+    
+    $words = $text -split '\s+'
+    $currentLineLength = 0
+    $lines = 1
+    
+    foreach ($word in $words) {
+        $wordLength = $word.Length * ($fontSize * $charWidthFactor * $scaleX)
+        
+        if (($currentLineLength + $wordLength) -gt $maxWidth) {
+            $lines++
+            $currentLineLength = $wordLength
+        } else {
+            $currentLineLength += $wordLength + ($fontSize * $charWidthFactor * $scaleX) # Thêm khoảng trắng
+        }
+    }
+    
+    return $lines
 }
 
 # Xử lý từng dialogue và tạo background tương ứng
@@ -252,31 +288,21 @@ foreach ($event in $events) {
     
     # Lấy text từ dialogue và loại bỏ các tag ASS
     $text = $event.Text
-    $cleanText = $text -replace '\{\\[^}]*\}', '' # Loại bỏ các tag ASS
-    
-    # Phân tích text thành các dòng
-    $lines = $cleanText -split '\\N|\\n'
-    $numLines = $lines.Count
-    
-    # Tìm dòng dài nhất để tính chiều rộng
-    $maxLineLength = 0
-    $maxLine = ""
-    foreach ($line in $lines) {
-        if ($line.Length -gt $maxLineLength) {
-            $maxLineLength = $line.Length
-            $maxLine = $line
-        }
-    }
-    
-    Write-Host "Text: $cleanText" -ForegroundColor Yellow
-    Write-Host "Số dòng: $numLines, Dòng dài nhất: $maxLine ($maxLineLength ký tự)" -ForegroundColor Yellow
+    $cleanText = $text -replace '\{\\[^}]*\}', ''
+    $maxLineWidth = $videoWidth * $MaxWidthFactor
+    $numLines = Get-ActualLines -text $cleanText -fontSize $fontSize -scaleX $scaleX -charWidthFactor $CharWidthFactor -maxWidth $maxLineWidth
     
     # Tính toán kích thước background
     $padding_h = [int]($fontSize * $PaddingHFactor)
     $padding_v = [int]($fontSize * $PaddingVFactor)
     
+    # Giảm padding dọc thêm 10% nếu có 2 dòng
+    if ($numLines -eq 2) {
+        $padding_v = [int]($padding_v * 0.9)
+    }
+    
     # Tính chiều rộng dựa trên dòng dài nhất
-    $textWidth = Calculate-TextWidth -text $maxLine -fontSize $fontSize -scaleX $scaleX -spacing $spacing -charWidthFactor $CharWidthFactor
+    $textWidth = Calculate-TextWidth -text $cleanText -fontSize $fontSize -scaleX $scaleX -spacing $spacing -charWidthFactor $CharWidthFactor
     
     # Tính chiều rộng nền (có giới hạn min/max)
     $calculated_width = [int]($textWidth) + ($padding_h * 2)
@@ -289,6 +315,12 @@ foreach ($event in $events) {
     
     # Tính chiều cao nền
     $bg_height = [int]($textHeight) + ($padding_v * 2)
+    
+    # Giảm thêm 10% chiều cao nếu có 2 dòng
+    if ($numLines -eq 2) {
+        $bg_height = [int]($bg_height * 0.9)
+    }
+    
     $min_height = [int]($fontSize * $MinHeightFactor)
     $bg_height = [Math]::Max($bg_height, $min_height)
     
@@ -327,8 +359,7 @@ foreach ($event in $events) {
     # Tính toán offset dựa trên số dòng và alignment
     $y_offset = 0
     if ($numLines -eq 1) {
-        # Nếu chỉ có 1 dòng, điều chỉnh vị trí Y để căn giữa theo chiều dọc
-        $y_offset = [int](($bg_height - $textHeight) / 2)
+        $y_offset = [int](($bg_height - $textHeight) / 2) # Điều chỉnh căn giữa dọc
     }
     
     # Áp dụng offset dựa trên alignment
