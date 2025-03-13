@@ -815,8 +815,9 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 # Xử lý alignment để xác định vị trí Y
                 # Alignment: 1-3 (dưới), 4-6 (giữa), 7-9 (trên)
                 if alignment >= 1 and alignment <= 3:
-                    # Căn dưới - thêm offset 20px để nâng lên
-                    y_offset_bottom = -20  # Điều chỉnh giá trị này để thay đổi độ cao
+                    # Căn dưới - thêm offset để nâng lên
+                    y_offset_bottom = 20  # Điều chỉnh giá trị này để thay đổi độ cao
+                    # Sử dụng margin_v từ dòng dialogue thay vì từ style
                     bg_y_end = video_height - int(margin_v) - y_offset_bottom
                     bg_y_start = bg_y_end - bg_height
                 elif alignment >= 4 and alignment <= 6:
@@ -862,7 +863,8 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                     f"b 0 {corner_radius/2} {corner_radius/2} 0 {corner_radius} 0"
                 )
                 
-                # Tạo background layer mới với bo góc thực sự
+                # Tạo background với vị trí tuyệt đối
+                # Sử dụng \pos để định vị chính xác background
                 bg_text = (
                     r"{\\an7\\pos(" + f"{bg_x_start},{bg_y_start}" + r")\\p1\\bord0\\shad0\\1c&H303030&\\1a&H60&}" +
                     f"{bg_drawing}" +
