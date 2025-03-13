@@ -216,7 +216,14 @@ class TaskProcessor {
    * @returns {number} - Tổng thời lượng (giây)
    */
   calculateTotalDuration() {
-    return this.task.durations.reduce((sum, duration) => sum + duration, 0);
+    try {
+      // Đảm bảo mỗi phần tử trong durations là số
+      const durations = this.task.durations.map(d => parseFloat(d) || 0);
+      return durations.reduce((sum, duration) => sum + duration, 0);
+    } catch (error) {
+      logger.task.warn(this.id, `Lỗi khi tính tổng thời lượng: ${error.message}`);
+      return 0; // Trả về 0 nếu có lỗi
+    }
   }
   
   /**
@@ -366,10 +373,10 @@ class TaskProcessor {
       const imagePath = this.resources.images[i];
       let duration = parseFloat(this.task.durations[i]);
 
-      // Kéo dài thời gian hiển thị của ảnh cuối cùng thêm 2 giây
+      // Kéo dài thời gian hiển thị của ảnh cuối cùng thêm 6 giây
       if (i === this.resources.images.length - 1) {
-        duration = duration + 2;
-        logger.task.info(this.id, `Kéo dài thời gian hiển thị của ảnh cuối cùng thêm 2 giây: ${duration}s`);
+        duration = duration + 6;
+        logger.task.info(this.id, `Kéo dài thời gian hiển thị của ảnh cuối cùng thêm 6 giây: ${duration}s`);
       }
 
       const index = i + 1;
@@ -492,16 +499,16 @@ class TaskProcessor {
     const temp_audio = path.join(this.tempDir, 'temp_audio.mp3');
     const temp_audio_extended = path.join(this.tempDir, 'temp_audio_extended.mp3');
     
-    // Tạo file audio với 2 giây silence ở cuối
+    // Tạo file audio với 6 giây silence ở cuối
     const audioArgs = [
       "-y", "-threads", "0",
       "-i", path.join(this.tempDir, this.resources.audio),
-      "-af", "apad=pad_dur=2",
+      "-af", "apad=pad_dur=6",
       temp_audio_extended
     ];
     
     await runFFmpeg(audioArgs);
-    logger.task.info(this.id, 'Đã thêm 2 giây silence vào cuối audio');
+    logger.task.info(this.id, 'Đã thêm 6 giây silence vào cuối audio');
     
     if (this.resources.background) {
       // Mix âm thanh nếu có nhạc nền
@@ -565,19 +572,32 @@ class TaskProcessor {
     await ensureOutputDir(path.dirname(this.outputPath));
 
     const finalArgs = [
-      "-y", "-threads", "0",
-      "-i", temp_video_no_audio,
-      "-i", temp_audio
+      "-y", "-threads", "0"
     ];
 
-    // Thêm subtitle nếu có
+    // Thêm fix_sub_duration TRƯỚC input files nếu có subtitle
     if (subtitlePath) {
-      finalArgs.push("-vf", `ass=${subtitlePath}`);
+      finalArgs.push("-fix_sub_duration");
     }
 
+    // Thêm input files
+    finalArgs.push(
+      "-i", temp_video_no_audio,
+      "-i", temp_audio
+    );
+
+    // Thêm subtitle filter nếu có
+    if (subtitlePath) {
+      // Thêm canvas_size để đảm bảo subtitle hiển thị đúng
+      finalArgs.push("-vf", `ass=${subtitlePath},setpts=PTS-STARTPTS`);
+    }
+
+    // Thêm các tùy chọn output
     finalArgs.push(
       "-c:v", "libx264",
       "-c:a", "aac",
+      "-movflags", "+faststart",
+      "-max_muxing_queue_size", "9999",
       this.outputPath
     );
 
