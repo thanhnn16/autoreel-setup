@@ -854,7 +854,8 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 if alignment >= 1 and alignment <= 3:
                     # Căn dưới - thêm offset 20px để nâng lên
                     y_offset_bottom = -20  # Điều chỉnh giá trị này để thay đổi độ cao
-                    bg_y_end = video_height - int(margin_v) - y_offset_bottom
+                    # Sử dụng margin_v từ style, không phải từ dòng Dialogue
+                    bg_y_end = video_height - margin_v - y_offset_bottom
                     bg_y_start = bg_y_end - bg_height
                 elif alignment >= 4 and alignment <= 6:
                     # Căn giữa
@@ -862,7 +863,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                     bg_y_end = bg_y_start + bg_height
                 else:
                     # Căn trên
-                    bg_y_start = int(margin_v)
+                    bg_y_start = margin_v
                     bg_y_end = bg_y_start + bg_height
                 
                 # Điều chỉnh vị trí Y để căn giữa text trong background
