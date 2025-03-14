@@ -670,7 +670,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         events_section = False
         
         # Tham số tính toán từ test_ass.ps1
-        padding_h_factor = 0.35     # Hệ số padding ngang (35% font size)
+        padding_h_factor = 0.2     # Hệ số padding ngang (20% font size)
         padding_v_factor = 0.3     # Hệ số padding dọc (30% font size)
         char_width_factor = 0.5    # Hệ số chiều rộng ký tự (50% font size)
         line_height_factor = 1.6   # Hệ số chiều cao dòng (160% font size)
