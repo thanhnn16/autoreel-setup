@@ -129,7 +129,7 @@ async def root():
         "features": {
             "rounded_corners": "Bo góc cho phụ đề ASS",
             "word_level": "Highlight từng từ khi phát âm",
-            "max_lines": "Giới hạn 2 dòng subtitle",
+            "max_lines": "Giới hạn 1 dòng subtitle",
             "supported_audio": ["mp3", "wav", "m4a", "ogg", "flac", "mp4", "avi", "mkv"]
         },
         "version": "1.1.0"
@@ -184,7 +184,7 @@ async def transcribe_audio(
         encoding (int): Mã hóa ký tự
         
     Returns:
-        Kết quả phiên âm dưới dạng ASS subtitle
+        Kết quả phiên âm dưới dạng ASS subtitle với giới hạn 1 dòng
     """
     
     # Ghi log request
@@ -473,7 +473,7 @@ async def download_file(filename: str):
 
 def process_audio_with_attention_mask(model, audio_path, language="vi"):
     """
-    Xử lý audio với transcribe mặc định và tối ưu cho phụ đề 2 dòng.
+    Xử lý audio với transcribe mặc định và tối ưu cho phụ đề 1 dòng.
     
     Args:
         model: Mô hình stable-ts đã tải
@@ -481,7 +481,7 @@ def process_audio_with_attention_mask(model, audio_path, language="vi"):
         language: Ngôn ngữ (mặc định là "vi")
         
     Returns:
-        WhisperResult: Kết quả phiên âm đã được tối ưu
+        WhisperResult: Kết quả phiên âm đã được tối ưu cho phụ đề 1 dòng
     """
     # Sử dụng transcribe với các tùy chọn tối ưu cho phụ đề
     result = model.transcribe(
@@ -494,7 +494,7 @@ def process_audio_with_attention_mask(model, audio_path, language="vi"):
     
     # Tối ưu thêm kết quả với các phương pháp chaining
     # Tối ưu cho video 1080x1920 với font Montserrat kích thước 80
-    # Giới hạn 2 dòng cho phụ đề
+    # Giới hạn 1 dòng cho phụ đề
     (
         result
         .ignore_special_periods()  # Bỏ qua các dấu chấm đặc biệt
@@ -502,12 +502,12 @@ def process_audio_with_attention_mask(model, audio_path, language="vi"):
         # Ngắt theo dấu câu tiếng Việt
         .split_by_punctuation([('.', ' '), '。', '?', '？', '!', '！'])
         .split_by_gap(0.5)         # Ngắt khi có khoảng trống > 0.5s
-        .split_by_punctuation([(',', ' '), '，', ';', '；'], min_chars=40)
-        .split_by_length(60)       # Ngắt khi dòng quá dài để phù hợp với font size 80
+        .split_by_punctuation([(',', ' '), '，', ';', '；'], min_chars=30)  # Giảm min_chars từ 40 xuống 30
+        .split_by_length(40)       # Giảm độ dài tối đa từ 60 xuống 40 ký tự để phù hợp với 1 dòng
         .clamp_max()               # Giới hạn lại thời gian tối đa
     )
     
-    logger.info(f"Đã tối ưu kết quả phiên âm với regroup và ngắt theo dấu câu")
+    logger.info(f"Đã tối ưu kết quả phiên âm với regroup và ngắt theo dấu câu cho phụ đề 1 dòng")
     
     return result
 
@@ -515,7 +515,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
     """
     Áp dụng bo góc cho file ASS và đảm bảo giữ nguyên hiệu ứng highlight từng từ
     Tối ưu cho video kích thước 1080x1920 (chiều rộng x chiều cao)
-    Xử lý tốt các trường hợp text 1 dòng, 2 dòng, text ngắn và dài
+    Xử lý tốt các trường hợp text 1 dòng, text ngắn và dài
     Đảm bảo layer của dialogue luôn là 1 và layer của background luôn là 0
     """
     try:
@@ -735,9 +735,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 
                 # Kiểm tra số dòng thực tế dựa trên \\N hoặc \\n trong text
                 num_lines = 1
-                if '\\N' in clean_text or '\\n' in clean_text:
-                    # Đếm số dòng dựa trên \\N hoặc \\n
-                    num_lines = len(re.split(r'\\[Nn]', clean_text))
+                # Bỏ qua việc kiểm tra \\N hoặc \\n vì chúng ta luôn muốn 1 dòng
                 
                 # Tính toán chiều rộng tối đa cho phép
                 max_line_width = int(video_width * max_width_factor)
@@ -761,15 +759,14 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                         else:
                             current_line_length += word_length + (font_size * char_width_factor * scale_x)  # Thêm khoảng trắng
                     
-                    num_lines = min(calculated_lines, 2)  # Giới hạn tối đa 2 dòng
+                    # Luôn giới hạn 1 dòng
+                    num_lines = 1
                 
                 # Tính toán padding dựa trên kích thước font
                 padding_h = int(font_size * padding_h_factor)
                 padding_v = int(font_size * padding_v_factor)
                 
-                # Giảm padding dọc thêm 10% nếu có 2 dòng để tối ưu hiển thị
-                if num_lines == 2:
-                    padding_v = int(padding_v * 0.9)
+                # Không cần giảm padding dọc vì luôn chỉ có 1 dòng
                 
                 # Tính chiều rộng văn bản
                 # Tính toán chiều rộng dựa trên số ký tự, font size, scale và spacing
@@ -786,11 +783,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 # Tính chiều cao văn bản
                 # Tính chiều cao mỗi dòng là fontsize * scaleY
                 # line_height_factor dùng để điều chỉnh khoảng cách giữa các dòng
-                text_height = (font_size * scale_y * num_lines) + ((num_lines - 1) * font_size * scale_y * (line_height_factor - 1))
-                
-                # Giảm 10% chiều cao nếu có 2 dòng để tối ưu hiển thị
-                if num_lines == 2:
-                    text_height = text_height * 0.9
+                text_height = font_size * scale_y  # Luôn chỉ có 1 dòng
                 
                 # Tính chiều cao nền với điều chỉnh cho số dòng
                 bg_height = int(text_height) + (padding_v * 2)
