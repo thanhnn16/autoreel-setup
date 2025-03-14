@@ -502,8 +502,8 @@ def process_audio_with_attention_mask(model, audio_path, language="vi"):
         # Ngắt theo dấu câu tiếng Việt
         .split_by_punctuation([('.', ' '), '。', '?', '？', '!', '！'])
         .split_by_gap(0.5)         # Ngắt khi có khoảng trống > 0.5s
-        .split_by_punctuation([(',', ' '), '，', ';', '；'], min_chars=30)  # Giảm min_chars từ 40 xuống 30
-        .split_by_length(40)       # Giảm độ dài tối đa từ 60 xuống 40 ký tự để phù hợp với 1 dòng
+        .split_by_punctuation([(',', ' '), '，', ';', '；'], min_chars=25)  # Giảm min_chars từ 30 xuống 25
+        .split_by_length(30)       # Giảm độ dài tối đa từ 40 xuống 30 ký tự để đảm bảo 1 dòng
         .clamp_max()               # Giới hạn lại thời gian tối đa
     )
     
@@ -670,12 +670,12 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         events_section = False
         
         # Tham số tính toán từ test_ass.ps1
-        padding_h_factor = 0.5     # Hệ số padding ngang (50% font size)
-        padding_v_factor = 0.2     # Hệ số padding dọc (20% font size)
+        padding_h_factor = 0.6     # Tăng hệ số padding ngang từ 0.5 lên 0.6 (60% font size)
+        padding_v_factor = 0.3     # Tăng hệ số padding dọc từ 0.2 lên 0.3 (30% font size)
         char_width_factor = 0.5    # Hệ số chiều rộng ký tự (50% font size)
         line_height_factor = 1.6   # Hệ số chiều cao dòng (160% font size)
         min_width_factor = 1.2     # Hệ số chiều rộng tối thiểu (120% font size)
-        max_width_factor = 0.95    # Hệ số chiều rộng tối đa (95% chiều rộng video)
+        max_width_factor = 0.98    # Tăng hệ số chiều rộng tối đa từ 0.95 lên 0.98 (98% chiều rộng video)
         min_height_factor = 0.8    # Hệ số chiều cao tối thiểu (80% font size)
         corner_radius_factor = 0.15 # Hệ số bán kính bo góc (15% font size)
         
@@ -813,14 +813,23 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                     # Sử dụng margin_v từ dòng dialogue thay vì từ style
                     bg_y_end = video_height - int(margin_v) - y_offset_bottom
                     bg_y_start = bg_y_end - bg_height
+                    # Giảm y_start thêm 20px để nâng phụ đề lên cao hơn
+                    bg_y_start -= 20
+                    bg_y_end -= 20
                 elif alignment >= 4 and alignment <= 6:
                     # Căn giữa
                     bg_y_start = int((video_height - bg_height) / 2)
                     bg_y_end = bg_y_start + bg_height
+                    # Giảm y_start thêm 20px để nâng phụ đề lên cao hơn
+                    bg_y_start -= 20
+                    bg_y_end -= 20
                 else:
                     # Căn trên
                     bg_y_start = int(margin_v)
                     bg_y_end = bg_y_start + bg_height
+                    # Giảm y_start thêm 20px để nâng phụ đề lên cao hơn
+                    bg_y_start -= 20
+                    bg_y_end -= 20
                 
                 # Điều chỉnh vị trí Y để căn giữa text trong background
                 # Tính toán offset dựa trên số dòng và alignment
