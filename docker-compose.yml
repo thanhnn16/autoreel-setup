@@ -117,6 +117,8 @@ services:
     command:
       - "-c"
       - "sleep 3; ollama pull gemma3:4b"
+      - "-c"
+      - "sleep 3; ollama pull qwq"      
     depends_on:
       - ollama
 
