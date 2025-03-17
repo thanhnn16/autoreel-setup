@@ -116,8 +116,7 @@ services:
       - OLLAMA_HOST=ollama:11434
     command:
       - "-c"
-      - "sleep 3; ollama pull gemma3:4b"
-      - "sleep 3; ollama pull qwq"      
+      - "sleep 3; ollama pull llama3.2"
     depends_on:
       - ollama
 
