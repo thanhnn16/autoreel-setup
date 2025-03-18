@@ -835,19 +835,19 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 # Tính toán vị trí trung tâm theo chiều ngang
                 center_x = int(video_width / 2)
                 
-                # Kiểm tra và log vị trí thực tế của subtitle
-                logger.info(f"Vị trí Y của subtitle: bottom_position={bottom_position}, bg_y_start={bg_y_start}, bg_y_end={bg_y_end}")
-                logger.info(f"Video width: {video_width}, center_x: {center_x}")
-                logger.info(f"Video height: {video_height}, Position percentage: 70%, bg_height: {bg_height}")
+                # Tính toán offset Y cho background để nằm giữa chữ
+                # Để chữ hiển thị đẹp hơn, đặt background cao hơn chữ một chút
+                # Đưa background lên cao hơn 25% chiều cao của nó để nằm giữa chữ
+                bg_y_offset = -int(bg_height * 0.25)  # Offset 25% chiều cao background lên trên
+                bg_center_y = bottom_position + bg_y_offset
                 
-                # Tạo background với vị trí tuyệt đối và các thuộc tính
-                # \\an7: Căn góc trái trên (để dễ dàng định vị)
-                # \\pos(x,y): Vị trí tuyệt đối của background
-                # \\p1: Bật chế độ vẽ hình (drawing mode)
-                # \\bord0: Không có viền
-                # \\shad0: Không có bóng đổ
-                # \\1c: Màu nền (color1)
-                # \\1a: Độ trong suốt của nền (alpha1)
+                # Kiểm tra và log vị trí thực tế của subtitle
+                logger.info(f"Vị trí Y của subtitle: bottom_position={bottom_position}, bg_center_y={bg_center_y}")
+                logger.info(f"Video width: {video_width}, center_x: {center_x}")
+                logger.info(f"Video height: {video_height}, Position percentage: 70%, bg_height: {bg_height}, bg_y_offset: {bg_y_offset}")
+                
+                # Tạo background với vị trí tuyệt đối
+                # Sử dụng \an để căn chỉnh vị trí và \pos để đặt vị trí tuyệt đối
                 bg_drawing = (
                     f"m {corner_radius} 0 " +
                     f"l {bg_width - corner_radius} 0 " +
@@ -864,7 +864,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 # Sử dụng \an để căn chỉnh vị trí và \pos để đặt vị trí tuyệt đối
                 bg_text = (
                     r"{\\an2" +                           # Căn dưới giữa (vị trí 2)
-                    r"\\pos(" + f"{center_x},{bottom_position}" + ")" +  # Vị trí tuyệt đối
+                    r"\\pos(" + f"{center_x},{bg_center_y}" + ")" +  # Vị trí tuyệt đối với offset
                     r"\\p1" +                           # Bật chế độ vẽ hình
                     r"\\bord0" +                        # Không viền
                     r"\\shad0" +                        # Không bóng
@@ -888,7 +888,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 
                 # Thêm tag căn chỉnh và vị trí cho text
                 text_align_tag = "\\an2"  # Căn dưới giữa (vị trí 2)
-                text_pos_tag = f"\\pos({center_x},{bottom_position})"  # Vị trí tuyệt đối
+                text_pos_tag = f"\\pos({center_x},{bottom_position})"  # Vị trí tuyệt đối giữ nguyên
                 
                 # Thêm tag căn chỉnh vào text, giữ nguyên các tag khác
                 text = dialogue_parts[1]
