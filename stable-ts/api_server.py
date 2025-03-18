@@ -824,22 +824,10 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 bg_y_start = 0
                 bg_y_end = 0
                 
-                # Điều chỉnh vị trí Y để đưa subtitle lên cao hơn (2/3 màn hình)
-                if alignment >= 1 and alignment <= 3:
-                    # Căn dưới - thêm offset để nâng lên 2/3 màn hình
-                    two_thirds_height = int(video_height * 2/3)
-                    bg_y_end = two_thirds_height
-                    bg_y_start = bg_y_end - bg_height
-                elif alignment >= 4 and alignment <= 6:
-                    # Căn giữa tại vị trí 2/3 màn hình
-                    two_thirds_height = int(video_height * 2/3)
-                    bg_y_start = two_thirds_height - int(bg_height/2)
-                    bg_y_end = bg_y_start + bg_height
-                else:
-                    # Căn trên tại vị trí 2/3 màn hình
-                    two_thirds_height = int(video_height * 2/3)
-                    bg_y_start = two_thirds_height
-                    bg_y_end = bg_y_start + bg_height
+                # Điều chỉnh vị trí Y để đặt subtitle ở vị trí 5 (căn giữa) và thêm 40px offset
+                two_thirds_height = int(video_height * 2/3) + 40  # Thêm 40px offset
+                bg_y_start = two_thirds_height - int(bg_height/2)
+                bg_y_end = bg_y_start + bg_height
                 
                 # Tạo background với vị trí tuyệt đối và các thuộc tính
                 # \\an7: Căn góc trái trên (để dễ dàng định vị)
@@ -864,7 +852,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 # Tạo background với vị trí tuyệt đối
                 # Sử dụng \an để căn chỉnh vị trí
                 bg_text = (
-                    r"{\\an8" +                           # Căn giữa dưới
+                    r"{\\an5" +                           # Căn giữa (vị trí 5)
                     r"\\p1" +                           # Bật chế độ vẽ hình
                     r"\\bord0" +                        # Không viền
                     r"\\shad0" +                        # Không bóng
@@ -887,7 +875,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 dialogue_parts = line.split(',', 1)  # Tách phần layer và phần còn lại
                 
                 # Thêm tag căn chỉnh cho text
-                text_align_tag = "\\an8"  # Căn giữa dưới
+                text_align_tag = "\\an5"  # Căn giữa (vị trí 5)
                 
                 # Thêm tag căn chỉnh vào text, giữ nguyên các tag khác
                 text = dialogue_parts[1]
