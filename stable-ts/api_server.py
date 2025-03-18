@@ -820,10 +820,6 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 if border_radius > 0:
                     corner_radius = border_radius
                 
-                # Tính toán vị trí X của background (căn giữa ngang)
-                bg_x_start = int((video_width - bg_width) / 2)
-                bg_x_end = bg_x_start + bg_width
-                
                 # Tính toán vị trí Y dựa trên alignment và marginV
                 bg_y_start = 0
                 bg_y_end = 0
@@ -866,12 +862,9 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 )
                 
                 # Tạo background với vị trí tuyệt đối
-                # Sử dụng \pos để định vị chính xác background
+                # Sử dụng \an để căn chỉnh vị trí
                 bg_text = (
-                    r"{\\an7" +                           # Căn góc trái trên
-                    r"\\pos(" +                          # Bắt đầu định vị
-                    f"{bg_x_start},{bg_y_start}" +      # Tọa độ x,y
-                    r")" +                               # Kết thúc định vị
+                    r"{\\an8" +                           # Căn giữa dưới
                     r"\\p1" +                           # Bật chế độ vẽ hình
                     r"\\bord0" +                        # Không viền
                     r"\\shad0" +                        # Không bóng
@@ -893,10 +886,10 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 # Tạo lại dòng Dialogue với các thông số gốc, chỉ thay đổi layer và vị trí
                 dialogue_parts = line.split(',', 1)  # Tách phần layer và phần còn lại
                 
-                # Tạo tag định vị cho text
-                text_pos_tag = f"\\pos({bg_x_start + padding_h},{bg_y_start + padding_v})"
+                # Thêm tag căn chỉnh cho text
+                text_align_tag = "\\an8"  # Căn giữa dưới
                 
-                # Thêm tag định vị vào text, giữ nguyên các tag khác
+                # Thêm tag căn chỉnh vào text, giữ nguyên các tag khác
                 text = dialogue_parts[1]
                 
                 # Tìm vị trí của tag style đầu tiên
@@ -910,16 +903,16 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                     style_tag = text[style_start:style_end]
                     after_style = text[style_end:]
                     
-                    # Thêm tag pos vào trong block style hiện có
-                    # Đảm bảo tag pos nằm trong cùng block với các tag khác
+                    # Thêm tag align vào trong block style hiện có
+                    # Đảm bảo tag align nằm trong cùng block với các tag khác
                     style_content = style_tag[1:-1]  # Bỏ dấu { và }
                     if style_content:  # Nếu đã có các tag khác
-                        text = before_style + "{" + style_content + text_pos_tag + "}" + after_style
+                        text = before_style + "{" + style_content + text_align_tag + "}" + after_style
                     else:  # Nếu block style trống
-                        text = before_style + "{" + text_pos_tag + "}" + after_style
+                        text = before_style + "{" + text_align_tag + "}" + after_style
                 else:
                     # Nếu không tìm thấy tag style, tạo block style mới
-                    text = "{" + text_pos_tag + "}" + text
+                    text = "{" + text_align_tag + "}" + text
                 
                 dialogue_line = f"Dialogue: {dialogue_layer}," + text
                 
