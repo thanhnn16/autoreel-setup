@@ -421,7 +421,7 @@ async def transcribe_audio(
             torch.cuda.empty_cache()
             
             # Chỉ sử dụng 2 model lớn nhất
-            models = ["large-v3", "turbo"]  # Chỉ dùng 2 model lớn nhất
+            models = ["large-v3", "turbo"]
             
             # Tìm model hiện tại và chuyển sang model nhỏ hơn tiếp theo
             current_model = None
@@ -436,18 +436,18 @@ async def transcribe_audio(
                 if current_idx < len(models) - 1:
                     next_model = models[current_idx + 1]
             else:
-                next_model = models[-1]  # Sử dụng model nhỏ nhất nếu không xác định được model hiện tại
+                next_model = models[-1]  # Sử dụng turbo nếu không xác định được model hiện tại
             
             if next_model:
                 logger.info(f"Thử lại với model {next_model}...")
                 _model = stable_whisper.load_model(next_model, device="cuda")
                 return await transcribe_audio(file, use_cpu=False)
             else:
-                logger.error("Đã thử tất cả các model nhỏ hơn nhưng vẫn gặp lỗi CUDA OOM")
+                logger.error("Đã thử tất cả các model nhưng vẫn gặp lỗi CUDA OOM")
                 return JSONResponse(
                     status_code=500,
                     content={
-                        "error": "Không đủ bộ nhớ GPU để xử lý file này với bất kỳ model nào"
+                        "error": "Không đủ bộ nhớ GPU để xử lý file này với model large-v3 và turbo"
                     }
                 )
         else:
@@ -513,7 +513,7 @@ def process_audio_with_attention_mask(model, audio_path, language="vi"):
     # Sử dụng transcribe với các tùy chọn tối ưu cho phụ đề
     result = model.transcribe(
         str(audio_path), 
-        language=language,  # Luôn dùng tiếng Việt
+        language="vi",  # Luôn dùng tiếng Việt
         regroup=True,
         word_timestamps=True,
         vad=True,
@@ -526,8 +526,8 @@ def process_audio_with_attention_mask(model, audio_path, language="vi"):
         .clamp_max()
         .split_by_punctuation([('.', ' '), '。', '?', '？', '!', '！'])
         .split_by_gap(0.5)
-        .split_by_punctuation([(',', ' '), '，', ';', '；'], min_chars=20)  # Tăng lên 20 ký tự
-        .split_by_length(20)  # Tăng lên 20 ký tự
+        .split_by_punctuation([(',', ' '), '，', ';', '；'], min_chars=20)  # Tăng lên 20 từ
+        .split_by_length(20)  # Tăng lên 20 từ
         .clamp_max()
     )
     
@@ -539,6 +539,8 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
     """
     Áp dụng bo góc cho file ASS và đảm bảo giữ nguyên hiệu ứng highlight từng từ
     Tối ưu cho video kích thước 1080x1920 (chiều rộng x chiều cao)
+    Xử lý tốt các trường hợp text 1 dòng, text ngắn và dài
+    Đảm bảo layer của dialogue luôn là 1 và layer của background luôn là 0
     """
     try:
         with open(input_ass, 'r', encoding='utf-8') as f:
@@ -827,37 +829,60 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 bg_y_start = 0
                 bg_y_end = 0
                 
-                # Điều chỉnh vị trí Y để đưa subtitle lên cao hơn (khoảng 2/3 màn hình)
-                screen_two_thirds = int(video_height * 0.67)  # 2/3 chiều cao màn hình
-                
+                # Điều chỉnh vị trí Y để đưa subtitle lên cao hơn (2/3 màn hình)
                 if alignment >= 1 and alignment <= 3:
-                    # Căn dưới - đưa lên vị trí 2/3 màn hình
-                    bg_y_end = screen_two_thirds
+                    # Căn dưới - thêm offset để nâng lên 2/3 màn hình
+                    two_thirds_height = int(video_height * 2/3)
+                    bg_y_end = two_thirds_height
                     bg_y_start = bg_y_end - bg_height
                 elif alignment >= 4 and alignment <= 6:
                     # Căn giữa tại vị trí 2/3 màn hình
-                    bg_y_start = screen_two_thirds - int(bg_height/2)
+                    two_thirds_height = int(video_height * 2/3)
+                    bg_y_start = two_thirds_height - int(bg_height/2)
                     bg_y_end = bg_y_start + bg_height
                 else:
                     # Căn trên tại vị trí 2/3 màn hình
-                    bg_y_start = screen_two_thirds - bg_height
-                    bg_y_end = screen_two_thirds
+                    two_thirds_height = int(video_height * 2/3)
+                    bg_y_start = two_thirds_height
+                    bg_y_end = bg_y_start + bg_height
                 
-                # Tạo background với vị trí tuyệt đối và các thuộc tính được comment giải thích
-                bg_text = (
-                    # \an7: Căn góc trái trên cho background để dễ định vị
-                    # \pos(x,y): Đặt vị trí tuyệt đối cho background
-                    # \p1: Bật chế độ vẽ hình
-                    # \bord0: Tắt viền cho background
-                    # \shad0: Tắt bóng đổ cho background
-                    # \1c&H303030&: Màu nền (định dạng BGR)
-                    # \1a&H60&: Độ trong suốt của nền (60 hex = 96 dec = khoảng 40% trong suốt)
-                    r"{\\an7\\pos(" + f"{bg_x_start},{bg_y_start}" + r")\\p1\\bord0\\shad0\\1c&H303030&\\1a&H60&}" +
-                    f"{bg_drawing}" +  # Vẽ hình chữ nhật bo góc
-                    r"{\\p0}"  # Tắt chế độ vẽ hình
+                # Tạo background với vị trí tuyệt đối và các thuộc tính
+                # \\an7: Căn góc trái trên (để dễ dàng định vị)
+                # \\pos(x,y): Vị trí tuyệt đối của background
+                # \\p1: Bật chế độ vẽ hình (drawing mode)
+                # \\bord0: Không có viền
+                # \\shad0: Không có bóng đổ
+                # \\1c: Màu nền (color1)
+                # \\1a: Độ trong suốt của nền (alpha1)
+                bg_drawing = (
+                    f"m {corner_radius} 0 " +
+                    f"l {bg_width - corner_radius} 0 " +
+                    f"b {bg_width - corner_radius/2} 0 {bg_width} {corner_radius/2} {bg_width} {corner_radius} " +
+                    f"l {bg_width} {bg_height - corner_radius} " +
+                    f"b {bg_width} {bg_height - corner_radius/2} {bg_width - corner_radius/2} {bg_height} {bg_width - corner_radius} {bg_height} " +
+                    f"l {corner_radius} {bg_height} " +
+                    f"b {corner_radius/2} {bg_height} 0 {bg_height - corner_radius/2} 0 {bg_height - corner_radius} " +
+                    f"l 0 {corner_radius} " +
+                    f"b 0 {corner_radius/2} {corner_radius/2} 0 {corner_radius} 0"
                 )
                 
-                # Đảm bảo layer của background luôn là 0 (nằm dưới text)
+                # Tạo background với vị trí tuyệt đối
+                # Sử dụng \pos để định vị chính xác background
+                bg_text = (
+                    r"{\\an7" +                           # Căn góc trái trên
+                    r"\\pos(" +                          # Bắt đầu định vị
+                    f"{bg_x_start},{bg_y_start}" +      # Tọa độ x,y
+                    r")" +                               # Kết thúc định vị
+                    r"\\p1" +                           # Bật chế độ vẽ hình
+                    r"\\bord0" +                        # Không viền
+                    r"\\shad0" +                        # Không bóng
+                    r"\\1c&H303030&" +                  # Màu nền (gray)
+                    r"\\1a&H60&}" +                     # Độ trong suốt 60%
+                    f"{bg_drawing}" +                   # Lệnh vẽ hình bo góc
+                    r"{\\p0}"                           # Tắt chế độ vẽ hình
+                )
+                
+                # Đảm bảo layer của background luôn là 0
                 bg_line = f"Dialogue: 0,{start_time},{end_time},Background,,0,0,0,,{bg_text}\n"
                 
                 # QUAN TRỌNG: KHÔNG thay đổi text gốc để đảm bảo hiệu ứng karaoke hoạt động đúng
