@@ -2,7 +2,6 @@ volumes:
   n8n_storage:
   postgres_storage:
   qdrant_storage:
-  ollama_storage:
   stable_ts_models:
 
 networks:
@@ -64,7 +63,6 @@ services:
       - N8N_PUSH_BACKEND=websocket
       - N8N_RUNNERS_ENABLED=true
       - N8N_DEFAULT_BINARY_DATA_MODE=filesystem
-      - OLLAMA_HOST=ollama:11434
     depends_on:
       postgres:
         condition: service_healthy
@@ -86,40 +84,6 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
 
-  ollama:
-    image: ollama/ollama:latest
-    hostname: ollama
-    container_name: ollama
-    networks: ["autoreel"]
-    restart: unless-stopped
-    ports:
-      - 11434:11434
-    volumes:
-      - ollama_storage:/root/.ollama
-    depends_on:
-      - ffmpeg-wrapper
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              capabilities: [gpu]
-
-  ollama-pull-llama:
-    image: ollama/ollama:latest
-    networks: ["autoreel"]
-    container_name: ollama-pull-llama
-    volumes:
-      - ollama_storage:/root/.ollama
-    entrypoint: /bin/sh
-    environment:
-      - OLLAMA_HOST=ollama:11434
-    command:
-      - "-c"
-      - "sleep 3; ollama pull llama3.2"
-    depends_on:
-      - ollama
-
   comfyui:
     image: yanwk/comfyui-boot:cu124-slim
     hostname: comfyui
@@ -130,8 +94,6 @@ services:
       - 8188:8188
     volumes:
       - ./storage:/storage
-    depends_on:
-      - ollama
     environment:
       - WANTED_UID=1000
       - WANTED_GID=1000
