@@ -825,7 +825,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 bg_y_end = 0
                 
                 # Điều chỉnh vị trí Y để đặt subtitle ở vị trí 5 (căn giữa) và thêm 40px offset
-                two_thirds_height = int(video_height * 2/3) + 40  # Thêm 40px offset
+                two_thirds_height = int(video_height * 2/3) + 40 + 200  # Thêm 40px offset + 200px
                 bg_y_start = two_thirds_height - int(bg_height/2)
                 bg_y_end = bg_y_start + bg_height
                 
