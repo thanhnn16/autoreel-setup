@@ -695,7 +695,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         events_section = False
         
         # Điều chỉnh các hệ số để phù hợp với font size lớn hơn
-        padding_h_factor = 0.25     # Tăng padding ngang lên 25% font size
+        padding_h_factor = 0.15     # Tăng padding ngang lên 15% font size
         padding_v_factor = 0.35     # Tăng padding dọc lên 35% font size
         char_width_factor = 0.55    # Tăng hệ số chiều rộng ký tự lên 55% font size
         line_height_factor = 1.8    # Tăng hệ số chiều cao dòng lên 180%
