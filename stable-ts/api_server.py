@@ -910,10 +910,15 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                     style_tag = text[style_start:style_end]
                     after_style = text[style_end:]
                     
-                    # Thêm tag pos vào sau tag style
-                    text = before_style + style_tag + text_pos_tag + after_style
+                    # Thêm tag pos vào trong block style hiện có
+                    # Đảm bảo tag pos nằm trong cùng block với các tag khác
+                    style_content = style_tag[1:-1]  # Bỏ dấu { và }
+                    if style_content:  # Nếu đã có các tag khác
+                        text = before_style + "{" + style_content + text_pos_tag + "}" + after_style
+                    else:  # Nếu block style trống
+                        text = before_style + "{" + text_pos_tag + "}" + after_style
                 else:
-                    # Nếu không tìm thấy tag style, thêm vào đầu text
+                    # Nếu không tìm thấy tag style, tạo block style mới
                     text = "{" + text_pos_tag + "}" + text
                 
                 dialogue_line = f"Dialogue: {dialogue_layer}," + text
