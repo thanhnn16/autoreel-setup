@@ -257,7 +257,7 @@ async def transcribe_audio(
             'Alignment': alignment,
             'MarginL': margin_l,
             'MarginR': margin_r,
-            'MarginV': margin_v,
+            'MarginV': 0,
             'Encoding': encoding
         }
         
@@ -594,7 +594,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         
         # Phân tích style để lấy thông tin font size và margin
         font_size = 80  # Giá trị mặc định
-        margin_v = 80   # Giá trị mặc định
+        margin_v = 0   # Đặt marginV thành 0 để tránh bị ảnh hưởng đến vị trí
         alignment = 2   # Giá trị mặc định (căn dưới giữa)
         scale_x = 1.0   # Giá trị mặc định
         scale_y = 1.0   # Giá trị mặc định
@@ -639,7 +639,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         # Thêm style cho background đơn giản và hiệu quả
         bg_style = (
             "Style: Background,Montserrat,80,&H80000000,&H000000FF,&H00000000,&H00000000,"
-            "0,0,0,0,100,100,0,0,3,0.5,0.7,2,16,16,80,163\n"
+            "0,0,0,0,100,100,0,0,3,0.5,0.7,2,16,16,0,163\n"
         )
         
         # Định dạng Format cho phần Styles
@@ -695,7 +695,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         events_section = False
         
         # Điều chỉnh các hệ số để phù hợp với font size lớn hơn
-        padding_h_factor = 0.15     # Tăng padding ngang lên 15% font size
+        padding_h_factor = 0.25     # Tăng padding ngang lên 25% font size
         padding_v_factor = 0.35     # Tăng padding dọc lên 35% font size
         char_width_factor = 0.55    # Tăng hệ số chiều rộng ký tự lên 55% font size
         line_height_factor = 1.8    # Tăng hệ số chiều cao dòng lên 180%
@@ -741,7 +741,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 name = parts[4]
                 margin_l = parts[5]
                 margin_r = parts[6]
-                margin_v = parts[7]
+                margin_v = "0"  # Đặt marginV thành 0 để tránh bị ảnh hưởng đến vị trí
                 effect = parts[8]
                 text = parts[9]
                 
@@ -832,8 +832,12 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 bg_y_start = bottom_position - bg_height
                 bg_y_end = bottom_position
                 
+                # Tính toán vị trí trung tâm theo chiều ngang
+                center_x = int(video_width / 2)
+                
                 # Kiểm tra và log vị trí thực tế của subtitle
                 logger.info(f"Vị trí Y của subtitle: bottom_position={bottom_position}, bg_y_start={bg_y_start}, bg_y_end={bg_y_end}")
+                logger.info(f"Video width: {video_width}, center_x: {center_x}")
                 logger.info(f"Video height: {video_height}, Position percentage: 70%, bg_height: {bg_height}")
                 
                 # Tạo background với vị trí tuyệt đối và các thuộc tính
@@ -857,9 +861,10 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 )
                 
                 # Tạo background với vị trí tuyệt đối
-                # Sử dụng \an để căn chỉnh vị trí
+                # Sử dụng \an để căn chỉnh vị trí và \pos để đặt vị trí tuyệt đối
                 bg_text = (
                     r"{\\an2" +                           # Căn dưới giữa (vị trí 2)
+                    r"\\pos(" + f"{center_x},{bottom_position}" + ")" +  # Vị trí tuyệt đối
                     r"\\p1" +                           # Bật chế độ vẽ hình
                     r"\\bord0" +                        # Không viền
                     r"\\shad0" +                        # Không bóng
@@ -881,8 +886,9 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 # Tạo lại dòng Dialogue với các thông số gốc, chỉ thay đổi layer và vị trí
                 dialogue_parts = line.split(',', 1)  # Tách phần layer và phần còn lại
                 
-                # Thêm tag căn chỉnh cho text
+                # Thêm tag căn chỉnh và vị trí cho text
                 text_align_tag = "\\an2"  # Căn dưới giữa (vị trí 2)
+                text_pos_tag = f"\\pos({center_x},{bottom_position})"  # Vị trí tuyệt đối
                 
                 # Thêm tag căn chỉnh vào text, giữ nguyên các tag khác
                 text = dialogue_parts[1]
@@ -898,16 +904,16 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                     style_tag = text[style_start:style_end]
                     after_style = text[style_end:]
                     
-                    # Thêm tag align vào trong block style hiện có
-                    # Đảm bảo tag align nằm trong cùng block với các tag khác
+                    # Thêm tag align và pos vào trong block style hiện có
+                    # Đảm bảo tag align và pos nằm trong cùng block với các tag khác
                     style_content = style_tag[1:-1]  # Bỏ dấu { và }
                     if style_content:  # Nếu đã có các tag khác
-                        text = before_style + "{" + style_content + text_align_tag + "}" + after_style
+                        text = before_style + "{" + style_content + text_align_tag + text_pos_tag + "}" + after_style
                     else:  # Nếu block style trống
-                        text = before_style + "{" + text_align_tag + "}" + after_style
+                        text = before_style + "{" + text_align_tag + text_pos_tag + "}" + after_style
                 else:
                     # Nếu không tìm thấy tag style, tạo block style mới
-                    text = "{" + text_align_tag + "}" + text
+                    text = "{" + text_align_tag + text_pos_tag + "}" + text
                 
                 dialogue_line = f"Dialogue: {dialogue_layer}," + text
                 
