@@ -898,13 +898,23 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 
                 # Thêm tag định vị vào text, giữ nguyên các tag khác
                 text = dialogue_parts[1]
-                if "\\pos(" in text:
-                    # Nếu đã có tag pos, thay thế nó
-                    text = re.sub(r'\\pos\([^)]*\)', text_pos_tag, text)
+                
+                # Tìm vị trí của tag style đầu tiên
+                style_start = text.find("{")
+                if style_start != -1:
+                    # Tìm vị trí kết thúc của tag style
+                    style_end = text.find("}", style_start) + 1
+                    
+                    # Tách text thành 3 phần: trước style, style, và sau style
+                    before_style = text[:style_start]
+                    style_tag = text[style_start:style_end]
+                    after_style = text[style_end:]
+                    
+                    # Thêm tag pos vào sau tag style
+                    text = before_style + style_tag + text_pos_tag + after_style
                 else:
-                    # Nếu chưa có tag pos, thêm vào sau tag style
-                    style_end = text.find("}") + 1
-                    text = text[:style_end] + text_pos_tag + text[style_end:]
+                    # Nếu không tìm thấy tag style, thêm vào đầu text
+                    text = "{" + text_pos_tag + "}" + text
                 
                 dialogue_line = f"Dialogue: {dialogue_layer}," + text
                 
