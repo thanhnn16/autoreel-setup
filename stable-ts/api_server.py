@@ -142,7 +142,7 @@ async def transcribe_audio(
     
     # Tham số cho ASS
     font: str = Form("Montserrat"),
-    font_size: int = Form(80),  # Tăng font size từ 72 lên 80 cho video dọc
+    font_size: int = Form(124),  # Tăng font size từ 80 lên 124
     highlight_color: str = Form('EDA005'),
     border_radius: int = Form(24),
     
@@ -150,12 +150,12 @@ async def transcribe_audio(
     background_color: str = Form('80000000'),
     primary_color: str = Form('EDA005'),
     outline_color: str = Form('000000'),
-    outline: int = Form(3),  # Tăng độ dày viền từ 2 lên 3
-    shadow: int = Form(3),   # Tăng độ đậm bóng từ 2 lên 3
+    outline: int = Form(3),
+    shadow: int = Form(3),
     alignment: int = Form(2),
-    margin_l: int = Form(20),  # Tăng lề trái từ 16 lên 20
-    margin_r: int = Form(20),  # Tăng lề phải từ 16 lên 20
-    margin_v: int = Form(80),  # Tăng lề dọc từ 56 lên 80
+    margin_l: int = Form(20),
+    margin_r: int = Form(20),
+    margin_v: int = Form(120),  # Tăng margin_v để đưa subtitle xuống thấp hơn
     encoding: int = Form(163)
 ):
     """
@@ -487,24 +487,21 @@ def process_audio_with_attention_mask(model, audio_path, language="vi"):
     result = model.transcribe(
         str(audio_path), 
         language=language,
-        regroup=True,  # Bật tính năng regroup mặc định
-        word_timestamps=True,  # Bật timestamps ở cấp độ từ
-        vad=True,      # Sử dụng VAD để phát hiện giọng nói chính xác hơn
+        regroup=True,
+        word_timestamps=True,
+        vad=True,
     )
     
     # Tối ưu thêm kết quả với các phương pháp chaining
-    # Tối ưu cho video 1080x1920 với font Montserrat kích thước 80
-    # Giới hạn 1 dòng cho phụ đề
     (
         result
-        .ignore_special_periods()  # Bỏ qua các dấu chấm đặc biệt
-        .clamp_max()               # Giới hạn thời gian tối đa
-        # Ngắt theo dấu câu tiếng Việt
+        .ignore_special_periods()
+        .clamp_max()
         .split_by_punctuation([('.', ' '), '。', '?', '？', '!', '！'])
-        .split_by_gap(0.5)         # Ngắt khi có khoảng trống > 0.5s
-        .split_by_punctuation([(',', ' '), '，', ';', '；'], min_chars=25)  # Giảm min_chars từ 30 xuống 25
-        .split_by_length(30)       # Giảm độ dài tối đa từ 40 xuống 30 ký tự để đảm bảo 1 dòng
-        .clamp_max()               # Giới hạn lại thời gian tối đa
+        .split_by_gap(0.5)
+        .split_by_punctuation([(',', ' '), '，', ';', '；'], min_chars=15)  # Giảm min_chars xuống 15
+        .split_by_length(15)  # Giảm độ dài tối đa xuống 15 ký tự để đảm bảo 3-5 từ
+        .clamp_max()
     )
     
     logger.info(f"Đã tối ưu kết quả phiên âm với regroup và ngắt theo dấu câu cho phụ đề 1 dòng")
@@ -669,15 +666,15 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         new_events = []
         events_section = False
         
-        # Tham số tính toán từ test_ass.ps1
-        padding_h_factor = 0.2     # Hệ số padding ngang (20% font size)
-        padding_v_factor = 0.3     # Hệ số padding dọc (30% font size)
-        char_width_factor = 0.5    # Hệ số chiều rộng ký tự (50% font size)
-        line_height_factor = 1.6   # Hệ số chiều cao dòng (160% font size)
-        min_width_factor = 1.2     # Hệ số chiều rộng tối thiểu (120% font size)
-        max_width_factor = 0.98    # Tăng hệ số chiều rộng tối đa từ 0.95 lên 0.98 (98% chiều rộng video)
-        min_height_factor = 0.8    # Hệ số chiều cao tối thiểu (80% font size)
-        corner_radius_factor = 0.15 # Hệ số bán kính bo góc (15% font size)
+        # Điều chỉnh các hệ số để phù hợp với font size lớn hơn
+        padding_h_factor = 0.25     # Tăng padding ngang lên 25% font size
+        padding_v_factor = 0.35     # Tăng padding dọc lên 35% font size
+        char_width_factor = 0.55    # Tăng hệ số chiều rộng ký tự lên 55% font size
+        line_height_factor = 1.8    # Tăng hệ số chiều cao dòng lên 180%
+        min_width_factor = 1.3      # Tăng hệ số chiều rộng tối thiểu lên 130%
+        max_width_factor = 0.98     # Giữ nguyên hệ số chiều rộng tối đa
+        min_height_factor = 0.9     # Tăng hệ số chiều cao tối thiểu lên 90%
+        corner_radius_factor = 0.18  # Tăng hệ số bán kính bo góc lên 18%
         
         # Tìm phần [Events] trong file
         for i, line in enumerate(lines):
@@ -805,31 +802,22 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 bg_y_start = 0
                 bg_y_end = 0
                 
-                # Xử lý alignment để xác định vị trí Y
-                # Alignment: 1-3 (dưới), 4-6 (giữa), 7-9 (trên)
+                # Điều chỉnh vị trí Y để đưa subtitle xuống 2/3 màn hình
                 if alignment >= 1 and alignment <= 3:
                     # Căn dưới - thêm offset để nâng lên
-                    y_offset_bottom = 40  # Điều chỉnh giá trị này để thay đổi độ cao
-                    # Sử dụng margin_v từ dòng dialogue thay vì từ style
+                    y_offset_bottom = 120  # Tăng offset lên để đưa subtitle xuống thấp hơn
                     bg_y_end = video_height - int(margin_v) - y_offset_bottom
                     bg_y_start = bg_y_end - bg_height
-                    # Giảm y_start thêm 16px để nâng phụ đề lên cao hơn
-                    bg_y_start -= 16
-                    bg_y_end -= 16
                 elif alignment >= 4 and alignment <= 6:
-                    # Căn giữa
-                    bg_y_start = int((video_height - bg_height) / 2)
+                    # Căn giữa tại vị trí 2/3 màn hình
+                    two_thirds_height = int(video_height * 2/3)
+                    bg_y_start = two_thirds_height - int(bg_height/2)
                     bg_y_end = bg_y_start + bg_height
-                    # Giảm y_start thêm 16x để nâng phụ đề lên cao hơn
-                    bg_y_start -= 16
-                    bg_y_end -= 16
                 else:
-                    # Căn trên
-                    bg_y_start = int(margin_v)
+                    # Căn trên tại vị trí 2/3 màn hình
+                    two_thirds_height = int(video_height * 2/3)
+                    bg_y_start = two_thirds_height
                     bg_y_end = bg_y_start + bg_height
-                    # Giảm y_start thêm 16x để nâng phụ đề lên cao hơn
-                    bg_y_start -= 16
-                    bg_y_end -= 16
                 
                 # Điều chỉnh vị trí Y để căn giữa text trong background
                 # Tính toán offset dựa trên số dòng và alignment
