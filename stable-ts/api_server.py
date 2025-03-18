@@ -838,7 +838,7 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 # Tính toán offset Y cho background để nằm giữa chữ
                 # Để chữ hiển thị đẹp hơn, đặt background cao hơn chữ một chút
                 # Đưa background lên cao hơn 25% chiều cao của nó để nằm giữa chữ
-                bg_y_offset = -int(bg_height * 0.25)  # Offset 25% chiều cao background lên trên
+                bg_y_offset = int(bg_height * 0.25)  # Offset 25% chiều cao background lên trên
                 bg_center_y = bottom_position + bg_y_offset
                 
                 # Kiểm tra và log vị trí thực tế của subtitle
