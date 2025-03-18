@@ -411,17 +411,45 @@ async def transcribe_audio(
         )
     
     except RuntimeError as e:
-        if "CUDA out of memory" in str(e) and not use_cpu:
-            # Nếu gặp lỗi CUDA OOM và đang dùng GPU, chuyển sang CPU
-            logger.warning("CUDA out of memory, chuyển sang sử dụng CPU...")
+        if "CUDA out of memory" in str(e):
+            # Thử lại với model nhỏ hơn nếu gặp lỗi CUDA OOM
+            logger.warning("CUDA out of memory, thử lại với model nhỏ hơn...")
             
             # Giải phóng bộ nhớ GPU
             global _model
             _model = None
             torch.cuda.empty_cache()
             
-            # Thử lại với CPU
-            return await transcribe_audio(file, use_cpu=True)
+            # Danh sách các model theo thứ tự giảm dần về kích thước
+            models = ["large-v3", "turbo", "medium", "small", "tiny"]
+            
+            # Tìm model hiện tại và chuyển sang model nhỏ hơn tiếp theo
+            current_model = None
+            for line in str(e).split('\n'):
+                if "model_size=" in line:
+                    current_model = line.split("model_size=")[1].split()[0].strip("'\"")
+                    break
+            
+            next_model = None
+            if current_model in models:
+                current_idx = models.index(current_model)
+                if current_idx < len(models) - 1:
+                    next_model = models[current_idx + 1]
+            else:
+                next_model = models[-1]  # Sử dụng model nhỏ nhất nếu không xác định được model hiện tại
+            
+            if next_model:
+                logger.info(f"Thử lại với model {next_model}...")
+                _model = stable_whisper.load_model(next_model, device="cuda")
+                return await transcribe_audio(file, use_cpu=False)
+            else:
+                logger.error("Đã thử tất cả các model nhỏ hơn nhưng vẫn gặp lỗi CUDA OOM")
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "error": "Không đủ bộ nhớ GPU để xử lý file này với bất kỳ model nào"
+                    }
+                )
         else:
             # Lỗi khác
             logger.error(f"Lỗi khi phiên âm: {str(e)}")
