@@ -13,6 +13,7 @@ import stable_whisper
 from stable_whisper import WhisperResult
 from typing import Optional
 import tempfile
+import re
 
 # Thiết lập logging
 logging.basicConfig(
@@ -752,8 +753,6 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 # Phân tích text để xác định số dòng thực tế
                 text_content = text
                 # Loại bỏ các tag ASS để đếm số ký tự thực tế
-                import re
-                # Loại bỏ các tag ASS như {\\k10}, {\\1c&HEDC205&\\k10}, v.v.
                 clean_text = re.sub(r'\{\\[^}]*\}', '', text_content)
                 text_length = len(clean_text.strip())
                 
@@ -891,9 +890,23 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 # Đảm bảo layer của dialogue luôn là 1 (giữ nguyên layer gốc nếu lớn hơn 1)
                 dialogue_layer = max(1, int(layer))
                 
-                # Tạo lại dòng Dialogue với các thông số gốc, chỉ thay đổi layer nếu cần
+                # Tạo lại dòng Dialogue với các thông số gốc, chỉ thay đổi layer và vị trí
                 dialogue_parts = line.split(',', 1)  # Tách phần layer và phần còn lại
-                dialogue_line = f"Dialogue: {dialogue_layer}," + dialogue_parts[1]  # Giữ nguyên phần còn lại
+                
+                # Tạo tag định vị cho text
+                text_pos_tag = f"\\pos({bg_x_start + padding_h},{bg_y_start + padding_v})"
+                
+                # Thêm tag định vị vào text, giữ nguyên các tag khác
+                text = dialogue_parts[1]
+                if "\\pos(" in text:
+                    # Nếu đã có tag pos, thay thế nó
+                    text = re.sub(r'\\pos\([^)]*\)', text_pos_tag, text)
+                else:
+                    # Nếu chưa có tag pos, thêm vào sau tag style
+                    style_end = text.find("}") + 1
+                    text = text[:style_end] + text_pos_tag + text[style_end:]
+                
+                dialogue_line = f"Dialogue: {dialogue_layer}," + text
                 
                 # Thêm layer background TRƯỚC layer text
                 new_events.append(bg_line)
