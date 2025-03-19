@@ -552,7 +552,6 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         for line in lines:
             if line.startswith("Dialogue:") and "\\1c&H" in line:
                 highlight_found = True
-                logger.info(f"Đã tìm thấy highlight color trong dòng trước khi áp dụng bo góc: {line.strip()}")
                 break
         
         if not highlight_found:
@@ -589,7 +588,6 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         for line in lines:
             if line.startswith("Style: Default,"):
                 default_style = line
-                logger.info(f"Style Default trong file ASS: {default_style.strip()}")
                 break
         
         # Phân tích style để lấy thông tin font size và margin
@@ -605,7 +603,6 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
             if len(style_parts) > 2:
                 try:
                     font_size = int(style_parts[2])
-                    logger.info(f"Đã đọc font size từ style: {font_size}")
                 except ValueError:
                     pass
             
@@ -841,11 +838,6 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
                 bg_y_offset = int(bg_height * 0.25)  # Offset 25% chiều cao background lên trên
                 bg_center_y = bottom_position + bg_y_offset
                 
-                # Kiểm tra và log vị trí thực tế của subtitle
-                logger.info(f"Vị trí Y của subtitle: bottom_position={bottom_position}, bg_center_y={bg_center_y}")
-                logger.info(f"Video width: {video_width}, center_x: {center_x}")
-                logger.info(f"Video height: {video_height}, Position percentage: 70%, bg_height: {bg_height}, bg_y_offset: {bg_y_offset}")
-                
                 # Tạo background với vị trí tuyệt đối
                 # Sử dụng \an để căn chỉnh vị trí và \pos để đặt vị trí tuyệt đối
                 bg_drawing = (
@@ -927,18 +919,6 @@ def apply_rounded_borders(input_ass: Path, output_ass: Path, border_radius: int 
         # Ghi file mới
         with open(output_ass, 'w', encoding='utf-8') as f:
             f.writelines(new_events)
-            
-        # Kiểm tra highlight color trong file đầu ra
-        highlight_found = False
-        with open(output_ass, 'r', encoding='utf-8') as f:
-            for line in f:
-                if line.startswith("Dialogue:") and "\\1c&H" in line:
-                    highlight_found = True
-                    logger.info(f"Đã tìm thấy highlight color trong dòng sau khi áp dụng bo góc: {line.strip()}")
-                    break
-        
-        if not highlight_found:
-            logger.warning("Không tìm thấy highlight color trong file ASS sau khi áp dụng bo góc")
 
     except Exception as e:
         logger.error(f"Lỗi khi áp dụng hiệu ứng: {str(e)}")
@@ -969,6 +949,7 @@ def extract_sentence_segments(result):
     
     # Lấy tổng thời lượng của audio từ segment cuối cùng
     total_duration = result.segments[-1].end if result.segments else 0
+    logger.info(f"Tổng thời lượng audio: {total_duration:.2f} giây")
     
     # Thu thập tất cả các segment có text
     valid_segments = []
@@ -976,6 +957,8 @@ def extract_sentence_segments(result):
         text = segment.text.strip()
         if text:
             valid_segments.append(segment)
+    
+    logger.info(f"Số lượng segments hợp lệ: {len(valid_segments)}")
     
     for i, segment in enumerate(valid_segments):
         text = segment.text.strip()
@@ -985,6 +968,7 @@ def extract_sentence_segments(result):
         # Bắt đầu segment mới nếu chưa có
         if current_segment["start"] is None:
             current_segment["start"] = segment.start
+            logger.info(f"Bắt đầu segment mới tại thời điểm {segment.start:.2f}s: '{text}'")
             
         # Thêm text vào segment hiện tại
         current_segment["text"] += " " + text if current_segment["text"] else text
@@ -997,6 +981,7 @@ def extract_sentence_segments(result):
         for punct in punctuations:
             if text.endswith(punct):
                 is_end_of_sentence = True
+                logger.info(f"Segment {i} kết thúc với dấu câu: '{punct}'")
                 break
         
         # Kiểm tra khoảng cách với segment tiếp theo
@@ -1005,21 +990,32 @@ def extract_sentence_segments(result):
             next_segment = valid_segments[i + 1]
             
         # Nếu khoảng cách với segment tiếp theo > 0.8s, coi như kết thúc câu
-        if next_segment and (next_segment.start - segment.end) > 0.8:
-            is_end_of_sentence = True
+        gap_duration = 0
+        if next_segment:
+            gap_duration = next_segment.start - segment.end
+            if gap_duration > 0.8:
+                is_end_of_sentence = True
+                logger.info(f"Phát hiện khoảng lặng lớn ({gap_duration:.2f}s) sau segment {i}")
         
         # Nếu là kết thúc câu hoặc là segment cuối cùng, thêm segment vào kết quả
         if (is_end_of_sentence or i == len(valid_segments) - 1) and current_segment["text"].strip():
-            # Tính duration dựa trên end time của segment tiếp theo
+            # Tính duration dựa trên độ chênh lệch giữa end time của segment hiện tại và segment tiếp theo
+            # hoặc thời điểm kết thúc của toàn bộ audio nếu là segment cuối cùng
             if i < len(valid_segments) - 1:
-                # Nếu không phải segment cuối, duration là khoảng thời gian đến end time của segment tiếp theo
-                duration = valid_segments[i + 1].end - current_segment["end"]
+                next_end_time = valid_segments[i + 1].end
+                logger.info(f"Segment {i}: Sử dụng end time của segment tiếp theo: {next_end_time:.2f}s")
             else:
-                # Nếu là segment cuối, duration là khoảng thời gian đến total_duration
-                duration = total_duration - current_segment["end"]
+                next_end_time = total_duration
+                logger.info(f"Segment {i}: Sử dụng tổng thời lượng audio: {total_duration:.2f}s (segment cuối cùng)")
+                
+            duration = next_end_time - current_segment["end"]
             
-            # Log để debug
-            logger.debug(f"Segment {i}: start={current_segment['start']}, end={current_segment['end']}, duration={duration}")
+            # Log chi tiết về cách tính duration
+            logger.info(f"Segment {i}: start={current_segment['start']:.2f}s, end={current_segment['end']:.2f}s, next_end_time={next_end_time:.2f}s")
+            logger.info(f"Tính duration: {next_end_time:.2f} - {current_segment['end']:.2f} = {duration:.2f}s")
+            
+            if gap_duration > 0:
+                logger.info(f"Segment {i} có khoảng lặng ({gap_duration:.2f}s) trước segment tiếp theo")
             
             sentence_segments.append({
                 "id": len(sentence_segments),
@@ -1028,6 +1024,9 @@ def extract_sentence_segments(result):
                 "duration": duration,
                 "text": current_segment["text"].strip()
             })
+            
+            logger.info(f"Đã thêm segment {len(sentence_segments)-1}: '{current_segment['text'].strip()}'")
+            logger.info(f"  - start: {current_segment['start']:.2f}s, end: {current_segment['end']:.2f}s, duration: {duration:.2f}s")
             
             # Reset segment hiện tại
             current_segment = {
@@ -1038,11 +1037,16 @@ def extract_sentence_segments(result):
     
     # Kiểm tra tổng duration
     total_calculated_duration = sum(seg["duration"] for seg in sentence_segments)
+    logger.info(f"Tính toán tổng duration: {total_calculated_duration:.2f}s")
     logger.info(f"Total duration check: calculated={total_calculated_duration}, expected={total_duration}")
     
-    # Không cần điều chỉnh duration nữa vì đã tính chính xác
+    # Nếu vẫn có sự chênh lệch, in thông báo
     if abs(total_calculated_duration - total_duration) > 0.001:  # Cho phép sai số 1ms
         logger.info(f"Duration difference: {abs(total_calculated_duration - total_duration)}s")
+        if total_calculated_duration < total_duration:
+            logger.info(f"Thiếu {total_duration - total_calculated_duration:.2f}s so với tổng thời lượng")
+        else:
+            logger.info(f"Thừa {total_calculated_duration - total_duration:.2f}s so với tổng thời lượng")
     
     return sentence_segments
 
