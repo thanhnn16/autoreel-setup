@@ -948,7 +948,7 @@ def extract_sentence_segments(result):
     """
     Trích xuất segments theo câu hoàn chỉnh từ kết quả phiên âm.
     Một câu hoàn chỉnh được xác định bởi:
-    - Kết thúc bằng dấu câu (. ? ! ... )
+    - Kết thúc bằng bất kỳ dấu câu nào (, . ? ! ... ; :)
     - Hoặc khoảng cách thời gian đủ lớn giữa các segments (> 0.8s)
     
     Args:
@@ -964,8 +964,12 @@ def extract_sentence_segments(result):
         "end": None
     }
     
-    # Các dấu câu kết thúc
-    end_punctuations = ['.', '?', '!', '...', '।', '。', '？', '！']
+    # Mở rộng danh sách dấu câu để bao gồm tất cả các loại
+    punctuations = [
+        '.', '?', '!', '...', # Dấu câu kết thúc
+        ',', ';', ':', '、',  # Dấu câu phân tách
+        '।', '。', '？', '！', '，', '；', '：' # Dấu câu tiếng Á Đông
+    ]
     
     for segment in result.segments:
         text = segment.text.strip()
@@ -975,19 +979,17 @@ def extract_sentence_segments(result):
         # Bắt đầu segment mới nếu chưa có
         if current_segment["start"] is None:
             current_segment["start"] = segment.start
-            
+        
+        # Kiểm tra xem text có kết thúc bằng dấu câu không
+        is_end_of_segment = False
+        for punct in punctuations:
+            if text.endswith(punct):
+                is_end_of_segment = True
+                break
+        
         # Thêm text vào segment hiện tại
         current_segment["text"] += " " + text if current_segment["text"] else text
         current_segment["end"] = segment.end
-        
-        # Kiểm tra điều kiện kết thúc câu
-        is_end_of_sentence = False
-        
-        # Kiểm tra dấu câu kết thúc
-        for punct in end_punctuations:
-            if text.endswith(punct):
-                is_end_of_sentence = True
-                break
         
         # Kiểm tra khoảng cách với segment tiếp theo
         next_segment = None
@@ -996,12 +998,12 @@ def extract_sentence_segments(result):
         if current_index < len(segments) - 1:
             next_segment = segments[current_index + 1]
             
-        # Nếu khoảng cách với segment tiếp theo > 0.8s, coi như kết thúc câu
+        # Nếu khoảng cách với segment tiếp theo > 0.8s, coi như kết thúc segment
         if next_segment and (next_segment.start - segment.end) > 0.8:
-            is_end_of_sentence = True
+            is_end_of_segment = True
         
-        # Nếu là kết thúc câu, thêm segment vào kết quả
-        if is_end_of_sentence and current_segment["text"].strip():
+        # Nếu là kết thúc segment, thêm vào kết quả
+        if is_end_of_segment and current_segment["text"].strip():
             sentence_segments.append({
                 "id": len(sentence_segments),
                 "start": current_segment["start"],
