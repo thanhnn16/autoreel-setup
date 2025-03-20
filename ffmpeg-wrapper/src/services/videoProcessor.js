@@ -430,10 +430,19 @@ class TaskProcessor {
         "-g", gopSize.toString(),
         "-keyint_min", gopSize.toString(),
         "-sc_threshold", "0",
-        "-b:v", bitrate,
+        "-b:v", bitrate
+      ];
+      
+      // Thêm tham số tối ưu cho H.265 nếu đang sử dụng codec này
+      if (ffmpegConfig.video.codec === 'libx265' && ffmpegConfig.video.x265Params) {
+        args.push("-x265-params", ffmpegConfig.video.x265Params);
+        args.push("-tag:v", "hvc1"); // Tăng tính tương thích
+      }
+      
+      args.push(
         "-movflags", "+faststart",
         path.join(this.tempDir, `${index}.mp4`)
-      ];
+      );
 
       await runFFmpeg(args);
       logger.task.info(this.id, `Đã xử lý xong ảnh ${index}`);
@@ -489,9 +498,17 @@ class TaskProcessor {
       "-pix_fmt", ffmpegConfig.video.pixFmt,
       "-preset", preset,
       "-crf", video_quality.toString(),
-      "-r", fps.toString(),
-      temp_video_no_audio
+      "-r", fps.toString()
     );
+    
+    // Thêm tham số tối ưu cho H.265 nếu đang sử dụng codec này
+    if (ffmpegConfig.video.codec === 'libx265' && ffmpegConfig.video.x265Params) {
+      concatArgs.push("-x265-params", ffmpegConfig.video.x265Params);
+      concatArgs.push("-tag:v", "hvc1"); // Tăng tính tương thích
+      concatArgs.push("-g", gopSize.toString()); // GOP size cho H.265
+    }
+    
+    concatArgs.push(temp_video_no_audio);
     
     await runFFmpeg(concatArgs);
 
@@ -607,20 +624,23 @@ class TaskProcessor {
 
     // Thêm các tùy chọn output được tối ưu
     finalArgs.push(
-      "-c:v", "libx264",
-      "-preset", "medium", // Thay đổi từ slow sang medium cho tốc độ encode nhanh hơn
-      "-crf", "22", // Tăng từ 18 lên 22 để giảm kích thước file nhưng vẫn đảm bảo chất lượng
-      "-b:v", "4M", // Giảm từ 7M xuống 4M cho tương thích với các nền tảng mạng xã hội
-      "-pix_fmt", "yuv420p", // Giữ nguyên để đảm bảo tương thích rộng rãi
+      "-c:v", "libx265",                     // Sử dụng H.265 thay vì H.264
+      "-preset", "medium",
+      "-crf", "23",                          // CRF tối ưu cho H.265
+      "-b:v", "2M",                          // Giảm bitrate 50% so với H.264
+      "-pix_fmt", "yuv420p",
+      "-x265-params", "no-sao=1:rd=4:psy-rd=1.0:psy-rdoq=1.0:aq-mode=3",  // Tối ưu H.265
+      "-tag:v", "hvc1",                      // Tag chuẩn cho H.265 - cải thiện tương thích với Safari/iOS
+      "-g", "60",                            // Tăng GOP size cho H.265
       "-c:a", "aac",
-      "-b:a", "128k", // Bitrate âm thanh phù hợp với nhu cầu phổ biến
-      "-movflags", "+faststart", // Giúp video phát nhanh trên web
+      "-b:a", "128k",
+      "-movflags", "+faststart",
       "-max_muxing_queue_size", "9999",
       this.outputPath
     );
 
     await runFFmpeg(finalArgs);
-    logger.task.info(this.id, 'Hoàn thành tạo video với các tham số tối ưu');
+    logger.task.info(this.id, 'Hoàn thành tạo video H.265 với các tham số tối ưu cho năm 2025');
 
     // Xóa các file tạm
     const tempFiles = [

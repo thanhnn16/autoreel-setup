@@ -13,18 +13,19 @@ export default {
   
   // Cấu hình mặc định cho video
   video: {
-    codec: 'libx264',
+    codec: 'libx265',          // Chuyển từ libx264 sang libx265 (H.265/HEVC)
     preset: 'medium',
-    crf: 22,
+    crf: 23,                   // CRF tối ưu cho H.265 (tương đương với CRF 18-19 của H.264)
     pixFmt: 'yuv420p',
     frameRate: 30,
     width: 1080,
     height: 1920,
-    gopSize: 30,
-    bitrate: '4M',
+    gopSize: 60,               // Tăng GOP size cho hiệu quả nén tốt hơn với H.265
+    bitrate: '2M',             // Giảm bitrate, vì H.265 hiệu quả hơn khoảng 50% so với H.264
     maxZoom: 1.15,
     zoomSpeed: 0.0004,
     largeScale: 3000,
+    x265Params: 'no-sao=1:rd=4:psy-rd=1.0:psy-rdoq=1.0:aq-mode=3',  // Tham số tối ưu của x265
   },
   
   // Cấu hình mặc định cho audio
