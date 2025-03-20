@@ -38,15 +38,24 @@ async function downloadFile(source, filePath, options = {}) {
       await new Promise((resolve, reject) => {
         sourceStream.pipe(destStream);
         sourceStream.on('error', (error) => {
+          destStream.end();
           reject(new Error(`Lỗi khi đọc file nguồn: ${error.message}`));
         });
         destStream.on('finish', () => {
           resolve();
         });
         destStream.on('error', (error) => {
+          sourceStream.destroy();
           reject(new Error(`Lỗi khi ghi file đích: ${error.message}`));
         });
       });
+      
+      // Kiểm tra kích thước file sau khi sao chép
+      const sourceStats = fs.statSync(source);
+      const destStats = fs.statSync(filePath);
+      if (sourceStats.size !== destStats.size) {
+        throw new Error(`Kích thước file không khớp sau khi sao chép: ${sourceStats.size} != ${destStats.size}`);
+      }
       
       logger.info(`${logPrefix} Đã sao chép file thành công: ${filePath}`, 'FileDownloader');
       return filePath;
@@ -58,9 +67,13 @@ async function downloadFile(source, filePath, options = {}) {
   
   // Xử lý URL từ internet
   let attempt = 0;
+  let lastError = null;
   
   while (attempt < retries) {
     attempt++;
+    let controller = new AbortController();
+    let timeoutId = null;
+    let fileStream = null;
     
     try {
       // Kiểm tra URL hợp lệ
@@ -69,41 +82,85 @@ async function downloadFile(source, filePath, options = {}) {
       }
       
       // Thiết lập timeout cho fetch
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), timeout);
+      timeoutId = setTimeout(() => {
+        controller.abort();
+        if (fileStream) fileStream.destroy();
+      }, timeout);
       
       const response = await fetch(source, { 
         signal: controller.signal,
         headers: {
-          'User-Agent': 'FFmpeg-Wrapper/1.0'
+          'User-Agent': 'FFmpeg-Wrapper/1.0',
+          'Accept': '*/*'
         }
       });
-      
-      clearTimeout(timeoutId);
       
       if (!response.ok) {
         throw new Error(`Lỗi HTTP: ${response.status} ${response.statusText}`);
       }
       
+      // Lấy kích thước file từ header
+      const contentLength = parseInt(response.headers.get('content-length'));
+      let downloadedSize = 0;
+      
       // Tạo stream để lưu file
-      const fileStream = fs.createWriteStream(filePath);
+      fileStream = fs.createWriteStream(filePath);
       
       await new Promise((resolve, reject) => {
+        response.body.on('data', (chunk) => {
+          downloadedSize += chunk.length;
+          if (contentLength) {
+            const progress = Math.round((downloadedSize / contentLength) * 100);
+            logger.debug(`${logPrefix} Tiến độ tải: ${progress}%`, 'FileDownloader');
+          }
+        });
+        
         response.body.pipe(fileStream);
+        
         response.body.on('error', (error) => {
+          fileStream.destroy();
           reject(error);
         });
+        
         fileStream.on('finish', () => {
-          resolve();
+          // Kiểm tra kích thước file đã tải
+          if (contentLength && downloadedSize !== contentLength) {
+            reject(new Error(`File tải không đầy đủ: ${downloadedSize}/${contentLength} bytes`));
+          } else {
+            resolve();
+          }
         });
+        
         fileStream.on('error', (error) => {
+          response.body.destroy();
           reject(error);
         });
       });
       
+      // Xóa timeout nếu tải thành công
+      clearTimeout(timeoutId);
+      
+      // Kiểm tra file đã tải
+      const stats = fs.statSync(filePath);
+      if (contentLength && stats.size !== contentLength) {
+        throw new Error(`Kích thước file không khớp sau khi tải: ${stats.size}/${contentLength} bytes`);
+      }
+      
       logger.info(`${logPrefix} Đã tải file thành công: ${filePath}`, 'FileDownloader');
       return filePath;
+      
     } catch (error) {
+      // Cleanup resources
+      clearTimeout(timeoutId);
+      if (fileStream) {
+        fileStream.destroy();
+        // Xóa file tạm nếu tải không thành công
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      }
+      
+      lastError = error;
       const isLastAttempt = attempt >= retries;
       const logLevel = isLastAttempt ? 'error' : 'warn';
       
@@ -117,10 +174,13 @@ async function downloadFile(source, filePath, options = {}) {
         throw new Error(`Không thể tải file sau ${retries} lần thử: ${error.message}`);
       }
       
-      // Chờ trước khi thử lại
-      await new Promise(resolve => setTimeout(resolve, config.retry.delay * attempt));
+      // Chờ trước khi thử lại với thời gian tăng dần
+      const delay = config.retry.delay * Math.pow(2, attempt - 1);
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
+  
+  throw lastError || new Error('Không thể tải file sau nhiều lần thử');
 }
 
 /**
