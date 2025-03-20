@@ -103,7 +103,38 @@ async function downloadFile(source, filePath, options = {}) {
       const contentLength = parseInt(response.headers.get('content-length'));
       let downloadedSize = 0;
       
-      // Tạo stream để lưu file
+      // Kiểm tra loại file và phương pháp tải
+      const contentType = response.headers.get('content-type') || '';
+      const isVideoFile = contentType.includes('video') || 
+                         source.toLowerCase().endsWith('.mp4') || 
+                         source.toLowerCase().endsWith('.mov');
+      
+      // Nếu là file video, lưu toàn bộ file vào bộ nhớ trước, sau đó xử lý
+      if (isVideoFile) {
+        logger.info(`${logPrefix} Phát hiện file video, sử dụng phương pháp tải đặc biệt`, 'FileDownloader');
+        
+        try {
+          // Tải toàn bộ file vào bộ nhớ
+          const buffer = await response.arrayBuffer();
+          
+          // Ghi file từ buffer
+          await fs.promises.writeFile(filePath, Buffer.from(buffer));
+          
+          // Kiểm tra kích thước file
+          const stats = fs.statSync(filePath);
+          if (contentLength && stats.size !== contentLength) {
+            throw new Error(`Kích thước file không khớp sau khi tải: ${stats.size}/${contentLength} bytes`);
+          }
+          
+          logger.info(`${logPrefix} Đã tải file video thành công: ${filePath}`, 'FileDownloader');
+          return filePath;
+        } catch (bufferError) {
+          logger.error(`${logPrefix} Lỗi khi tải file video vào bộ nhớ: ${bufferError.message}`, 'FileDownloader');
+          throw bufferError;
+        }
+      }
+      
+      // Phương pháp tải thông thường bằng stream cho các file khác
       fileStream = fs.createWriteStream(filePath);
       
       await new Promise((resolve, reject) => {
@@ -220,4 +251,4 @@ async function downloadMultipleFiles(urls, outputDir, options = {}) {
 export {
   downloadFile,
   downloadMultipleFiles
-}; 
+};
