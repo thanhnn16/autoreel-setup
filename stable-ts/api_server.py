@@ -63,13 +63,13 @@ def get_model(force_cpu=False):
     
     # Tải mô hình đơn giản
     try:
-        _model = stable_whisper.load_model("turbo", device=_device)
-        logger.info(f"Đã tải mô hình turbo trên {_device}")
+        _model = stable_whisper.load_model("large-v3", device=_device)
+        logger.info(f"Đã tải mô hình large-v3 trên {_device}")
     except Exception as e:
-        logger.warning(f"Không thể tải mô hình turbo: {str(e)}")
-        logger.info("Thử tải mô hình medium...")
-        _model = stable_whisper.load_model("medium", device=_device)
-        logger.info("Đã tải mô hình medium")
+        logger.warning(f"Không thể tải mô hình large-v3: {str(e)}")
+        logger.info("Thử tải mô hình turbo...")
+        _model = stable_whisper.load_model("turbo", device=_device)
+        logger.info("Đã tải mô hình turbo")
     
     return _model
 
@@ -999,23 +999,37 @@ def extract_sentence_segments(result):
         
         # Nếu là kết thúc câu hoặc là segment cuối cùng, thêm segment vào kết quả
         if (is_end_of_sentence or i == len(valid_segments) - 1) and current_segment["text"].strip():
-            # Tính duration dựa trên độ chênh lệch giữa end time của segment hiện tại và segment tiếp theo
-            # hoặc thời điểm kết thúc của toàn bộ audio nếu là segment cuối cùng
-            if i < len(valid_segments) - 1:
-                next_end_time = valid_segments[i + 1].end
-                logger.info(f"Segment {i}: Sử dụng end time của segment tiếp theo: {next_end_time:.2f}s")
-            else:
-                next_end_time = total_duration
-                logger.info(f"Segment {i}: Sử dụng tổng thời lượng audio: {total_duration:.2f}s (segment cuối cùng)")
-                
-            duration = next_end_time - current_segment["end"]
+            # Tính duration theo phương pháp chia đều khoảng lặng
+            # Duration của segment hiện tại = (end_time - start_time) + (khoảng lặng sau/2)
+            
+            # Tính khoảng lặng sau (nếu có)
+            next_gap = 0
+            if next_segment:
+                next_gap = next_segment.start - current_segment["end"]
+                logger.info(f"Khoảng lặng sau segment {i}: {next_gap:.2f}s")
+            elif i == len(valid_segments) - 1:
+                # Nếu là segment cuối, lấy khoảng lặng đến hết audio
+                next_gap = total_duration - current_segment["end"]
+                logger.info(f"Khoảng lặng sau segment cuối: {next_gap:.2f}s")
+            
+            # Tính duration
+            base_duration = current_segment["end"] - current_segment["start"]
+            additional_duration = next_gap / 2 if next_gap > 0 else 0
+            
+            # Nếu không phải segment đầu tiên, thêm nửa khoảng lặng trước
+            prev_gap = 0
+            if len(sentence_segments) > 0:
+                prev_segment = sentence_segments[-1]
+                prev_gap = current_segment["start"] - prev_segment["end"]
+                if prev_gap > 0:
+                    additional_duration += prev_gap / 2
+                    logger.info(f"Khoảng lặng trước segment {i}: {prev_gap:.2f}s")
+            
+            duration = base_duration + additional_duration
             
             # Log chi tiết về cách tính duration
-            logger.info(f"Segment {i}: start={current_segment['start']:.2f}s, end={current_segment['end']:.2f}s, next_end_time={next_end_time:.2f}s")
-            logger.info(f"Tính duration: {next_end_time:.2f} - {current_segment['end']:.2f} = {duration:.2f}s")
-            
-            if gap_duration > 0:
-                logger.info(f"Segment {i} có khoảng lặng ({gap_duration:.2f}s) trước segment tiếp theo")
+            logger.info(f"Segment {i}: base_duration={base_duration:.2f}s, additional_duration={additional_duration:.2f}s")
+            logger.info(f"Tính duration: {base_duration:.2f} + {additional_duration:.2f} = {duration:.2f}s")
             
             sentence_segments.append({
                 "id": len(sentence_segments),
@@ -1038,13 +1052,20 @@ def extract_sentence_segments(result):
     # Kiểm tra tổng duration
     total_calculated_duration = sum(seg["duration"] for seg in sentence_segments)
     logger.info(f"Tính toán tổng duration: {total_calculated_duration:.2f}s")
-    logger.info(f"Total duration check: calculated={total_calculated_duration}, expected={total_duration}")
+    logger.info(f"Total duration check: calculated={total_calculated_duration:.2f}, expected={total_duration:.2f}")
     
     # Nếu vẫn có sự chênh lệch, in thông báo
     if abs(total_calculated_duration - total_duration) > 0.001:  # Cho phép sai số 1ms
-        logger.info(f"Duration difference: {abs(total_calculated_duration - total_duration)}s")
+        logger.info(f"Duration difference: {abs(total_calculated_duration - total_duration):.2f}s")
         if total_calculated_duration < total_duration:
             logger.info(f"Thiếu {total_duration - total_calculated_duration:.2f}s so với tổng thời lượng")
+            
+            # Điều chỉnh duration của segment cuối cùng để khớp với tổng thời lượng
+            if sentence_segments:
+                missing_duration = total_duration - total_calculated_duration
+                last_segment = sentence_segments[-1]
+                last_segment["duration"] += missing_duration
+                logger.info(f"Đã điều chỉnh duration của segment cuối cùng: +{missing_duration:.2f}s, mới: {last_segment['duration']:.2f}s")
         else:
             logger.info(f"Thừa {total_calculated_duration - total_duration:.2f}s so với tổng thời lượng")
     
