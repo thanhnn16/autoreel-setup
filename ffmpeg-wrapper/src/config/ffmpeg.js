@@ -14,14 +14,14 @@ export default {
   // Cấu hình mặc định cho video
   video: {
     codec: 'libx264',
-    preset: 'slow',
-    crf: 18,
+    preset: 'medium',
+    crf: 22,
     pixFmt: 'yuv420p',
     frameRate: 30,
     width: 1080,
     height: 1920,
     gopSize: 30,
-    bitrate: '7M',
+    bitrate: '4M',
     maxZoom: 1.15,
     zoomSpeed: 0.0004,
     largeScale: 3000,

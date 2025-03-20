@@ -369,45 +369,29 @@ function generateUniqueFilename(prefix = '', extension = '') {
 }
 
 /**
- * Đảm bảo thư mục output tồn tại và có quyền ghi
- * @param {string} outputPath - Đường dẫn file đầu ra
- * @returns {Promise<boolean>} - true nếu thư mục output hợp lệ
+ * Đảm bảo thư mục output tồn tại
+ * @param {string} dirPath - Đường dẫn thư mục
+ * @param {boolean} [forceWrite=true] - Cho phép ghi đè nếu file đã tồn tại
+ * @returns {Promise<boolean>} - Kết quả
  */
-async function ensureOutputDir(outputPath) {
+async function ensureOutputDir(dirPath, forceWrite = true) {
   try {
-    // Đảm bảo outputPath là đường dẫn thư mục, không phải đường dẫn file
-    const outputDir = fs.statSync(outputPath)?.isDirectory() ? outputPath : path.dirname(outputPath);
-    
-    // Đảm bảo thư mục đầu ra tồn tại
-    await ensureDir(outputDir);
-    
-    // Kiểm tra quyền ghi vào thư mục đầu ra
-    try {
-      const testFile = path.join(outputDir, `test_${Date.now()}.txt`);
-      fs.writeFileSync(testFile, 'test');
-      fs.unlinkSync(testFile);
-      logger.info(`Thư mục đầu ra hợp lệ: ${outputDir}`, 'FileManager');
-      return true;
-    } catch (testError) {
-      logger.error(`Không thể ghi vào thư mục đầu ra ${outputDir}: ${testError.message}`, 'FileManager');
+    if (!dirPath) {
       return false;
     }
+    
+    // Đảm bảo thư mục tồn tại
+    await ensureDir(dirPath);
+    
+    // Thêm thuộc tính forceWrite vào context để các hàm khác có thể sử dụng
+    if (typeof process.forceWrite === 'undefined') {
+      process.forceWrite = forceWrite;
+    }
+    
+    return true;
   } catch (error) {
-    // Nếu outputPath không tồn tại, giả định nó là đường dẫn thư mục
-    try {
-      const outputDir = path.dirname(outputPath);
-      await ensureDir(outputDir);
-      
-      // Kiểm tra quyền ghi
-      const testFile = path.join(outputDir, `test_${Date.now()}.txt`);
-      fs.writeFileSync(testFile, 'test');
-      fs.unlinkSync(testFile);
-      logger.info(`Thư mục đầu ra hợp lệ: ${outputDir}`, 'FileManager');
-      return true;
-    } catch (innerError) {
-      logger.error(`Không thể đảm bảo thư mục đầu ra: ${innerError.message}`, 'FileManager');
-      return false;
-    }
+    console.error(`Lỗi khi tạo thư mục output ${dirPath}: ${error.message}`);
+    return false;
   }
 }
 

@@ -569,8 +569,21 @@ class TaskProcessor {
 
     // Tạo video cuối cùng
     this.outputPath = path.join('output', `output_${this.id}.mp4`);
-    await ensureOutputDir(path.dirname(this.outputPath));
+    
+    // Kiểm tra nếu file đã tồn tại
+    const outputExists = fs.existsSync(this.outputPath);
+    if (outputExists) {
+      logger.task.info(this.id, `File đầu ra đã tồn tại: ${this.outputPath}, sẽ ghi đè`);
+    }
+    
+    // Đảm bảo thư mục output tồn tại với tùy chọn forceWrite
+    await ensureOutputDir(path.dirname(this.outputPath), true);
 
+    // Tối ưu tham số cho việc tương thích tốt với Telegram, TikTok và PC
+    // - Sử dụng preset medium thay vì slow để tăng tốc encode
+    // - Tăng CRF lên một chút (22-23) để giảm kích thước file nhưng vẫn giữ chất lượng tốt
+    // - Giảm bitrate video xuống 4M để tương thích tốt với các nền tảng mạng xã hội
+    
     const finalArgs = [
       "-y", "-threads", "0"
     ];
@@ -592,17 +605,22 @@ class TaskProcessor {
       finalArgs.push("-vf", `ass=${subtitlePath},setpts=PTS-STARTPTS`);
     }
 
-    // Thêm các tùy chọn output
+    // Thêm các tùy chọn output được tối ưu
     finalArgs.push(
       "-c:v", "libx264",
+      "-preset", "medium", // Thay đổi từ slow sang medium cho tốc độ encode nhanh hơn
+      "-crf", "22", // Tăng từ 18 lên 22 để giảm kích thước file nhưng vẫn đảm bảo chất lượng
+      "-b:v", "4M", // Giảm từ 7M xuống 4M cho tương thích với các nền tảng mạng xã hội
+      "-pix_fmt", "yuv420p", // Giữ nguyên để đảm bảo tương thích rộng rãi
       "-c:a", "aac",
-      "-movflags", "+faststart",
+      "-b:a", "128k", // Bitrate âm thanh phù hợp với nhu cầu phổ biến
+      "-movflags", "+faststart", // Giúp video phát nhanh trên web
       "-max_muxing_queue_size", "9999",
       this.outputPath
     );
 
     await runFFmpeg(finalArgs);
-    logger.task.info(this.id, 'Hoàn thành video với subtitle gốc');
+    logger.task.info(this.id, 'Hoàn thành tạo video với các tham số tối ưu');
 
     // Xóa các file tạm
     const tempFiles = [
@@ -683,7 +701,9 @@ class TaskProcessor {
         // Đảm bảo thư mục output tồn tại và có quyền ghi
         const outputDir = path.dirname(absoluteOutputPath);
         if (outputDir) {
-          const outputDirValid = await ensureOutputDir(outputDir);
+          // Sử dụng forceWrite từ process context hoặc mặc định là true
+          const forceWrite = process.forceWrite !== undefined ? process.forceWrite : true;
+          const outputDirValid = await ensureOutputDir(outputDir, forceWrite);
           
           // Kiểm tra xem file đầu ra có tồn tại không
           if (!fs.existsSync(absoluteOutputPath)) {
@@ -712,8 +732,13 @@ class TaskProcessor {
                 const tempStats = fs.statSync(tempOutputFile);
                 if (tempStats.size > 0) {
                   try {
-                    fs.copyFileSync(tempOutputFile, absoluteOutputPath);
-                    logger.task.info(this.id, `Đã sao chép file từ thư mục tạm: ${tempOutputFile} -> ${absoluteOutputPath}`);
+                    // Kiểm tra forceWrite
+                    if (forceWrite) {
+                      fs.copyFileSync(tempOutputFile, absoluteOutputPath);
+                      logger.task.info(this.id, `Đã sao chép file từ thư mục tạm: ${tempOutputFile} -> ${absoluteOutputPath}`);
+                    } else {
+                      logger.task.warn(this.id, `Bỏ qua sao chép file do forceWrite=false`);
+                    }
                   } catch (copyError) {
                     logger.task.error(this.id, `Không thể sao chép file từ thư mục tạm: ${copyError.message}`);
                   }
@@ -721,6 +746,11 @@ class TaskProcessor {
               }
             } else {
               logger.task.info(this.id, `File đầu ra tồn tại và hợp lệ: ${this.outputPath} (${stats.size} bytes)`);
+              
+              // Kiểm tra nếu có yêu cầu ghi đè
+              if (forceWrite) {
+                logger.task.info(this.id, `forceWrite được bật, file đã tồn tại sẽ được ghi đè nếu cần`);
+              }
             }
           }
         } else {
