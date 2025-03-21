@@ -2,7 +2,7 @@ volumes:
   n8n_storage:
   postgres_storage:
   qdrant_storage:
-  stable_ts_models:
+  stable_ts_data:
 
 networks:
   autoreel:
@@ -116,7 +116,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - stable_ts_models:/models
+      - stable_ts_data:/app
     environment:
       - COMPOSE_BAKE=true
     deploy:
