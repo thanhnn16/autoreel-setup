@@ -6,6 +6,7 @@ import { spawn } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { processTask } from '../services/videoProcessor.js';
+import { processSeparateTask } from '../services/separateVideoProcessor.js';
 import logger from '../utils/logger.js';
 import config from '../config/index.js';
 
@@ -46,6 +47,43 @@ function validateTaskInput(req, res, next) {
 }
 
 /**
+ * Middleware kiểm tra dữ liệu đầu vào cho xử lý video riêng biệt
+ */
+function validateSeparateTaskInput(req, res, next) {
+  const { id, images, durations, subtitles, voices } = req.body;
+  
+  if (!id) {
+    return res.status(400).json({ error: 'Thiếu trường id' });
+  }
+  
+  if (!images || !Array.isArray(images) || images.length === 0) {
+    return res.status(400).json({ error: 'Trường images phải là một mảng không rỗng' });
+  }
+  
+  if (!durations || !Array.isArray(durations) || durations.length === 0) {
+    return res.status(400).json({ error: 'Trường durations phải là một mảng không rỗng' });
+  }
+  
+  if (!voices || !Array.isArray(voices) || voices.length === 0) {
+    return res.status(400).json({ error: 'Trường voices phải là một mảng không rỗng' });
+  }
+
+  if (!subtitles || !Array.isArray(subtitles)) {
+    return res.status(400).json({ error: 'Trường subtitles phải là một mảng' });
+  }
+  
+  // Kiểm tra số lượng phần tử trong các mảng phải bằng nhau
+  const length = images.length;
+  if (durations.length !== length || voices.length !== length || subtitles.length !== length) {
+    return res.status(400).json({ 
+      error: `Số lượng phần tử trong các mảng không khớp nhau: images(${images.length}), durations(${durations.length}), voices(${voices.length}), subtitles(${subtitles.length})` 
+    });
+  }
+  
+  next();
+}
+
+/**
  * Route xử lý task
  */
 router.post('/task', validateTaskInput, async (req, res) => {
@@ -77,6 +115,42 @@ router.post('/task', validateTaskInput, async (req, res) => {
     });
   } catch (error) {
     logger.error(`Lỗi khi xử lý yêu cầu: ${error.message}`, 'API');
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * Route xử lý video riêng biệt
+ */
+router.post('/separate', validateSeparateTaskInput, async (req, res) => {
+  try {
+    const task = req.body;
+    logger.info(`Nhận yêu cầu xử lý task riêng biệt ${task.id}`, 'API');
+    
+    // Thêm task vào danh sách đang xử lý
+    processingTasks.add(task.id);
+    
+    // Xử lý task bất đồng bộ
+    processSeparateTask(task)
+      .then(() => {
+        logger.info(`Task riêng biệt ${task.id} đã hoàn thành thành công`, 'API');
+        // Xóa task khỏi danh sách đang xử lý
+        processingTasks.delete(task.id);
+      })
+      .catch(error => {
+        logger.error(`Task riêng biệt ${task.id} thất bại: ${error.message}`, 'API');
+        // Xóa task khỏi danh sách đang xử lý
+        processingTasks.delete(task.id);
+      });
+    
+    // Trả về ngay lập tức
+    res.status(202).json({
+      status: 'accepted',
+      message: `Task riêng biệt ${task.id} đã được chấp nhận và đang xử lý`,
+      taskId: task.id
+    });
+  } catch (error) {
+    logger.error(`Lỗi khi xử lý yêu cầu riêng biệt: ${error.message}`, 'API');
     res.status(500).json({ error: error.message });
   }
 });
