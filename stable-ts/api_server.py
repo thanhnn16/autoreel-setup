@@ -1011,48 +1011,35 @@ def extract_sentence_segments(result):
         
         # Nếu là kết thúc câu hoặc là segment cuối cùng, thêm segment vào kết quả
         if (is_end_of_sentence or i == len(valid_segments) - 1) and current_segment["text"].strip():
-            # Tính duration theo phương pháp chia đều khoảng lặng
-            # Duration của segment hiện tại = (end_time - start_time) + (khoảng lặng sau/2)
-            
-            # Tính khoảng lặng sau (nếu có)
-            next_gap = 0
-            if next_segment:
-                next_gap = next_segment.start - current_segment["end"]
-                logger.info(f"Khoảng lặng sau segment {i}: {next_gap:.2f}s")
-            elif i == len(valid_segments) - 1:
-                # Nếu là segment cuối, lấy khoảng lặng đến hết audio
-                next_gap = total_duration - current_segment["end"]
-                logger.info(f"Khoảng lặng sau segment cuối: {next_gap:.2f}s")
-            
-            # Tính duration
-            base_duration = current_segment["end"] - current_segment["start"]
-            additional_duration = next_gap / 2 if next_gap > 0 else 0
-            
-            # Nếu không phải segment đầu tiên, thêm nửa khoảng lặng trước
-            prev_gap = 0
-            if len(sentence_segments) > 0:
-                prev_segment = sentence_segments[-1]
-                prev_gap = current_segment["start"] - prev_segment["end"]
-                if prev_gap > 0:
-                    additional_duration += prev_gap / 2
-                    logger.info(f"Khoảng lặng trước segment {i}: {prev_gap:.2f}s")
-            
-            duration = base_duration + additional_duration
-            
-            # Log chi tiết về cách tính duration
-            logger.info(f"Segment {i}: base_duration={base_duration:.2f}s, additional_duration={additional_duration:.2f}s")
-            logger.info(f"Tính duration: {base_duration:.2f} + {additional_duration:.2f} = {duration:.2f}s")
-            
-            sentence_segments.append({
+            # Tạo segment mới
+            new_segment = {
                 "id": len(sentence_segments),
                 "start": current_segment["start"],
                 "end": current_segment["end"],
-                "duration": duration,
                 "text": current_segment["text"].strip()
-            })
+            }
+            
+            # Tính duration dựa trên id
+            if len(sentence_segments) == 0:  # id 0
+                # Nếu có segment tiếp theo, duration = start time của segment tiếp theo
+                # Nếu không có segment tiếp theo, duration = end time + 1s
+                if next_segment:
+                    new_segment["duration"] = next_segment.start
+                else:
+                    new_segment["duration"] = current_segment["end"] + 1.0
+                logger.info(f"Segment id 0: duration = {new_segment['duration']:.2f}s")
+            else:  # id >= 1
+                if i == len(valid_segments) - 1:  # last id
+                    new_segment["duration"] = current_segment["end"] - current_segment["start"] + 1.0
+                    logger.info(f"Last segment (id {new_segment['id']}): duration = {new_segment['duration']:.2f}s")
+                else:  # id > 0 but not last
+                    new_segment["duration"] = next_segment.start - current_segment["start"]
+                    logger.info(f"Middle segment (id {new_segment['id']}): duration = {new_segment['duration']:.2f}s")
+            
+            sentence_segments.append(new_segment)
             
             logger.info(f"Đã thêm segment {len(sentence_segments)-1}: '{current_segment['text'].strip()}'")
-            logger.info(f"  - start: {current_segment['start']:.2f}s, end: {current_segment['end']:.2f}s, duration: {duration:.2f}s")
+            logger.info(f"  - start: {current_segment['start']:.2f}s, end: {current_segment['end']:.2f}s, duration: {new_segment['duration']:.2f}s")
             
             # Reset segment hiện tại
             current_segment = {
@@ -1061,25 +1048,10 @@ def extract_sentence_segments(result):
                 "end": None
             }
     
-    # Kiểm tra tổng duration
+    # Log tổng duration
     total_calculated_duration = sum(seg["duration"] for seg in sentence_segments)
     logger.info(f"Tính toán tổng duration: {total_calculated_duration:.2f}s")
     logger.info(f"Total duration check: calculated={total_calculated_duration:.2f}, expected={total_duration:.2f}")
-    
-    # Nếu vẫn có sự chênh lệch, in thông báo
-    if abs(total_calculated_duration - total_duration) > 0.001:  # Cho phép sai số 1ms
-        logger.info(f"Duration difference: {abs(total_calculated_duration - total_duration):.2f}s")
-        if total_calculated_duration < total_duration:
-            logger.info(f"Thiếu {total_duration - total_calculated_duration:.2f}s so với tổng thời lượng")
-            
-            # Điều chỉnh duration của segment cuối cùng để khớp với tổng thời lượng
-            if sentence_segments:
-                missing_duration = total_duration - total_calculated_duration
-                last_segment = sentence_segments[-1]
-                last_segment["duration"] += missing_duration
-                logger.info(f"Đã điều chỉnh duration của segment cuối cùng: +{missing_duration:.2f}s, mới: {last_segment['duration']:.2f}s")
-        else:
-            logger.info(f"Thừa {total_calculated_duration - total_duration:.2f}s so với tổng thời lượng")
     
     return sentence_segments
 
