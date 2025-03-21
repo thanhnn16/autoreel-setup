@@ -407,7 +407,8 @@ async def transcribe_audio(
                 content={
                     "success": True,
                     "message": f"Đã phiên âm thành công file {file.filename}",
-                    "download_url": download_url
+                    "download_url": download_url,
+                    "duration": result.segments[-1].end if result.segments else 0
                 }
             )
         else:
