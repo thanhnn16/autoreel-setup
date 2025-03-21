@@ -146,25 +146,53 @@ router.get('/task/:id/download', (req, res) => {
       const start = parseInt(parts[0], 10);
       const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
       const chunksize = (end - start) + 1;
-      const file = fs.createReadStream(outputPath, {start, end});
+      
+      if (start >= fileSize) {
+        res.status(416).send('Requested Range Not Satisfiable');
+        return;
+      }
+      
+      const fileStream = fs.createReadStream(outputPath, {start, end});
       
       res.writeHead(206, {
         'Content-Range': `bytes ${start}-${end}/${fileSize}`,
         'Accept-Ranges': 'bytes',
         'Content-Length': chunksize,
         'Content-Type': 'video/mp4',
-        'Content-Disposition': `attachment; filename="${fileName}"`
+        'Content-Disposition': `attachment; filename="${fileName}"`,
+        'Connection': 'keep-alive'
       });
-      file.pipe(res);
+      
+      // Xử lý lỗi stream
+      fileStream.on('error', (error) => {
+        logger.error(`Lỗi stream khi tải video: ${error.message}`, 'API');
+        if (!res.headersSent) {
+          res.status(500).json({ error: error.message });
+        }
+      });
+      
+      fileStream.pipe(res);
     } else {
       // Gửi toàn bộ file với header đầy đủ
       res.writeHead(200, {
         'Content-Length': fileSize,
         'Content-Type': 'video/mp4',
         'Content-Disposition': `attachment; filename="${fileName}"`,
-        'Accept-Ranges': 'bytes'
+        'Accept-Ranges': 'bytes',
+        'Connection': 'keep-alive'
       });
-      fs.createReadStream(outputPath).pipe(res);
+      
+      const fileStream = fs.createReadStream(outputPath);
+      
+      // Xử lý lỗi stream
+      fileStream.on('error', (error) => {
+        logger.error(`Lỗi stream khi tải video: ${error.message}`, 'API');
+        if (!res.headersSent) {
+          res.status(500).json({ error: error.message });
+        }
+      });
+      
+      fileStream.pipe(res);
     }
   } catch (error) {
     logger.error(`Lỗi khi tải video: ${error.message}`, 'API');
