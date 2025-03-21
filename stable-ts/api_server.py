@@ -139,6 +139,7 @@ async def root():
 async def transcribe_audio(
     file: UploadFile = File(...),
     use_cpu: bool = Form(False),
+    simple_response: bool = Form(False),
     
     # Tham số cho ASS
     font: str = Form("Montserrat"),
@@ -164,6 +165,7 @@ async def transcribe_audio(
     Args:
         file (UploadFile): File audio cần phiên âm
         use_cpu (bool): Sử dụng CPU thay vì GPU
+        simple_response (bool): Tùy chọn phản hồi đơn giản hơn
         
         # Tham số cho ASS
         font (str): Tên font chữ
@@ -399,17 +401,27 @@ async def transcribe_audio(
         # Trích xuất segments để trả về trong response
         sentence_segments = extract_sentence_segments(result)
         
-        return JSONResponse(
-            content={
-                "success": True,
-                "message": f"Đã phiên âm thành công file {file.filename}",
-                "processing_time": f"{process_time:.2f} giây",
-                "device": _device,
-                "download_url": download_url,
-                "text": result.text,
-                "segments": sentence_segments
-            }
-        )
+        # Tạo response dựa trên giá trị của simple_response
+        if simple_response:
+            return JSONResponse(
+                content={
+                    "success": True,
+                    "message": f"Đã phiên âm thành công file {file.filename}",
+                    "download_url": download_url
+                }
+            )
+        else:
+            return JSONResponse(
+                content={
+                    "success": True,
+                    "message": f"Đã phiên âm thành công file {file.filename}",
+                    "processing_time": f"{process_time:.2f} giây",
+                    "device": _device,
+                    "download_url": download_url,
+                    "text": result.text,
+                    "segments": sentence_segments
+                }
+            )
     
     except RuntimeError as e:
         if "CUDA out of memory" in str(e):
@@ -442,7 +454,7 @@ async def transcribe_audio(
             if next_model:
                 logger.info(f"Thử lại với model {next_model}...")
                 _model = stable_whisper.load_model(next_model, device="cuda")
-                return await transcribe_audio(file, use_cpu=False)
+                return await transcribe_audio(file, use_cpu=False, simple_response=simple_response)
             else:
                 logger.error("Đã thử tất cả các model nhưng vẫn gặp lỗi CUDA OOM")
                 return JSONResponse(
