@@ -309,12 +309,11 @@ class SeparateVideoProcessor {
     for (let i = 0; i < this.resources.images.length; i++) {
       try {
         const imagePath = this.resources.images[i];
-        const voicePath = this.resources.voices[i];
         const subtitlePath = this.resources.subtitles[i];
         const duration = parseFloat(durations[i]);
 
-        if (!imagePath || !voicePath) {
-          throw new Error(`Thiếu tài nguyên cơ bản cho video ${i + 1}`);
+        if (!imagePath) {
+          throw new Error(`Thiếu ảnh cho video ${i + 1}`);
         }
 
         if (isNaN(duration) || duration <= 0) {
@@ -323,20 +322,14 @@ class SeparateVideoProcessor {
 
         logger.task.info(this.id, `===== Xử lý video ${i + 1}/${this.resources.images.length} =====`);
         logger.task.info(this.id, `- Ảnh: ${imagePath}`);
-        logger.task.info(this.id, `- Voice: ${voicePath}`);
         logger.task.info(this.id, `- Subtitle: ${subtitlePath || 'không có'}`);
         logger.task.info(this.id, `- Thời lượng: ${duration.toFixed(2)}s`);
 
-        // Kiểm tra tồn tại file ảnh và voice
+        // Kiểm tra tồn tại file ảnh
         const fullImagePath = path.join(this.tempDir, imagePath);
-        const fullVoicePath = path.join(this.tempDir, voicePath);
 
         if (!fs.existsSync(fullImagePath)) {
           throw new Error(`File ảnh không tồn tại: ${fullImagePath}`);
-        }
-
-        if (!fs.existsSync(fullVoicePath)) {
-          throw new Error(`File âm thanh không tồn tại: ${fullVoicePath}`);
         }
 
         // Tạo video từ ảnh với hiệu ứng Ken Burns
@@ -379,12 +372,11 @@ class SeparateVideoProcessor {
         // Đường dẫn đầu ra
         const outputVideoPath = path.join(this.tempDir, 'videos', `video_${i + 1}.mp4`);
 
-        // Tạo video từ ảnh
+        // Tạo video từ ảnh (chỉ video, không audio)
         const videoArgs = [
           "-y", "-threads", "0",
           "-loop", "1",
-          "-i", fullImagePath,
-          "-i", fullVoicePath
+          "-i", fullImagePath
         ];
 
         // Kiểm tra và xử lý subtitle
@@ -413,9 +405,8 @@ class SeparateVideoProcessor {
           "-preset", preset,
           "-crf", video_quality.toString(),
           "-pix_fmt", "yuv420p",
-          "-c:a", "aac",
-          "-b:a", "128k",
-          "-shortest",
+          // Tạo video không có audio
+          "-an",
           outputVideoPath
         );
 
@@ -524,82 +515,179 @@ class SeparateVideoProcessor {
       const tempDir = path.join(this.tempDir, 'concat_temp');
       await ensureDir(tempDir);
 
-      // Tạo blank video để sử dụng giữa các cảnh
-      const blankVideoPath = await this.createBlankVideo(0.4);
-
-      // Chuẩn bị danh sách video để nối (bao gồm video trắng ở giữa)
-      let videosToProcess = [];
-      
-      // Kéo dài video cuối cùng thêm 1s ngay từ đầu
+      // Kéo dài video cuối cùng thêm 1s
       const lastIndex = this.resources.separateVideos.length - 1;
       const extendedLastVideo = await this.extendLastVideo(this.resources.separateVideos[lastIndex], 1);
       
-      // Tạo mảng video mới với blank video xen kẽ
-      for (let i = 0; i < this.resources.separateVideos.length; i++) {
-        // Nếu là video cuối cùng, sử dụng phiên bản đã kéo dài
-        if (i === lastIndex) {
-          videosToProcess.push(extendedLastVideo);
-        } else {
-          videosToProcess.push(this.resources.separateVideos[i]);
-        }
+      // Thay thế video cuối bằng phiên bản đã kéo dài
+      const processedVideos = [...this.resources.separateVideos];
+      processedVideos[lastIndex] = extendedLastVideo;
+      
+      // Tạo blank video
+      const blankVideoPath = await this.createBlankVideo(0.4);
+      logger.task.info(this.id, `Đã tạo blank video: ${blankVideoPath}`);
+
+      // Tạo danh sách đầy đủ các video bao gồm blank video
+      let videosToProcess = [];
+      for (let i = 0; i < processedVideos.length; i++) {
+        videosToProcess.push(processedVideos[i]);
         
         // Thêm blank video sau mỗi video (trừ video cuối)
-        if (i < this.resources.separateVideos.length - 1) {
+        if (i < processedVideos.length - 1) {
           videosToProcess.push(blankVideoPath);
         }
       }
-
+      
       logger.task.info(this.id, `Đã chuẩn bị ${videosToProcess.length} video để nối (bao gồm blank videos)`);
 
+      // BƯỚC 1: Lấy các audio từ mảng đã tải về
+      logger.task.info(this.id, `Chuẩn bị ${this.resources.voices.length} file audio đã tải`);
+      const audioFiles = [];
+      const audioDurations = [];
+      const { durations } = this.task;
+      
+      // Tạo thư mục chứa audio tạm
+      const tempAudioDir = path.join(tempDir, 'audio');
+      await ensureDir(tempAudioDir);
+      
+      // Duyệt qua mảng voices
+      for (let i = 0; i < this.resources.voices.length; i++) {
+        const voicePath = this.resources.voices[i];
+        if (!voicePath) {
+          throw new Error(`Thiếu file audio cho video ${i+1}`);
+        }
+        
+        const fullVoicePath = path.join(this.tempDir, voicePath);
+        if (!fs.existsSync(fullVoicePath)) {
+          throw new Error(`File audio không tồn tại: ${fullVoicePath}`);
+        }
+        
+        // Kiểm tra nếu là video cuối, sử dụng thời lượng đã + 1s
+        let duration = parseFloat(durations[i]);
+        if (i === lastIndex) {
+          duration += 1; // Thêm 1s cho video cuối
+        }
+        
+        audioDurations.push(duration);
+        audioFiles.push(fullVoicePath);
+        
+        logger.task.info(this.id, `Đã chuẩn bị audio ${i+1}/${this.resources.voices.length}, duration: ${duration}s`);
+      }
+      
+      // BƯỚC 2: Tạo file audio cho blank video (silence)
+      const blankAudioDuration = 0.4; // giống thời lượng của blank video
+      const blankAudioPath = path.join(tempAudioDir, 'blank_audio.aac');
+      
+      await runFFmpeg([
+        "-y", "-threads", "0",
+        "-f", "lavfi",
+        "-i", `anullsrc=r=48000:cl=stereo:d=${blankAudioDuration}`,
+        "-c:a", "aac",
+        "-b:a", "128k",
+        blankAudioPath
+      ]);
+      
+      logger.task.info(this.id, `Đã tạo audio trống ${blankAudioDuration}s: ${blankAudioPath}`);
+      
+      // BƯỚC 3: Tạo file danh sách audio concat (bao gồm cả blank audio ở giữa)
+      const concatAudioListPath = path.join(this.tempDir, 'audio_concat_list.txt');
+      let concatAudioContent = '';
+      
+      for (let i = 0; i < audioFiles.length; i++) {
+        // Thêm audio chính
+        concatAudioContent += `file '${audioFiles[i].replace(/\\/g, "/")}'\n`;
+        
+        // Thêm blank audio sau mỗi audio (trừ audio cuối)
+        if (i < audioFiles.length - 1) {
+          concatAudioContent += `file '${blankAudioPath.replace(/\\/g, "/")}'\n`;
+        }
+      }
+      
+      fs.writeFileSync(concatAudioListPath, concatAudioContent);
+      logger.task.info(this.id, `Đã tạo file danh sách concat audio: ${concatAudioListPath}`);
+      
+      // BƯỚC 4: Nối các audio files
+      const combinedAudioPath = path.join(tempDir, 'combined_audio.aac');
+      await runFFmpeg([
+        "-y", "-threads", "0",
+        "-f", "concat",
+        "-safe", "0",
+        "-i", concatAudioListPath,
+        "-c", "copy",
+        combinedAudioPath
+      ]);
+      
+      logger.task.info(this.id, `Đã nối các audio thành công: ${combinedAudioPath}`);
+      
+      // BƯỚC 5: Xử lý luồng video riêng với xfade
+      logger.task.info(this.id, `Bắt đầu xử lý luồng video với hiệu ứng xfade`);
+      
       // Bắt đầu với video đầu tiên
       let currentVideo = videosToProcess[0];
-
-      // Nối từng cặp video một
+      
+      // Nối từng cặp video một với xfade
       for (let i = 1; i < videosToProcess.length; i++) {
         const nextVideo = videosToProcess[i];
         const outputPath = path.join(tempDir, `xfade_${i}.mp4`);
-
-        // Chọn hiệu ứng chuyển cảnh
+        
+        // Chọn hiệu ứng chuyển cảnh ngẫu nhiên
         const transitionIndex = Math.floor(Math.random() * transitions.length);
         const transition = transitions[transitionIndex];
         logger.task.info(this.id, `Transition ${i}: sử dụng hiệu ứng '${transition}'`);
-
+        
         // Lấy thời lượng của video hiện tại
         const duration = await this.getVideoDuration(currentVideo);
-
+        
         // Sửa cách tính offset để đảm bảo transition diễn ra đúng thời điểm
-        // Sử dụng 1.2 làm hệ số buffer để tạo khoảng đệm nhỏ
         const offset = Math.max(0, duration - transitionDuration * 1.2);
-
+        
         logger.task.info(this.id, `Video ${i}: duration=${duration}s, offset=${offset}s, transition=${transitionDuration}s`);
-
-        // Nối với hiệu ứng xfade cho video và copy audio (không áp dụng fade)
+        
+        // Nối với hiệu ứng xfade chỉ cho video, không có audio
         await runFFmpeg([
           "-y", "-threads", "0",
           "-i", currentVideo,
           "-i", nextVideo,
-          "-filter_complex",
-          `[0:v][1:v]xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}[v]`,
-          "-map", "[v]", 
-          // Chỉ sử dụng audio từ video đầu tiên, không áp dụng fade
-          "-map", "0:a",
+          "-an", // Không lấy audio từ input
+          "-filter_complex", `[0:v][1:v]xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}[v]`,
+          "-map", "[v]",
           "-c:v", "libx265",
           "-preset", "medium",
           "-crf", "23",
           "-pix_fmt", "yuv420p",
           outputPath
         ]);
-
+        
         // Cập nhật video hiện tại cho lần nối tiếp theo
         currentVideo = outputPath;
       }
-
+      
+      logger.task.info(this.id, `Đã hoàn thành xử lý luồng video với xfade`);
+      
+      // BƯỚC 6: Kết hợp luồng video và audio
+      logger.task.info(this.id, `Kết hợp luồng video và audio`);
+      const finalOutputPath = path.join(tempDir, 'final_output.mp4');
+      
+      await runFFmpeg([
+        "-y", "-threads", "0",
+        "-i", currentVideo, // Video đã được xfade
+        "-i", combinedAudioPath, // Audio đã được nối
+        "-c:v", "copy", // Copy video stream
+        "-c:a", "aac", // Re-encode audio để đảm bảo tương thích
+        "-b:a", "128k",
+        "-shortest", // Đảm bảo output không dài hơn input ngắn nhất
+        finalOutputPath
+      ]);
+      
+      logger.task.info(this.id, `Đã kết hợp thành công video và audio: ${finalOutputPath}`);
+      
       // Sao chép kết quả cuối cùng vào thư mục output
       this.outputPath = path.join('output', `output_${this.id}.mp4`);
       await ensureOutputDir(path.dirname(this.outputPath), true);
-      fs.copyFileSync(currentVideo, this.outputPath);
-
-      logger.task.info(this.id, 'Đã nối xong tất cả video với hiệu ứng xfade và sử dụng blank video ở giữa');
+      fs.copyFileSync(finalOutputPath, this.outputPath);
+      
+      logger.task.info(this.id, 'Đã xử lý xong tất cả video với hiệu ứng xfade');
+      
     } catch (error) {
       logger.task.error(this.id, `Lỗi trong quá trình nối video: ${error.message}`);
       throw error;
