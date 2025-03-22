@@ -616,7 +616,8 @@ class SeparateVideoProcessor {
         "-f", "concat",
         "-safe", "0",
         "-i", concatAudioListPath,
-        "-c", "copy",
+        "-c:a", "aac",
+        "-b:a", "128k",
         combinedAudioPath
       ]);
       
