@@ -704,12 +704,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       await ensureDir(path.dirname(tempOutput));
 
       // Thêm tiêu đề vào video
-      // Sử dụng cả hai tùy chọn fix_sub_duration và fix_sub_duration_heartbeat
-      // để đảm bảo hiển thị phụ đề chính xác
+      // Di chuyển -fix_sub_duration trước input file vì nó là input option
       const titleArgs = [
         "-y", "-threads", "0",
-        "-i", this.outputPath,
         "-fix_sub_duration",
+        "-i", this.outputPath,
         "-c:v", "libx265",
         "-preset", "medium",
         "-crf", "23",
