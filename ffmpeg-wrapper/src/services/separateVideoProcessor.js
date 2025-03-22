@@ -17,6 +17,7 @@ import {
 import { downloadFile } from './fileDownloader.js';
 import process from 'process';
 import { processAssSubtitle } from './subtitleProcessor.js';
+import { spawn } from 'child_process';
 
 /**
  * Lớp xử lý video riêng biệt
@@ -439,9 +440,9 @@ class SeparateVideoProcessor {
   }
 
   /**
- * Tạo video trống để sử dụng làm video trung gian cho hiệu ứng xfade
- * @returns {string} Đường dẫn đến video trống
- */
+   * Tạo video trống để sử dụng làm video trung gian cho hiệu ứng xfade
+   * @returns {string} Đường dẫn đến video trống
+   */
   async createBlankVideo() {
     const { width, height, frameRate: fps } = ffmpegConfig.video;
     const duration = 0.4; // Thời lượng 0.4s cho video trống
@@ -472,7 +473,6 @@ class SeparateVideoProcessor {
     logger.task.info(this.id, 'Đã tạo xong video trống');
     return blankVideoPath;
   }
-
 
   /**
    * Nối các video riêng biệt lại với nhau
@@ -552,6 +552,11 @@ class SeparateVideoProcessor {
   // Thêm hàm hỗ trợ để lấy thời lượng video
   async getVideoDuration(videoPath) {
     return new Promise((resolve, reject) => {
+      // Kiểm tra file tồn tại
+      if (!fs.existsSync(videoPath)) {
+        return reject(new Error(`File video không tồn tại: ${videoPath}`));
+      }
+
       const ffprobe = spawn('ffprobe', [
         '-v', 'error',
         '-show_entries', 'format=duration',
@@ -560,20 +565,38 @@ class SeparateVideoProcessor {
       ]);
 
       let output = '';
+      let errorOutput = '';
+
       ffprobe.stdout.on('data', (data) => {
         output += data.toString();
       });
 
+      ffprobe.stderr.on('data', (data) => {
+        errorOutput += data.toString();
+      });
+
       ffprobe.on('close', (code) => {
         if (code !== 0) {
-          return reject(new Error(`Không thể lấy thời lượng video: ${videoPath}`));
+          return reject(new Error(`Không thể lấy thời lượng video: ${videoPath}. Lỗi: ${errorOutput}`));
         }
-        resolve(parseFloat(output.trim()));
+        
+        const duration = parseFloat(output.trim());
+        if (isNaN(duration) || duration <= 0) {
+          return reject(new Error(`Thời lượng video không hợp lệ: ${output.trim()}`));
+        }
+        
+        resolve(duration);
+      });
+
+      ffprobe.on('error', (err) => {
+        if (err.code === 'ENOENT') {
+          reject(new Error('Không tìm thấy ffprobe. Vui lòng cài đặt ffmpeg và ffprobe.'));
+        } else {
+          reject(new Error(`Lỗi khi chạy ffprobe: ${err.message}`));
+        }
       });
     });
   }
-
-
 
   /**
    * Thêm tiêu đề vào video cuối cùng
