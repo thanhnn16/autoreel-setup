@@ -129,26 +129,13 @@ async function downloadFile(source, filePath, options = {}) {
           // Kiểm tra kích thước file
           const stats = fs.statSync(filePath);
           if (contentLength && stats.size !== contentLength) {
-            throw new Error(`Kích thước file không khớp sau khi tải: ${stats.size}/${contentLength} bytes`, {
-              metadata: {
-                source,
-                filePath,
-                expectedSize: contentLength,
-                actualSize: stats.size
-              }
-            });
+            throw new Error(`Kích thước file không khớp sau khi tải: ${stats.size}/${contentLength} bytes`);
           }
           
           logger.info(`${logPrefix} Đã tải file video thành công: ${filePath}`, 'FileDownloader');
           return filePath;
         } catch (bufferError) {
-          logger.error(`${logPrefix} Lỗi khi tải file video vào bộ nhớ: ${bufferError.message}`, 'FileDownloader', {
-            metadata: {
-              source,
-              filePath,
-              error: bufferError.message
-            }
-          });
+          logger.error(`${logPrefix} Lỗi khi tải file video vào bộ nhớ: ${bufferError.message}`, 'FileDownloader');
           throw bufferError;
         }
       }
@@ -159,10 +146,6 @@ async function downloadFile(source, filePath, options = {}) {
       await new Promise((resolve, reject) => {
         response.body.on('data', (chunk) => {
           downloadedSize += chunk.length;
-          if (contentLength) {
-            const progress = Math.round((downloadedSize / contentLength) * 100);
-            logger.debug(`${logPrefix} Tiến độ tải: ${progress}%`, 'FileDownloader');
-          }
         });
         
         response.body.pipe(fileStream);
@@ -193,14 +176,7 @@ async function downloadFile(source, filePath, options = {}) {
       // Kiểm tra file đã tải
       const stats = fs.statSync(filePath);
       if (contentLength && stats.size !== contentLength) {
-        throw new Error(`Kích thước file không khớp sau khi tải: ${stats.size}/${contentLength} bytes`, {
-          metadata: {
-            source,
-            filePath,
-            expectedSize: contentLength,
-            actualSize: stats.size
-          }
-        });
+        throw new Error(`Kích thước file không khớp sau khi tải: ${stats.size}/${contentLength} bytes`);
       }
       
       logger.info(`${logPrefix} Đã tải file thành công: ${filePath}`, 'FileDownloader');
@@ -219,32 +195,12 @@ async function downloadFile(source, filePath, options = {}) {
       
       lastError = error;
       const isLastAttempt = attempt >= retries;
-      const logLevel = isLastAttempt ? 'error' : 'warn';
-      
-      logger.info(
-        `${logPrefix} Lỗi khi tải file (lần thử ${attempt}/${retries}): ${error.message}`,
-        'FileDownloader',
-        {
-          level: logLevel,
-          metadata: {
-            source,
-            filePath,
-            attempt,
-            retries,
-            error: error.message
-          }
-        }
-      );
       
       if (isLastAttempt) {
-        throw new Error(`Không thể tải file sau ${retries} lần thử: ${error.message}`, {
-          metadata: {
-            source,
-            filePath,
-            retries,
-            lastError: error.message
-          }
-        });
+        logger.error(`${logPrefix} Không thể tải file sau ${retries} lần thử: ${error.message}`, 'FileDownloader');
+        throw new Error(`Không thể tải file sau ${retries} lần thử: ${error.message}`);
+      } else {
+        logger.warn(`${logPrefix} Lỗi khi tải file (lần thử ${attempt}/${retries}): ${error.message}`, 'FileDownloader');
       }
       
       // Chờ trước khi thử lại với thời gian tăng dần
