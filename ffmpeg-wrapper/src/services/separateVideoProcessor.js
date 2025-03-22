@@ -105,9 +105,6 @@ class SeparateVideoProcessor {
     // Xử lý từng phần video riêng biệt
     await this.processSeparateVideos();
     
-    // Tạo video trống để sử dụng làm video trung gian cho hiệu ứng xfade
-    const blankVideoPath = await this.createBlankVideo();
-    
     // Nối các video lại với nhau
     await this.combineVideos();
     
@@ -441,36 +438,40 @@ class SeparateVideoProcessor {
   }
 
   /**
-   * Tạo video trống để sử dụng làm video trung gian cho hiệu ứng xfade
-   * @returns {string} Đường dẫn đến video trống
-   */
-  async createBlankVideo() {
-    const { width, height, frameRate: fps } = ffmpegConfig.video;
-    const duration = 0.4; // Thời lượng 0.4s cho video trống
-    
-    logger.task.info(this.id, `Tạo video trống ${width}x${height} với thời lượng ${duration}s`);
-    
-    // Đường dẫn output
-    const blankVideoPath = path.join(this.tempDir, 'videos', 'blank.mp4');
-    
-    // Tạo video trống với màu đen
-    const args = [
+ * Tạo video trống để sử dụng làm video trung gian cho hiệu ứng xfade
+ * @returns {string} Đường dẫn đến video trống
+ */
+async createBlankVideo() {
+  const { width, height, frameRate: fps } = ffmpegConfig.video;
+  const duration = 0.4; // Thời lượng 0.4s cho video trống
+  logger.task.info(this.id, `Tạo video trống ${width}x${height} với thời lượng ${duration}s`);
+  
+  // Đường dẫn output
+  const blankVideoPath = path.join(this.tempDir, 'videos', 'blank.mp4');
+  
+  // Tạo video trống với màu đen VÀ audio silence
+  const args = [
       "-y", "-threads", "0",
       "-f", "lavfi",
       "-i", `color=c=black:s=${width}x${height}:r=${fps}:d=${duration}`,
+      // Thêm nguồn audio silence
+      "-f", "lavfi",
+      "-i", `anullsrc=r=48000:cl=stereo:d=${duration}`,
       "-c:v", "libx265",
       "-preset", "medium",
       "-crf", "23",
       "-pix_fmt", "yuv420p",
-      "-an", // Không có âm thanh
+      // Thiết lập codec audio
+      "-c:a", "aac",
+      "-b:a", "128k",
       blankVideoPath
-    ];
-    
-    await runFFmpeg(args);
-    logger.task.info(this.id, 'Đã tạo xong video trống');
-    
-    return blankVideoPath;
-  }
+  ];
+  
+  await runFFmpeg(args);
+  logger.task.info(this.id, 'Đã tạo xong video trống');
+  return blankVideoPath;
+}
+
 
   /**
    * Nối các video riêng biệt lại với nhau
