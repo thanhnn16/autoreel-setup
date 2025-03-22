@@ -417,115 +417,143 @@ class SeparateVideoProcessor {
       logger.task.info(this.id, `Video ${i+1} có thời lượng: ${duration.toFixed(2)}s`);
     }
     
-    // --- Tạo video trống 0.5s để làm trung gian ---
-    const emptyVideoPath = path.join(this.tempDir, 'empty.mp4');
-    const emptyVideoArgs = [
-      "-y", "-threads", "0",
-      "-f", "lavfi",
-      "-i", `color=c=black:s=${ffmpegConfig.video.width}x${ffmpegConfig.video.height}:d=${emptyVideoDuration}`,
-      "-c:v", "libx265",
-      "-preset", "ultrafast",
-      "-crf", "23",
-      "-pix_fmt", "yuv420p",
-      emptyVideoPath
-    ];
-    
-    logger.task.info(this.id, `Tạo video trống ${emptyVideoDuration}s làm trung gian...`);
-    await runFFmpeg(emptyVideoArgs);
-    
-    // --- Tạo filter complex để nối các đoạn video ---
-    const concatArgs = ["-y", "-threads", "0"];
-    
-    // Thêm input cho tất cả video gốc
-    for (const videoPath of this.resources.separateVideos) {
-      concatArgs.push("-i", videoPath);
-    }
-    
-    // Thêm nhiều lần video trống để làm trung gian
-    for (let i = 0; i < this.resources.separateVideos.length - 1; i++) {
-      concatArgs.push("-i", emptyVideoPath);
-    }
-    
-    // Xây dựng filter complex đúng cách
-    let filterComplex = '';
-    
-    logger.task.info(this.id, `Sử dụng ${transitions.length} hiệu ứng xfade có sẵn`);
-    
-    // Thực hiện nối chuỗi filter đúng cú pháp
-    // Đầu tiên là xử lý video 0 xfade vào video trắng
-    const firstTransitionIndex = Math.floor(Math.random() * transitions.length);
-    const firstTransition = transitions[firstTransitionIndex];
-    logger.task.info(this.id, `Transition 1: sử dụng hiệu ứng '${firstTransition}'`);
-    const firstOffset = (videoDurations[0] - transitionDuration).toFixed(3);
-    
-    // Video 0 -> empty (v0tmp)
-    filterComplex += `[0][${this.resources.separateVideos.length}]xfade=transition=${firstTransition}:duration=${transitionDuration}:offset=${firstOffset}[v0tmp];`;
-    
-    // Tiếp tục xử lý các video tiếp theo
-    for (let i = 1; i < this.resources.separateVideos.length; i++) {
-      const transitionIndex = Math.floor(Math.random() * transitions.length);
-      const randomTransition = transitions[transitionIndex];
-      logger.task.info(this.id, `Transition ${i+1}: sử dụng hiệu ứng '${randomTransition}'`);
-      
-      // Đặt nhãn đầu vào
-      let inputLabel = (i === 1) ? 'v0tmp' : `v${i-1}`;
-      
-      // Empty -> video i (vi)
-      const emptyVideoIndex = this.resources.separateVideos.length + i - 1;
-      filterComplex += `[${inputLabel}][${i}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${emptyVideoDuration - transitionDuration}`;
-      
-      // Label đầu ra
-      if (i === this.resources.separateVideos.length - 1) {
-        filterComplex += '[outv]';
-      } else {
-        filterComplex += `[v${i}];`;
-      }
-    }
-    
-    logger.task.info(this.id, `Filter complex: ${filterComplex}`);
-    
-    // Thêm các tham số cuối cùng
-    concatArgs.push(
-      "-filter_complex", filterComplex,
-      "-map", "[outv]"
-    );
-    
-    // Kiểm tra âm thanh - audio sẽ được lấy từ video đầu tiên khi dùng xfade
-    concatArgs.push("-map", "0:a");
-    
-    // Codec và các tham số khác
-    concatArgs.push(
-      "-c:v", "libx265",
-      "-preset", "medium",
-      "-crf", "23",
-      "-pix_fmt", "yuv420p",
-      "-c:a", "aac", 
-      "-b:a", "128k"
-    );
-    
-    // Thêm tham số tối ưu cho H.265
-    if (ffmpegConfig.video.x265Params) {
-      concatArgs.push("-x265-params", ffmpegConfig.video.x265Params);
-      concatArgs.push("-tag:v", "hvc1");
-    }
-    
-    // Đường dẫn output
-    this.outputPath = path.join('output', `output_${this.id}.mp4`);
-    await ensureOutputDir(path.dirname(this.outputPath), true);
-    
-    concatArgs.push(this.outputPath);
-    
-    logger.task.info(this.id, `Bắt đầu nối video...`);
-    
     try {
-      await runFFmpeg(concatArgs);
-      logger.task.info(this.id, 'Đã nối xong tất cả video với hiệu ứng xfade');
-    } catch (error) {
-      logger.task.error(this.id, `Lỗi khi nối video bằng xfade: ${error.message}`);
-      logger.task.info(this.id, 'Thử phương án dự phòng - concat demuxer');
+      // --- Tạo video trống 0.5s để làm trung gian ---
+      const emptyVideoPath = path.join(this.tempDir, 'empty.mp4');
+      const emptyVideoArgs = [
+        "-y", "-threads", "0",
+        "-f", "lavfi",
+        "-i", `color=c=black:s=${ffmpegConfig.video.width}x${ffmpegConfig.video.height}:d=${emptyVideoDuration}:r=${ffmpegConfig.video.frameRate}`,
+        "-c:v", "libx265",
+        "-preset", "ultrafast",
+        "-crf", "23",
+        "-pix_fmt", "yuv420p",
+        emptyVideoPath
+      ];
       
-      // Nếu xfade lỗi, sử dụng phương pháp concat demuxer đơn giản hơn
-      await this.combineVideosWithConcat();
+      logger.task.info(this.id, `Tạo video trống ${emptyVideoDuration}s làm trung gian...`);
+      await runFFmpeg(emptyVideoArgs);
+      
+      // --- Tạo filter complex để nối các đoạn video ---
+      const concatArgs = ["-y", "-threads", "0"];
+      
+      // Thêm input cho tất cả video gốc
+      for (const videoPath of this.resources.separateVideos) {
+        concatArgs.push("-i", videoPath);
+      }
+      
+      // Thêm nhiều lần video trống để làm trung gian
+      for (let i = 0; i < this.resources.separateVideos.length - 1; i++) {
+        concatArgs.push("-i", emptyVideoPath);
+      }
+      
+      // Xây dựng filter complex đúng cách
+      let filterComplex = '';
+      
+      logger.task.info(this.id, `Sử dụng ${transitions.length} hiệu ứng xfade có sẵn`);
+      
+      // Để đảm bảo tất cả video có cùng framerate, thêm filter setpts để điều chỉnh timebase
+      // Tạo chain inputs riêng cho từng video
+      let inputChains = '';
+      for (let i = 0; i < this.resources.separateVideos.length; i++) {
+        inputChains += `[${i}:v]setpts=PTS-STARTPTS,fps=${ffmpegConfig.video.frameRate}[v${i}];`;
+      }
+      
+      // Làm tương tự cho video trống
+      let emptyChains = '';
+      for (let i = 0; i < this.resources.separateVideos.length - 1; i++) {
+        const emptyIndex = this.resources.separateVideos.length + i;
+        emptyChains += `[${emptyIndex}:v]setpts=PTS-STARTPTS,fps=${ffmpegConfig.video.frameRate}[empty${i}];`;
+      }
+      
+      filterComplex = inputChains + emptyChains;
+      
+      // Thực hiện nối chuỗi filter đúng cú pháp
+      // Đầu tiên là xử lý video 0 xfade vào video trắng
+      const firstTransitionIndex = Math.floor(Math.random() * transitions.length);
+      const firstTransition = transitions[firstTransitionIndex];
+      logger.task.info(this.id, `Transition 1: sử dụng hiệu ứng '${firstTransition}'`);
+      const firstOffset = (videoDurations[0] - transitionDuration).toFixed(3);
+      
+      // Video 0 -> empty (v0tmp)
+      filterComplex += `[v0][empty0]xfade=transition=${firstTransition}:duration=${transitionDuration}:offset=${firstOffset}[v0tmp];`;
+      
+      // Tiếp tục xử lý các video tiếp theo
+      for (let i = 1; i < this.resources.separateVideos.length; i++) {
+        const transitionIndex = Math.floor(Math.random() * transitions.length);
+        const randomTransition = transitions[transitionIndex];
+        logger.task.info(this.id, `Transition ${i+1}: sử dụng hiệu ứng '${randomTransition}'`);
+        
+        // Đặt nhãn đầu vào
+        let inputLabel = (i === 1) ? 'v0tmp' : `v${i-1}out`;
+        
+        // Empty -> video i (vi)
+        filterComplex += `[${inputLabel}][v${i}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${emptyVideoDuration - transitionDuration}`;
+        
+        // Label đầu ra
+        if (i === this.resources.separateVideos.length - 1) {
+          filterComplex += '[outv]';
+        } else {
+          filterComplex += `[v${i}out];`;
+        }
+      }
+      
+      logger.task.info(this.id, `Filter complex: ${filterComplex}`);
+      
+      // Thêm các tham số cuối cùng
+      concatArgs.push(
+        "-filter_complex", filterComplex,
+        "-map", "[outv]"
+      );
+      
+      // Kiểm tra âm thanh - audio sẽ được lấy từ video đầu tiên khi dùng xfade
+      concatArgs.push("-map", "0:a");
+      
+      // Codec và các tham số khác
+      concatArgs.push(
+        "-c:v", "libx265",
+        "-preset", "medium",
+        "-crf", "23",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac", 
+        "-b:a", "128k"
+      );
+      
+      // Thêm tham số tối ưu cho H.265
+      if (ffmpegConfig.video.x265Params) {
+        concatArgs.push("-x265-params", ffmpegConfig.video.x265Params);
+        concatArgs.push("-tag:v", "hvc1");
+      }
+      
+      // Đường dẫn output
+      this.outputPath = path.join('output', `output_${this.id}.mp4`);
+      await ensureOutputDir(path.dirname(this.outputPath), true);
+      
+      concatArgs.push(this.outputPath);
+      
+      logger.task.info(this.id, `Bắt đầu nối video...`);
+      
+      try {
+        await runFFmpeg(concatArgs);
+        logger.task.info(this.id, 'Đã nối xong tất cả video với hiệu ứng xfade');
+      } catch (error) {
+        logger.task.warn(this.id, `Lỗi khi nối video bằng xfade: ${error.message}`);
+        logger.task.info(this.id, 'Thử phương án dự phòng - concat demuxer');
+        
+        // Nếu xfade lỗi, sử dụng phương pháp concat demuxer đơn giản hơn
+        await this.combineVideosWithConcat();
+      }
+    } catch (error) {
+      logger.task.error(this.id, `Lỗi trong quá trình nối video: ${error.message}`);
+      
+      // Nếu có lỗi khác, vẫn thử phương án dự phòng
+      try {
+        logger.task.info(this.id, 'Thử phương án dự phòng cuối cùng - concat demuxer');
+        await this.combineVideosWithConcat();
+      } catch (concatError) {
+        logger.task.error(this.id, `Cả hai phương pháp đều thất bại: ${concatError.message}`);
+        throw new Error(`Không thể nối video bằng bất kỳ phương pháp nào: ${error.message}`);
+      }
     }
   }
 
@@ -537,15 +565,19 @@ class SeparateVideoProcessor {
     const listFilePath = path.join(this.tempDir, 'video_list.txt');
     let listContent = '';
     
+    logger.task.info(this.id, `Chuẩn bị nối ${this.resources.separateVideos.length} video bằng concat demuxer`);
+    
+    // Chuyển sang thư mục tempDir để dùng đường dẫn tương đối
+    process.chdir(this.tempDir);
+    
     for (const videoPath of this.resources.separateVideos) {
-      // Đảm bảo rằng đường dẫn là tuyệt đối và định dạng đúng
-      // Lưu ý: không cần đường dẫn tuyệt đối từ tempDir nếu videoPath đã là đường dẫn tuyệt đối
-      if (path.isAbsolute(videoPath)) {
-        listContent += `file '${videoPath.replace(/\\/g, '/')}'\n`;
-      } else {
-        // Sử dụng đường dẫn chính xác mà không lặp lại tempDir
-        listContent += `file '${videoPath.replace(/\\/g, '/')}'\n`;
-      }
+      // Sử dụng đường dẫn tương đối từ tempDir
+      const relativePath = path.isAbsolute(videoPath) 
+        ? path.relative(this.tempDir, videoPath) 
+        : videoPath;
+      
+      // Đảm bảo đường dẫn có định dạng đúng 
+      listContent += `file '${relativePath.replace(/\\/g, "/")}'\n`;
     }
     
     fs.writeFileSync(listFilePath, listContent);
@@ -553,20 +585,34 @@ class SeparateVideoProcessor {
     logger.task.info(this.id, `Nội dung file:\n${listContent}`);
     
     // Tạo video đầu ra
-    this.outputPath = path.join('output', `output_${this.id}.mp4`);
-    await ensureOutputDir(path.dirname(this.outputPath), true);
+    this.outputPath = path.join('..', 'output', `output_${this.id}.mp4`);
+    await ensureOutputDir(path.dirname(path.join(this.tempDir, '..', 'output')), true);
     
     const concatArgs = [
       "-y", "-threads", "0",
       "-f", "concat",
       "-safe", "0",
-      "-i", listFilePath,
+      "-i", path.basename(listFilePath),
       "-c", "copy",
       this.outputPath
     ];
     
-    await runFFmpeg(concatArgs);
-    logger.task.info(this.id, 'Đã nối video bằng phương pháp concat demuxer');
+    try {
+      await runFFmpeg(concatArgs);
+      logger.task.info(this.id, 'Đã nối video bằng phương pháp concat demuxer');
+      
+      // Khôi phục thư mục làm việc
+      const originalCwd = path.dirname(this.tempDir);
+      process.chdir(originalCwd);
+      
+      // Cập nhật lại đường dẫn output với đường dẫn tuyệt đối
+      this.outputPath = path.join('output', `output_${this.id}.mp4`);
+    } catch (error) {
+      // Khôi phục thư mục làm việc nếu có lỗi
+      const originalCwd = path.dirname(this.tempDir);
+      process.chdir(originalCwd);
+      throw error;
+    }
   }
 
   /**
@@ -575,6 +621,12 @@ class SeparateVideoProcessor {
   async addTitle() {
     if (!this.task.titleText) {
       logger.task.info(this.id, 'Không có tiêu đề, bỏ qua bước thêm tiêu đề');
+      return;
+    }
+
+    // Kiểm tra xem file output có tồn tại không
+    if (!fs.existsSync(this.outputPath)) {
+      logger.task.error(this.id, `Không thể thêm tiêu đề vì file đầu ra không tồn tại: ${this.outputPath}`);
       return;
     }
 
@@ -646,6 +698,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       fs.writeFileSync(titleAssPath, titleContent);
       logger.task.info(this.id, `Đã tạo file ASS tiêu đề: ${titleAssPath}`);
 
+      // Đảm bảo thư mục đích tồn tại
+      await ensureDir(path.dirname(tempOutput));
+
       // Thêm tiêu đề vào video
       const titleArgs = [
         "-y", "-threads", "0",
@@ -663,8 +718,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
       await runFFmpeg(titleArgs);
       
       // Thay thế file cũ bằng file mới
-      fs.renameSync(tempOutput, this.outputPath);
-      logger.task.info(this.id, 'Đã thêm tiêu đề vào video thành công');
+      if (fs.existsSync(tempOutput)) {
+        fs.renameSync(tempOutput, this.outputPath);
+        logger.task.info(this.id, 'Đã thêm tiêu đề vào video thành công');
+      } else {
+        throw new Error('Không tìm thấy file temp_output.mp4 sau khi xử lý');
+      }
     } catch (error) {
       logger.task.error(this.id, `Lỗi khi thêm tiêu đề: ${error.message}`);
       logger.task.info(this.id, 'Bỏ qua bước thêm tiêu đề');
