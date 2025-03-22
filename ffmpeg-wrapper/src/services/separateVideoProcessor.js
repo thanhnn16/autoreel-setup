@@ -555,15 +555,8 @@ class SeparateVideoProcessor {
         // Sử dụng thời lượng thực tế của video trước đó
         const offset = Math.max(0, videoDurations[i-1] - transitionDuration);
         
-        // Nối video hiện tại với video trống
-        videoFilterComplex += `[blank]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[v${i}out];[v${i}out]`;
-        
-        // Nối video trống với video tiếp theo
-        if (i === this.resources.separateVideos.length - 1) {
-          videoFilterComplex += `[v${i}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[outv]`;
-        } else {
-          videoFilterComplex += `[v${i}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[v${i}out];[v${i}out]`;
-        }
+        // Nối video hiện tại với video trống, thêm fps filter để đảm bảo timebase
+        videoFilterComplex += `[blank]fps=${ffmpegConfig.video.frameRate}[blank${i}];[v${i}]fps=${ffmpegConfig.video.frameRate}[v${i}fps];[v${i-1}out][blank${i}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[v${i}out];[v${i}out][v${i}fps]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[v${i}out];`;
       }
       
       // Xử lý audio - nối tất cả audio từ các video lại với nhau
