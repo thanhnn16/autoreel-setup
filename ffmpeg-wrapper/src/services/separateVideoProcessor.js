@@ -589,71 +589,92 @@ class SeparateVideoProcessor {
       // BƯỚC 3: Xử lý luồng video với xfade
       logger.task.info(this.id, `Bắt đầu xử lý luồng video với hiệu ứng xfade`);
       
-      // Tạo filter complex cho video
-      let videoFilterComplex = '';
-      let videoInputs = [];
+      // Trong trường hợp nhiều video, xử lý từng cặp video một
+      if (processedVideos.length > 2) {
+        logger.task.info(this.id, `Sử dụng phương pháp nối từng cặp video với ${processedVideos.length} videos`);
+        
+        // Bắt đầu với video đầu tiên
+        let currentVideo = processedVideos[0];
+        
+        // Nối từng cặp video một với xfade
+        for (let i = 1; i < processedVideos.length; i++) {
+          const nextVideo = processedVideos[i];
+          const outputPath = path.join(tempDir, `xfade_${i}.mp4`);
+          
+          // Chọn hiệu ứng chuyển cảnh ngẫu nhiên
+          const transitionIndex = Math.floor(Math.random() * transitions.length);
+          const transition = transitions[transitionIndex];
+          
+          // Lấy thời lượng của video hiện tại (cần để tính offset)
+          const duration = await this.getVideoDuration(currentVideo);
+          
+          // Cần đảm bảo offset không vượt quá thời lượng video - transitionDuration
+          // Đây là điểm quan trọng để tránh cắt nội dung quan trọng
+          const offset = Math.max(0, duration - transitionDuration);
+          
+          logger.task.info(this.id, `Transition ${i}: hiệu ứng '${transition}', duration=${duration}s, offset=${offset}s`);
+          
+          // Nối với hiệu ứng xfade (chỉ cho video, không có audio)
+          await runFFmpeg([
+            "-y", "-threads", "0",
+            "-i", currentVideo,
+            "-i", nextVideo,
+            "-an", // Không lấy audio từ input
+            "-filter_complex", `[0:v][1:v]xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}[v]`,
+            "-map", "[v]",
+            "-c:v", "libx265",
+            "-preset", "medium",
+            "-crf", "23",
+            "-pix_fmt", "yuv420p",
+            outputPath
+          ]);
+          
+          // Cập nhật video hiện tại cho lần nối tiếp theo
+          currentVideo = outputPath;
+        }
+        
+        // Lưu đường dẫn video đã nối để sử dụng với audio
+        const xfadeOutputPath = currentVideo;
+        logger.task.info(this.id, `Đã tạo xfade video thành công: ${xfadeOutputPath}`);
       
-      // Thêm tất cả video inputs vào command
-      for (let i = 0; i < processedVideos.length; i++) {
-        videoInputs.push('-i', processedVideos[i]);
-      }
-      
-      // Bắt đầu với video đầu tiên
-      videoFilterComplex += `[0:v]setpts=PTS-STARTPTS[v0]; `;
-      
-      // Áp dụng xfade cho từng cặp video liên tiếp
-      for (let i = 1; i < processedVideos.length; i++) {
+      } else if (processedVideos.length == 2) {
+        // Xử lý trường hợp chỉ có 2 video
+        logger.task.info(this.id, `Xử lý xfade cho 2 videos`);
+        
+        const xfadeOutputPath = path.join(tempDir, 'xfade_output.mp4');
+        
         // Chọn hiệu ứng chuyển cảnh ngẫu nhiên
         const transitionIndex = Math.floor(Math.random() * transitions.length);
         const transition = transitions[transitionIndex];
         
-        // Lấy thời lượng của video trước
-        const prevDuration = parseFloat(durations[i-1]);
+        // Lấy thời lượng của video đầu tiên
+        const duration = parseFloat(durations[0]);
+        const offset = Math.max(0, duration - transitionDuration);
         
-        // Chuẩn bị video hiện tại
-        videoFilterComplex += `[${i}:v]setpts=PTS-STARTPTS[v${i}]; `;
+        logger.task.info(this.id, `Transition: hiệu ứng '${transition}', duration=${duration}s, offset=${offset}s`);
         
-        // Offset đảm bảo không cắt nội dung quan trọng
-        // Transition bắt đầu ở cuối video với khoảng thời gian phủ định là transitionDuration
-        const offset = prevDuration - transitionDuration;
+        // Xử lý 2 video với xfade
+        await runFFmpeg([
+          "-y", "-threads", "0",
+          "-i", processedVideos[0],
+          "-i", processedVideos[1],
+          "-an", // Không lấy audio từ input
+          "-filter_complex", `[0:v][1:v]xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}[v]`,
+          "-map", "[v]",
+          "-c:v", "libx265",
+          "-preset", "medium",
+          "-crf", "23",
+          "-pix_fmt", "yuv420p",
+          xfadeOutputPath
+        ]);
         
-        logger.task.info(this.id, `Transition ${i}: hiệu ứng '${transition}', duration=${prevDuration}s, offset=${offset}s`);
-        
-        // Áp dụng xfade giữa v0 (kết quả đã có) và video tiếp theo
-        if (i === 1) {
-          videoFilterComplex += `[v0][v1]xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}[v01]; `;
-        } else {
-          videoFilterComplex += `[v${i-2}${i-1}][v${i}]xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}[v${i-1}${i}]; `;
-        }
+        logger.task.info(this.id, `Đã tạo xfade video thành công: ${xfadeOutputPath}`);
       }
-      
-      // Xác định label cuối cùng của output
-      const lastOutputLabel = processedVideos.length === 2 ? "v01" : `v${processedVideos.length-2}${processedVideos.length-1}`;
-      
-      // Không thêm label cuối cùng vào filter complex
-      
-      // Tạo video với xfade và không có audio - sử dụng runFFmpeg thay vì spawn cmd
-      const xfadeOutputPath = path.join(tempDir, 'xfade_output.mp4');
-      
-      logger.task.info(this.id, `Tạo xfade video với filter complex: ${videoFilterComplex}`);
-      await runFFmpeg([
-        '-y', '-threads', '0',
-        ...videoInputs,
-        '-filter_complex', videoFilterComplex,
-        '-map', `[${lastOutputLabel}]`,
-        '-an',
-        '-c:v', 'libx265',
-        '-preset', 'medium',
-        '-crf', '23',
-        '-pix_fmt', 'yuv420p',
-        xfadeOutputPath
-      ]);
-      
-      logger.task.info(this.id, `Đã tạo xfade video thành công: ${xfadeOutputPath}`);
       
       // BƯỚC 4: Kết hợp luồng video và audio
       logger.task.info(this.id, `Kết hợp luồng video và audio`);
       const finalOutputPath = path.join(tempDir, 'final_output.mp4');
+      const xfadeOutputPath = path.join(tempDir, processedVideos.length > 2 ? `xfade_${processedVideos.length-1}.mp4` : 'xfade_output.mp4');
       
       await runFFmpeg([
         "-y", "-threads", "0",
