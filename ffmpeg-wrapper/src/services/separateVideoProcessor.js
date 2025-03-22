@@ -507,7 +507,7 @@ class SeparateVideoProcessor {
       // Sử dụng filter complex với xfade
       const concatArgs = ["-y", "-threads", "0"];
       
-      // Thêm input cho tất cả video gốc và video trống
+      // Thêm input cho tất cả video gốc
       for (const videoPath of this.resources.separateVideos) {
         concatArgs.push("-i", videoPath);
       }
@@ -537,8 +537,29 @@ class SeparateVideoProcessor {
         }
       }
       
-      // Thêm label output cuối cùng
+      // Thêm label output cuối cùng cho video
       filterComplex = filterComplex.replace(/\[v(\d+)out\];$/, '[outv];');
+      
+      // Xử lý audio - sử dụng acrossfade để tạo transition mượt mà cho audio
+      for (let i = 0; i < this.resources.separateVideos.length; i++) {
+        // Normalize audio và setpts để đồng bộ
+        filterComplex += `[${i}:a]asetpts=PTS-STARTPTS,dynaudnorm[a${i}];`;
+      }
+      
+      // Nối audio với crossfade
+      for (let i = 0; i < this.resources.separateVideos.length - 1; i++) {
+        const duration = parseFloat(this.task.durations[i]);
+        const offset = Math.max(0, duration - transitionDuration);
+        
+        if (i === 0) {
+          filterComplex += `[a${i}][a${i+1}]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[a${i+1}out];`;
+        } else {
+          filterComplex += `[a${i}out][a${i+1}]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[a${i+1}out];`;
+        }
+      }
+      
+      // Rename audio output label
+      filterComplex = filterComplex.replace(/\[a(\d+)out\];$/, '[outa];');
       
       logger.task.info(this.id, `Filter complex: ${filterComplex}`);
       
@@ -546,10 +567,13 @@ class SeparateVideoProcessor {
       concatArgs.push(
         "-filter_complex", filterComplex,
         "-map", "[outv]",
+        "-map", "[outa]",
         "-c:v", "libx265",
         "-preset", "medium", 
         "-crf", "23",
-        "-pix_fmt", "yuv420p"
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-b:a", "128k"
       );
       
       // Thêm tham số tối ưu cho H.265
