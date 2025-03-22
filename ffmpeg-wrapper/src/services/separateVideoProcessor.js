@@ -570,7 +570,7 @@ class SeparateVideoProcessor {
       }
       
       // Kết hợp filter cho video và audio
-      const filterComplex = videoFilterComplex + ";" + audioFilterComplex;
+      const filterComplex = videoFilterComplex + audioFilterComplex;
       
       logger.task.info(this.id, `Filter complex: ${filterComplex}`);
       
