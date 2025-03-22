@@ -308,5 +308,6 @@ async function createCombinedAss(subtitlePath, titleText, outputDir, taskId) {
 
 export {
   processAssSubtitle,
-  createCombinedAss
+  createCombinedAss,
+  createTitleWithEffect
 }; 
