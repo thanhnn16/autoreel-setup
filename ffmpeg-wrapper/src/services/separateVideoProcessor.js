@@ -512,7 +512,8 @@ class SeparateVideoProcessor {
       filterComplex += `[${blankIndex}:v]setpts=PTS-STARTPTS,fps=${ffmpegConfig.video.frameRate}[v${blankIndex}];`;
 
       // Thêm xfade transitions cho video với blank video
-      for (let i = 0; i < this.resources.separateVideos.length; i++) {
+      let lastVideoLabel = 'v0';
+      for (let i = 0; i < this.resources.separateVideos.length - 1; i++) {
         const transitionIndex = Math.floor(Math.random() * transitions.length);
         const randomTransition = transitions[transitionIndex];
         logger.task.info(this.id, `Transition ${i + 1}: sử dụng hiệu ứng '${randomTransition}'`);
@@ -520,24 +521,17 @@ class SeparateVideoProcessor {
         const duration = parseFloat(this.task.durations[i]);
         const offset = Math.max(0, duration - transitionDuration);
         
-        if (i === 0) {
-          // Transition từ video đầu tiên sang blank video
-          filterComplex += `[v0][v${blankIndex}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[vf1];`;
-          // Transition từ blank video sang video tiếp theo
-          filterComplex += `[vf1][v1]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=0[vf2];`;
-        } else {
-          // Transition từ video hiện tại sang blank video
-          filterComplex += `[vf${i}][v${blankIndex}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[vf${i+1}];`;
-          // Transition từ blank video sang video tiếp theo
-          if (i < this.resources.separateVideos.length - 1) {
-            filterComplex += `[vf${i+1}][v${i+1}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=0[vf${i+2}];`;
-          }
-        }
+        // Transition từ video hiện tại sang blank video
+        filterComplex += `[${lastVideoLabel}][v${blankIndex}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[vb${i}];`;
+        
+        // Transition từ blank video sang video tiếp theo
+        filterComplex += `[vb${i}][v${i + 1}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=0[v${i + 1}_out];`;
+        
+        lastVideoLabel = `v${i + 1}_out`;
       }
 
       // Xử lý audio streams với crossfade
       for (let i = 0; i < this.resources.separateVideos.length; i++) {
-        // Đảm bảo audio stream có cùng sample rate và channels
         filterComplex += `[${i}:a]aresample=48000,asetpts=PTS-STARTPTS[a${i}];`;
       }
 
@@ -545,28 +539,22 @@ class SeparateVideoProcessor {
       filterComplex += `[${blankIndex}:a]aresample=48000,asetpts=PTS-STARTPTS,volume=0[a${blankIndex}];`;
 
       // Nối audio streams với crossfade
-      for (let i = 0; i < this.resources.separateVideos.length; i++) {
+      let lastAudioLabel = 'a0';
+      for (let i = 0; i < this.resources.separateVideos.length - 1; i++) {
         const duration = parseFloat(this.task.durations[i]);
         const offset = Math.max(0, duration - transitionDuration);
         
-        if (i === 0) {
-          // Crossfade từ audio đầu tiên sang silence
-          filterComplex += `[a0][a${blankIndex}]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[af1];`;
-          // Crossfade từ silence sang audio tiếp theo
-          filterComplex += `[af1][a1]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[af2];`;
-        } else {
-          // Crossfade từ audio hiện tại sang silence
-          filterComplex += `[af${i}][a${blankIndex}]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[af${i+1}];`;
-          // Crossfade từ silence sang audio tiếp theo
-          if (i < this.resources.separateVideos.length - 1) {
-            filterComplex += `[af${i+1}][a${i+1}]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[af${i+2}];`;
-          }
-        }
+        // Crossfade từ audio hiện tại sang silence
+        filterComplex += `[${lastAudioLabel}][a${blankIndex}]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[ab${i}];`;
+        
+        // Crossfade từ silence sang audio tiếp theo
+        filterComplex += `[ab${i}][a${i + 1}]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[a${i + 1}_out];`;
+        
+        lastAudioLabel = `a${i + 1}_out`;
       }
 
-      // Thêm labels cuối cùng
-      const lastIndex = this.resources.separateVideos.length - 1;
-      filterComplex += `[vf${lastIndex + 1}]copy[outv];[af${lastIndex + 1}]copy[outa]`;
+      // Map final outputs
+      filterComplex += `[${lastVideoLabel}]copy[outv];[${lastAudioLabel}]copy[outa]`;
       
       logger.task.info(this.id, `Filter complex: ${filterComplex}`);
       
