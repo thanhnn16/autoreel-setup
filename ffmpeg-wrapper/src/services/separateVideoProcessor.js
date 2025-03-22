@@ -304,14 +304,14 @@ class SeparateVideoProcessor {
     } = ffmpegConfig.video;
 
     const { kenBurns } = ffmpegConfig.effects;
-    const { durations } = this.task;
+    const { durations, voices, subtitles } = this.task;
 
     logger.task.info(this.id, `Bắt đầu xử lý ${this.resources.images.length} video riêng biệt`);
 
     // Mảng để lưu trữ các đường dẫn video đã tạo thành công
     this.resources.separateVideos = [];
 
-    // Xử lý từng phần video
+    // Xử lý tuần tự từng cặp theo đúng index
     for (let i = 0; i < this.resources.images.length; i++) {
       try {
         const imagePath = this.resources.images[i];
@@ -320,13 +320,11 @@ class SeparateVideoProcessor {
         const duration = parseFloat(durations[i]);
         
         if (!imagePath || !voicePath) {
-          logger.task.warn(this.id, `Bỏ qua video ${i + 1} do thiếu tài nguyên cơ bản`);
-          continue;
+          throw new Error(`Thiếu tài nguyên cơ bản cho video ${i + 1}`);
         }
         
         if (isNaN(duration) || duration <= 0) {
-          logger.task.warn(this.id, `Bỏ qua video ${i + 1} do thời lượng không hợp lệ: ${durations[i]}`);
-          continue;
+          throw new Error(`Thời lượng không hợp lệ cho video ${i + 1}: ${durations[i]}`);
         }
         
         logger.task.info(this.id, `===== Xử lý video ${i + 1}/${this.resources.images.length} =====`);
@@ -435,11 +433,7 @@ class SeparateVideoProcessor {
         
       } catch (error) {
         logger.task.error(this.id, `Lỗi khi xử lý video ${i + 1}: ${error.message}`);
-        
-        // Nếu xử lý lỗi video hiện tại, thử tiếp tục với video tiếp theo
-        if (i < this.resources.images.length - 1) {
-          logger.task.info(this.id, `Tiếp tục với video tiếp theo ${i + 2}`);
-        }
+        throw error; // Ném lỗi để dừng toàn bộ quá trình
       }
     }
     
@@ -488,16 +482,7 @@ class SeparateVideoProcessor {
     }
     
     try {
-      // --- Phương pháp 1: Sử dụng concat demuxer để nối video không có hiệu ứng ---
-      if (this.resources.separateVideos.length > 5) {
-        // Nếu có nhiều video, dùng concat demuxer để tránh lỗi
-        await this.concatVideosWithDemuxer();
-        return;
-      }
-      
-      // --- Phương pháp 2: Sử dụng filter complex với xfade ---
-      logger.task.info(this.id, `Áp dụng phương pháp xfade để nối ${this.resources.separateVideos.length} video`);
-      
+      // Sử dụng filter complex với xfade
       const concatArgs = ["-y", "-threads", "0"];
       
       // Thêm input cho tất cả video gốc
@@ -591,55 +576,8 @@ class SeparateVideoProcessor {
       
     } catch (error) {
       logger.task.error(this.id, `Lỗi trong quá trình nối video: ${error.message}`);
-      // Thử phương pháp khác để nối video nếu xfade gây lỗi
-      try {
-        logger.task.info(this.id, 'Thử sử dụng phương pháp khác để nối video...');
-        await this.concatVideosWithDemuxer();
-      } catch (concatError) {
-        throw new Error(`Không thể nối video: ${concatError.message}`);
-      }
+      throw error;
     }
-  }
-
-  /**
-   * Nối các video bằng concat demuxer (không có hiệu ứng chuyển cảnh)
-   * Phương pháp dự phòng khi xfade gây lỗi
-   */
-  async concatVideosWithDemuxer() {
-    logger.task.info(this.id, 'Nối video bằng phương pháp concat demuxer');
-    
-    // Tạo file danh sách
-    const listFile = path.join(this.tempDir, 'concat_list.txt');
-    let listContent = '';
-    
-    // Thêm từng video vào danh sách
-    for (const videoPath of this.resources.separateVideos) {
-      // Đường dẫn tương đối với thư mục làm việc hiện tại
-      const escapedPath = videoPath.replace(/'/g, "'\\''").replace(/\\/g, '/');
-      listContent += `file '${escapedPath}'\n`;
-    }
-    
-    // Ghi file danh sách
-    fs.writeFileSync(listFile, listContent);
-    logger.task.info(this.id, `Đã tạo file danh sách concat: ${listFile}`);
-    
-    // Đường dẫn output
-    this.outputPath = path.join('output', `output_${this.id}.mp4`);
-    await ensureOutputDir(path.dirname(this.outputPath), true);
-    
-    // Lệnh ffmpeg
-    const concatArgs = [
-      "-y", "-threads", "0",
-      "-f", "concat",
-      "-safe", "0",
-      "-i", listFile,
-      "-c", "copy",
-      this.outputPath
-    ];
-    
-    logger.task.info(this.id, `Bắt đầu nối video bằng concat demuxer...`);
-    await runFFmpeg(concatArgs);
-    logger.task.info(this.id, 'Đã nối xong tất cả video bằng concat demuxer');
   }
 
   /**
