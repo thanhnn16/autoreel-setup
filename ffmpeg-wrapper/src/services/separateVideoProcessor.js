@@ -532,15 +532,15 @@ class SeparateVideoProcessor {
       
       logger.task.info(this.id, `Sử dụng ${transitions.length} hiệu ứng xfade có sẵn`);
       
-      // Đảm bảo tất cả video có cùng framerate để tránh lỗi timestamp
+      // Đảm bảo tất cả video có cùng framerate và timebase
       for (let i = 0; i < this.resources.separateVideos.length; i++) {
-        videoFilterComplex += `[${i}:v]setpts=PTS-STARTPTS,fps=${ffmpegConfig.video.frameRate}[v${i}];`;
+        videoFilterComplex += `[${i}:v]setpts=PTS-STARTPTS,fps=${ffmpegConfig.video.frameRate},format=yuv420p[v${i}];`;
         audioFilterComplex += `[${i}:a]asetpts=PTS-STARTPTS[a${i}];`;
       }
       
-      // Thêm video trống vào filter complex
+      // Thêm video trống vào filter complex với cùng framerate
       const blankIndex = this.resources.separateVideos.length;
-      videoFilterComplex += `[${blankIndex}:v]setpts=PTS-STARTPTS,fps=${ffmpegConfig.video.frameRate}[blank];`;
+      videoFilterComplex += `[${blankIndex}:v]setpts=PTS-STARTPTS,fps=${ffmpegConfig.video.frameRate},format=yuv420p[blank];`;
       
       // Bắt đầu xử lý từ video đầu tiên
       videoFilterComplex += `[v0]`;
