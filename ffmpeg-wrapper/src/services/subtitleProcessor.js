@@ -62,6 +62,10 @@ async function processAssSubtitle(subtitleUrl, outputDir, options = {}) {
  * Tạo phụ đề tiêu đề với hiệu ứng
  */
 function createTitleWithEffect(titleText, duration = 5) {
+  // Đảm bảo tiêu đề là sentence case
+  titleText = titleText.toLowerCase();
+  titleText = titleText.replace(/\b\w/g, char => char.toUpperCase());
+
   const startTime = 0;
   const endTime = startTime + duration;
   
@@ -83,7 +87,7 @@ function createTitleWithEffect(titleText, duration = 5) {
   const safeMargin = 40;
   const maxWidth = videoWidth - (safeMargin * 2);
 
-  // Màu sắc cho hiệu ứng chuyển đổi
+  // Màu sắc cho hiệu ứng chuyển đổi - tăng độ tương phản
   const startColor = "&H00FFFFFF";   // Màu trắng
   const endColor = "&H0000A2FF";     // Màu cam vàng
   const startOutline = "&H000000FF"; // Viền đỏ đậm
@@ -166,7 +170,8 @@ function createTitleWithEffect(titleText, duration = 5) {
         
         const charX = currentX + charIndexInWord * charSpacing;
         
-        const charEffect = `\\fad(200,1500)\\pos(${charX},${currentY})\\an5\\t(0,200,\\fscx110\\fscy110\\1c${startColor}\\3c${startOutline})\\t(200,400,\\fscx100\\fscy100\\1c${endColor}\\3c${endOutline})`;
+        // Cải thiện hiệu ứng với hiệu ứng phóng to và chuyển màu mạnh hơn
+        const charEffect = `\\fad(200,1500)\\pos(${charX},${currentY})\\an5\\t(0,200,\\fscx120\\fscy120\\1c${startColor}\\3c${startOutline})\\t(200,400,\\fscx100\\fscy100\\1c${endColor}\\3c${endOutline})\\blur0.8\\bord3`;
         
         dialogues.push(`Dialogue: 0,${charStart},${charEnd},Title,,0,0,0,,{${charEffect}}${char}`);
         charIndex++;

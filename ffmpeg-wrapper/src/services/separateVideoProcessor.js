@@ -386,9 +386,9 @@ class SeparateVideoProcessor {
   async combineVideos() {
     const { transitions } = ffmpegConfig.effects;
     const transitionDuration = 0.4; // 0.4s cho hiệu ứng transition
-    const overlapDuration = 0.5; // 0.5s thừa giữa các video
+    const emptyVideoDuration = 0.5; // 0.5s thời lượng video trống làm trung gian
     
-    logger.task.info(this.id, `Nối ${this.resources.separateVideos.length} video với hiệu ứng chuyển cảnh ${transitionDuration}s trong ${overlapDuration}s`);
+    logger.task.info(this.id, `Nối ${this.resources.separateVideos.length} video với hiệu ứng chuyển cảnh ${transitionDuration}s qua video trống ${emptyVideoDuration}s`);
     
     if (this.resources.separateVideos.length === 0) {
       throw new Error('Không có video nào để nối');
@@ -417,48 +417,76 @@ class SeparateVideoProcessor {
       logger.task.info(this.id, `Video ${i+1} có thời lượng: ${duration.toFixed(2)}s`);
     }
     
+    // --- Tạo video trống 0.5s để làm trung gian ---
+    const emptyVideoPath = path.join(this.tempDir, 'empty.mp4');
+    const emptyVideoArgs = [
+      "-y", "-threads", "0",
+      "-f", "lavfi",
+      "-i", `color=c=black:s=${ffmpegConfig.video.width}x${ffmpegConfig.video.height}:d=${emptyVideoDuration}`,
+      "-c:v", "libx265",
+      "-preset", "ultrafast",
+      "-crf", "23",
+      "-pix_fmt", "yuv420p",
+      emptyVideoPath
+    ];
+    
+    logger.task.info(this.id, `Tạo video trống ${emptyVideoDuration}s làm trung gian...`);
+    await runFFmpeg(emptyVideoArgs);
+    
     // --- Tạo filter complex để nối các đoạn video ---
     const concatArgs = ["-y", "-threads", "0"];
     
-    // Thêm input cho tất cả video
+    // Thêm input cho tất cả video gốc
     for (const videoPath of this.resources.separateVideos) {
       concatArgs.push("-i", videoPath);
+    }
+    
+    // Thêm nhiều lần video trống để làm trung gian
+    for (let i = 0; i < this.resources.separateVideos.length - 1; i++) {
+      concatArgs.push("-i", emptyVideoPath);
     }
     
     // Xây dựng filter complex
     let filterComplex = '';
     
-    // Tính toán offset cho từng transition
-    let currentOffset = 0;
-    
     logger.task.info(this.id, `Sử dụng ${transitions.length} hiệu ứng xfade có sẵn`);
     
-    for (let i = 0; i < this.resources.separateVideos.length - 1; i++) {
-      // Chọn hiệu ứng chuyển cảnh ngẫu nhiên
-      const transitionIndex = Math.floor(Math.random() * transitions.length);
-      const randomTransition = transitions[transitionIndex];
-      logger.task.info(this.id, `Transition ${i+1}: sử dụng hiệu ứng '${randomTransition}'`);
+    // Biến theo dõi thời điểm hiện tại
+    let currentTime = 0;
+    
+    for (let i = 0; i < this.resources.separateVideos.length; i++) {
+      // Đặt nhãn cho video hiện tại
+      filterComplex += `[${i}]`;
       
-      // Đánh dấu đầu vào đầu tiên
-      if (i === 0) {
-        filterComplex += `[0]`;
-      }
-      
-      // Offset = thời lượng video hiện tại - thời gian chồng lấp
-      // Mỗi video tiếp theo sẽ bắt đầu sớm hơn 0.5s so với thời điểm kết thúc video hiện tại
-      currentOffset += videoDurations[i] - overlapDuration;
-      
-      // Thêm hiệu ứng xfade
-      filterComplex += `[${i + 1}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${currentOffset.toFixed(3)}`;
-      
-      // Tạo label trung gian nếu chưa phải video cuối
-      if (i < this.resources.separateVideos.length - 2) {
-        filterComplex += `[v${i}];[v${i}]`;
+      // Nếu không phải video cuối, thêm xfade với video trống
+      if (i < this.resources.separateVideos.length - 1) {
+        // Chọn hiệu ứng xfade ngẫu nhiên
+        const transitionIndex = Math.floor(Math.random() * transitions.length);
+        const randomTransition = transitions[transitionIndex];
+        logger.task.info(this.id, `Transition ${i+1}: sử dụng hiệu ứng '${randomTransition}'`);
+        
+        // Tính toán offset = thời lượng của video hiện tại - thời lượng transition
+        // Làm tròn đến 3 chữ số thập phân
+        const offset = (videoDurations[i] - transitionDuration).toFixed(3);
+        
+        // Thêm xfade từ video chính sang video trống
+        filterComplex += `[${this.resources.separateVideos.length + i}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}`;
+        
+        // Đặt nhãn trung gian
+        filterComplex += `[v${i}];`;
+        
+        // Nếu không phải video cuối -1, thêm xfade với video tiếp theo
+        if (i < this.resources.separateVideos.length - 2) {
+          // Thêm video tiếp theo vào xfade với video trống
+          filterComplex += `[v${i}][${i+1}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${emptyVideoDuration - transitionDuration}`;
+        } else {
+          // Với video cuối, chỉ cần xfade video trống với video cuối
+          filterComplex += `[v${i}][${i+1}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${emptyVideoDuration - transitionDuration}`;
+          filterComplex += `[outv]`; // Label cuối cùng
+          break;
+        }
       }
     }
-    
-    // Thêm output label cuối cùng
-    filterComplex += '[outv]';
     
     logger.task.info(this.id, `Filter complex: ${filterComplex}`);
     
@@ -547,7 +575,10 @@ class SeparateVideoProcessor {
       return;
     }
 
-    logger.task.info(this.id, `Thêm tiêu đề: "${this.task.titleText}"`);
+    // Chuyển tiêu đề thành chữ hoa
+    const uppercaseTitle = this.task.titleText.toUpperCase();
+
+    logger.task.info(this.id, `Thêm tiêu đề: "${uppercaseTitle}"`);
 
     try {
       // Import hàm createTitleWithEffect từ subtitleProcessor.js
@@ -600,7 +631,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
 
       // Tạo nội dung Dialogue với hiệu ứng
-      const titleDialogues = createTitleWithEffect(this.task.titleText, titleDuration);
+      const titleDialogues = createTitleWithEffect(uppercaseTitle, titleDuration);
       
       // Tạo nội dung file ASS hoàn chỉnh
       const titleContent = titleStyleContent + titleDialogues;
