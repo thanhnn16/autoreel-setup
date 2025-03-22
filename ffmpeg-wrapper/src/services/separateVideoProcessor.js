@@ -546,14 +546,21 @@ class SeparateVideoProcessor {
 
         logger.task.info(this.id, `Video ${i}: duration=${duration}s, offset=${offset}s, transition=${transitionDuration}s`);
 
-        // Nối với hiệu ứng xfade, đảm bảo đồng bộ hóa audio và video
+        // Tính thời điểm bắt đầu cho việc fade in/out audio (sử dụng afade thay vì acrossfade)
+        const audioFadeOutStart = offset;
+        const audioFadeInStart = 0;
+
+        // Nối với hiệu ứng xfade cho video và afade cho audio
+        // Sử dụng afade thay vì acrossfade vì không hỗ trợ offset
         await runFFmpeg([
           "-y", "-threads", "0",
           "-i", currentVideo,
           "-i", nextVideo,
           "-filter_complex",
           `[0:v][1:v]xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}[v];
-           [0:a][1:a]acrossfade=d=${transitionDuration}:offset=${offset}:c1=tri:c2=tri[a]`,
+           [0:a]afade=t=out:st=${audioFadeOutStart}:d=${transitionDuration}[a1];
+           [1:a]afade=t=in:st=${audioFadeInStart}:d=${transitionDuration}[a2];
+           [a1][a2]concat=n=2:v=0:a=1[a]`,
           "-map", "[v]", "-map", "[a]",
           "-c:v", "libx265",
           "-preset", "medium",
