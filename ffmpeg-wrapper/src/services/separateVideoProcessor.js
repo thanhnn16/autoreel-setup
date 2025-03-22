@@ -557,11 +557,11 @@ class SeparateVideoProcessor {
       
       // Tạo danh sách filter complex cho audio
       let audioFilterComplex = '';
-      let audioInputs = '';
+      let audioInputs = [];
       
       // Thêm tất cả audio inputs vào command
       for (let i = 0; i < audioFiles.length; i++) {
-        audioInputs += `-i "${audioFiles[i]}" `;
+        audioInputs.push('-i', audioFiles[i]);
       }
       
       // Xử lý audio filter complex - kết hợp tất cả audio inputs mà không cắt
@@ -572,42 +572,30 @@ class SeparateVideoProcessor {
       // Nối tất cả audio với concat filter
       audioFilterComplex += `concat=n=${audioFiles.length}:v=0:a=1[aout]`;
       
-      // Tạo combined audio từ inputs
-      const audioCommand = `ffmpeg -y -threads 0 ${audioInputs} -filter_complex "${audioFilterComplex}" -map "[aout]" -c:a aac -b:a 128k "${combinedAudioPath}"`;
-      
+      // Tạo combined audio từ inputs - sử dụng runFFmpeg thay vì spawn cmd
       logger.task.info(this.id, `Tạo combined audio với filter complex: ${audioFilterComplex}`);
-      await new Promise((resolve, reject) => {
-        const proc = spawn('cmd', ['/c', audioCommand], { shell: true });
-        
-        proc.stderr.on('data', (data) => {
-          // FFmpeg ghi log vào stderr
-          logger.task.info(this.id, `[Audio FFmpeg] ${data.toString()}`);
-        });
-        
-        proc.on('close', (code) => {
-          if (code === 0) {
-            logger.task.info(this.id, `Đã tạo combined audio thành công: ${combinedAudioPath}`);
-            resolve();
-          } else {
-            reject(new Error(`Lỗi khi tạo combined audio, mã lỗi: ${code}`));
-          }
-        });
-        
-        proc.on('error', (err) => {
-          reject(new Error(`Lỗi khi chạy FFmpeg: ${err.message}`));
-        });
-      });
+      await runFFmpeg([
+        '-y', '-threads', '0',
+        ...audioInputs,
+        '-filter_complex', audioFilterComplex,
+        '-map', '[aout]',
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        combinedAudioPath
+      ]);
+      
+      logger.task.info(this.id, `Đã tạo combined audio thành công: ${combinedAudioPath}`);
       
       // BƯỚC 3: Xử lý luồng video với xfade
       logger.task.info(this.id, `Bắt đầu xử lý luồng video với hiệu ứng xfade`);
       
       // Tạo filter complex cho video
       let videoFilterComplex = '';
-      let videoInputs = '';
+      let videoInputs = [];
       
       // Thêm tất cả video inputs vào command
       for (let i = 0; i < processedVideos.length; i++) {
-        videoInputs += `-i "${processedVideos[i]}" `;
+        videoInputs.push('-i', processedVideos[i]);
       }
       
       // Bắt đầu với video đầu tiên
@@ -643,32 +631,23 @@ class SeparateVideoProcessor {
       const lastOutputLabel = processedVideos.length === 2 ? "v01" : `v${processedVideos.length-2}${processedVideos.length-1}`;
       videoFilterComplex += `${lastOutputLabel}`;
       
-      // Tạo video với xfade và không có audio
+      // Tạo video với xfade và không có audio - sử dụng runFFmpeg thay vì spawn cmd
       const xfadeOutputPath = path.join(tempDir, 'xfade_output.mp4');
-      const videoCommand = `ffmpeg -y -threads 0 ${videoInputs} -filter_complex "${videoFilterComplex}" -an -c:v libx265 -preset medium -crf 23 -pix_fmt yuv420p "${xfadeOutputPath}"`;
       
       logger.task.info(this.id, `Tạo xfade video với filter complex: ${videoFilterComplex}`);
-      await new Promise((resolve, reject) => {
-        const proc = spawn('cmd', ['/c', videoCommand], { shell: true });
-        
-        proc.stderr.on('data', (data) => {
-          // FFmpeg ghi log vào stderr
-          logger.task.info(this.id, `[Video FFmpeg] ${data.toString()}`);
-        });
-        
-        proc.on('close', (code) => {
-          if (code === 0) {
-            logger.task.info(this.id, `Đã tạo xfade video thành công: ${xfadeOutputPath}`);
-            resolve();
-          } else {
-            reject(new Error(`Lỗi khi tạo xfade video, mã lỗi: ${code}`));
-          }
-        });
-        
-        proc.on('error', (err) => {
-          reject(new Error(`Lỗi khi chạy FFmpeg: ${err.message}`));
-        });
-      });
+      await runFFmpeg([
+        '-y', '-threads', '0',
+        ...videoInputs,
+        '-filter_complex', videoFilterComplex,
+        '-an',
+        '-c:v', 'libx265',
+        '-preset', 'medium',
+        '-crf', '23',
+        '-pix_fmt', 'yuv420p',
+        xfadeOutputPath
+      ]);
+      
+      logger.task.info(this.id, `Đã tạo xfade video thành công: ${xfadeOutputPath}`);
       
       // BƯỚC 4: Kết hợp luồng video và audio
       logger.task.info(this.id, `Kết hợp luồng video và audio`);
