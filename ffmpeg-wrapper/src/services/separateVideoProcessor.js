@@ -553,8 +553,8 @@ class SeparateVideoProcessor {
         lastAudioLabel = `a${i + 1}_out`;
       }
 
-      // Map final outputs
-      filterComplex += `[${lastVideoLabel}]copy[outv];[${lastAudioLabel}]copy[outa]`;
+      // Map final outputs - đảm bảo video và audio được map riêng biệt
+      filterComplex += `[${lastVideoLabel}]setpts=PTS-STARTPTS[outv];[${lastAudioLabel}]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[outa]`;
       
       logger.task.info(this.id, `Filter complex: ${filterComplex}`);
       
@@ -571,6 +571,9 @@ class SeparateVideoProcessor {
       
       // Thêm filter complex vào
       concatArgs.push("-filter_complex", filterComplex);
+      
+      // Map outputs
+      concatArgs.push("-map", "[outv]", "-map", "[outa]");
       
       // Thêm tham số tối ưu cho H.265
       if (ffmpegConfig.video.x265Params) {
