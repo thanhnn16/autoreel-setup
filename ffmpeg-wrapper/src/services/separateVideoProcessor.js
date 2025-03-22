@@ -555,9 +555,15 @@ class SeparateVideoProcessor {
         // Sử dụng thời lượng thực tế của video trước đó
         const offset = Math.max(0, videoDurations[i-1] - transitionDuration);
         
-        // Nối video hiện tại với video trống
-        videoFilterComplex += `[blank]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[v${i}out];`;
+        // Nối video hiện tại với video trước đó
+        videoFilterComplex += `[v${i}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[v${i}out];`;
+        if (i < this.resources.separateVideos.length - 1) {
+          videoFilterComplex += `[v${i}out]`;
+        }
       }
+      
+      // Thêm label output cuối cùng
+      videoFilterComplex += `[outv]`;
       
       // Xử lý audio - nối tất cả audio từ các video lại với nhau
       audioFilterComplex += `[a0]`;
