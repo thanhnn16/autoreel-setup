@@ -446,45 +446,39 @@ class SeparateVideoProcessor {
       concatArgs.push("-i", emptyVideoPath);
     }
     
-    // Xây dựng filter complex
+    // Xây dựng filter complex đúng cách
     let filterComplex = '';
     
     logger.task.info(this.id, `Sử dụng ${transitions.length} hiệu ứng xfade có sẵn`);
     
-    // Biến theo dõi thời điểm hiện tại
-    let currentTime = 0;
+    // Thực hiện nối chuỗi filter đúng cú pháp
+    // Đầu tiên là xử lý video 0 xfade vào video trắng
+    const firstTransitionIndex = Math.floor(Math.random() * transitions.length);
+    const firstTransition = transitions[firstTransitionIndex];
+    logger.task.info(this.id, `Transition 1: sử dụng hiệu ứng '${firstTransition}'`);
+    const firstOffset = (videoDurations[0] - transitionDuration).toFixed(3);
     
-    for (let i = 0; i < this.resources.separateVideos.length; i++) {
-      // Đặt nhãn cho video hiện tại
-      filterComplex += `[${i}]`;
+    // Video 0 -> empty (v0tmp)
+    filterComplex += `[0][${this.resources.separateVideos.length}]xfade=transition=${firstTransition}:duration=${transitionDuration}:offset=${firstOffset}[v0tmp];`;
+    
+    // Tiếp tục xử lý các video tiếp theo
+    for (let i = 1; i < this.resources.separateVideos.length; i++) {
+      const transitionIndex = Math.floor(Math.random() * transitions.length);
+      const randomTransition = transitions[transitionIndex];
+      logger.task.info(this.id, `Transition ${i+1}: sử dụng hiệu ứng '${randomTransition}'`);
       
-      // Nếu không phải video cuối, thêm xfade với video trống
-      if (i < this.resources.separateVideos.length - 1) {
-        // Chọn hiệu ứng xfade ngẫu nhiên
-        const transitionIndex = Math.floor(Math.random() * transitions.length);
-        const randomTransition = transitions[transitionIndex];
-        logger.task.info(this.id, `Transition ${i+1}: sử dụng hiệu ứng '${randomTransition}'`);
-        
-        // Tính toán offset = thời lượng của video hiện tại - thời lượng transition
-        // Làm tròn đến 3 chữ số thập phân
-        const offset = (videoDurations[i] - transitionDuration).toFixed(3);
-        
-        // Thêm xfade từ video chính sang video trống
-        filterComplex += `[${this.resources.separateVideos.length + i}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}`;
-        
-        // Đặt nhãn trung gian
+      // Đặt nhãn đầu vào
+      let inputLabel = (i === 1) ? 'v0tmp' : `v${i-1}`;
+      
+      // Empty -> video i (vi)
+      const emptyVideoIndex = this.resources.separateVideos.length + i - 1;
+      filterComplex += `[${inputLabel}][${i}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${emptyVideoDuration - transitionDuration}`;
+      
+      // Label đầu ra
+      if (i === this.resources.separateVideos.length - 1) {
+        filterComplex += '[outv]';
+      } else {
         filterComplex += `[v${i}];`;
-        
-        // Nếu không phải video cuối -1, thêm xfade với video tiếp theo
-        if (i < this.resources.separateVideos.length - 2) {
-          // Thêm video tiếp theo vào xfade với video trống
-          filterComplex += `[v${i}][${i+1}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${emptyVideoDuration - transitionDuration}`;
-        } else {
-          // Với video cuối, chỉ cần xfade video trống với video cuối
-          filterComplex += `[v${i}][${i+1}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${emptyVideoDuration - transitionDuration}`;
-          filterComplex += `[outv]`; // Label cuối cùng
-          break;
-        }
       }
     }
     
@@ -544,10 +538,19 @@ class SeparateVideoProcessor {
     let listContent = '';
     
     for (const videoPath of this.resources.separateVideos) {
-      listContent += `file '${videoPath.replace(/\\/g, '/')}'\n`;
+      // Đảm bảo rằng đường dẫn là tuyệt đối và định dạng đúng
+      // Lưu ý: không cần đường dẫn tuyệt đối từ tempDir nếu videoPath đã là đường dẫn tuyệt đối
+      if (path.isAbsolute(videoPath)) {
+        listContent += `file '${videoPath.replace(/\\/g, '/')}'\n`;
+      } else {
+        // Sử dụng đường dẫn chính xác mà không lặp lại tempDir
+        listContent += `file '${videoPath.replace(/\\/g, '/')}'\n`;
+      }
     }
     
     fs.writeFileSync(listFilePath, listContent);
+    logger.task.info(this.id, `Đã tạo file danh sách video: ${listFilePath}`);
+    logger.task.info(this.id, `Nội dung file:\n${listContent}`);
     
     // Tạo video đầu ra
     this.outputPath = path.join('output', `output_${this.id}.mp4`);
@@ -593,17 +596,20 @@ class SeparateVideoProcessor {
           logger.task.warn(this.id, 'Không tìm thấy hàm createTitleWithEffect được export');
           // Import createTitleWithEffect từ file subtitleProcessor.js
           createTitleWithEffect = (text, duration) => {
-            // Tạo nội dung ASS mặc định đơn giản
-            return `Dialogue: 0,0:00:00.00,0:00:${duration.toFixed(2)},Title,,0,0,0,,${text}`;
+            // Đảm bảo text là chữ hoa
+            text = text.toUpperCase();
+            // Tạo nội dung ASS mặc định với hiệu ứng cơ bản
+            return `Dialogue: 0,0:00:00.00,0:00:${duration.toFixed(2)},Title,,0,0,0,,{\\fad(150,1800)\\pos(540,860)\\an5\\blur1.2\\bord4}${text}`;
           };
         } else {
           logger.task.info(this.id, 'Đã import thành công hàm createTitleWithEffect');
         }
       } catch (importError) {
         logger.task.warn(this.id, `Không thể import từ subtitleProcessor.js: ${importError.message}`);
-        // Tạo hàm thay thế đơn giản
+        // Tạo hàm thay thế đơn giản với text là chữ hoa
         createTitleWithEffect = (text, duration) => {
-          return `Dialogue: 0,0:00:00.00,0:00:${duration.toFixed(2)},Title,,0,0,0,,${text}`;
+          text = text.toUpperCase();
+          return `Dialogue: 0,0:00:00.00,0:00:${duration.toFixed(2)},Title,,0,0,0,,{\\fad(150,1800)\\pos(540,860)\\an5\\blur1.2\\bord4}${text}`;
         };
       }
 
@@ -624,7 +630,7 @@ PlayResY: ${ffmpegConfig.video.height}
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Title,Arial,${Math.floor(ffmpegConfig.video.height/15)},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,1,0,0,0,100,100,0,0,1,2,0,2,10,10,10,1
+Style: Title,Arial,${Math.floor(ffmpegConfig.video.height/13)},&H00FFFFFF,&H000000FF,&H00000000,&H00000000,1,0,0,0,110,110,0,0,1,3,0,2,10,10,10,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

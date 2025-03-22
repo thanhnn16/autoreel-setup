@@ -62,9 +62,8 @@ async function processAssSubtitle(subtitleUrl, outputDir, options = {}) {
  * Tạo phụ đề tiêu đề với hiệu ứng
  */
 function createTitleWithEffect(titleText, duration = 5) {
-  // Đảm bảo tiêu đề là sentence case
-  titleText = titleText.toLowerCase();
-  titleText = titleText.replace(/\b\w/g, char => char.toUpperCase());
+  // Đảm bảo tiêu đề là CHỮ HOA hoàn toàn
+  titleText = titleText.toUpperCase();
 
   const startTime = 0;
   const endTime = startTime + duration;
@@ -76,20 +75,20 @@ function createTitleWithEffect(titleText, duration = 5) {
   
   // Vị trí hiển thị ở giữa màn hình, điều chỉnh cho nhiều dòng
   const baseY = videoHeight * 0.45; // Đặt vị trí Y cao hơn một chút để có chỗ cho nhiều dòng
-  const lineHeight = 120; // Khoảng cách giữa các dòng
-
+  const lineHeight = 130; // Tăng khoảng cách giữa các dòng
+  
   // Tối ưu thời gian
-  const typingDuration = 1.7;
+  const typingDuration = 1.5;
   
   // Các thông số cố định
-  const charSpacing = 65;
-  const wordSpacing = 85;
+  const charSpacing = 70; // Tăng khoảng cách giữa các ký tự
+  const wordSpacing = 90; // Tăng khoảng cách giữa các từ
   const safeMargin = 40;
   const maxWidth = videoWidth - (safeMargin * 2);
 
-  // Màu sắc cho hiệu ứng chuyển đổi - tăng độ tương phản
+  // Màu sắc nổi bật hơn cho hiệu ứng chuyển đổi
   const startColor = "&H00FFFFFF";   // Màu trắng
-  const endColor = "&H0000A2FF";     // Màu cam vàng
+  const endColor = "&H000080FF";     // Màu cam đậm hơn
   const startOutline = "&H000000FF"; // Viền đỏ đậm
   const endOutline = "&H002C3D55";   // Viền xanh đậm
 
@@ -171,7 +170,7 @@ function createTitleWithEffect(titleText, duration = 5) {
         const charX = currentX + charIndexInWord * charSpacing;
         
         // Cải thiện hiệu ứng với hiệu ứng phóng to và chuyển màu mạnh hơn
-        const charEffect = `\\fad(200,1500)\\pos(${charX},${currentY})\\an5\\t(0,200,\\fscx120\\fscy120\\1c${startColor}\\3c${startOutline})\\t(200,400,\\fscx100\\fscy100\\1c${endColor}\\3c${endOutline})\\blur0.8\\bord3`;
+        const charEffect = `\\fad(150,1800)\\pos(${charX},${currentY})\\an5\\t(0,200,\\fscx125\\fscy125\\1c${startColor}\\3c${startOutline})\\t(200,400,\\fscx110\\fscy110\\1c${endColor}\\3c${endOutline})\\blur1.2\\bord4`;
         
         dialogues.push(`Dialogue: 0,${charStart},${charEnd},Title,,0,0,0,,{${charEffect}}${char}`);
         charIndex++;
