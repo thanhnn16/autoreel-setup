@@ -503,19 +503,6 @@ class SeparateVideoProcessor {
       return;
     }
     
-    // --- Lấy thông tin thời lượng từng đoạn video ---
-    const { durations } = this.task;
-    const videoDurations = [];
-    
-    // Lấy thời lượng từ giá trị đầu vào
-    for (let i = 0; i < this.resources.separateVideos.length; i++) {
-      // Sử dụng duration từ input
-      const duration = parseFloat(durations[i]);
-      videoDurations.push(duration);
-      
-      logger.task.info(this.id, `Video ${i+1} có thời lượng: ${duration.toFixed(2)}s`);
-    }
-    
     try {
       // Sử dụng filter complex với xfade
       const concatArgs = ["-y", "-threads", "0"];
@@ -524,59 +511,34 @@ class SeparateVideoProcessor {
       for (const videoPath of this.resources.separateVideos) {
         concatArgs.push("-i", videoPath);
       }
-      concatArgs.push("-i", path.join(this.tempDir, 'videos', 'blank.mp4'));
       
-      // Xây dựng filter complex để nối video với audio
-      let videoFilterComplex = '';
-      let audioFilterComplex = '';
-      
-      logger.task.info(this.id, `Sử dụng ${transitions.length} hiệu ứng xfade có sẵn`);
+      // Xây dựng filter complex để nối video với xfade transitions
+      let filterComplex = '';
       
       // Đảm bảo tất cả video có cùng framerate và timebase
       for (let i = 0; i < this.resources.separateVideos.length; i++) {
-        videoFilterComplex += `[${i}:v]setpts=PTS-STARTPTS,fps=${ffmpegConfig.video.frameRate},format=yuv420p[v${i}];`;
-        audioFilterComplex += `[${i}:a]asetpts=PTS-STARTPTS[a${i}];`;
-      }
-      
-      // Thêm video trống vào filter complex với cùng framerate
-      const blankIndex = this.resources.separateVideos.length;
-      videoFilterComplex += `[${blankIndex}:v]setpts=PTS-STARTPTS,fps=${ffmpegConfig.video.frameRate},format=yuv420p[blank];`;
-      
-      // Bắt đầu xử lý từ video đầu tiên
-      videoFilterComplex += `[v0]`;
-      
-      // Nối từng video tiếp theo với hiệu ứng xfade
-      for (let i = 1; i < this.resources.separateVideos.length; i++) {
-        const transitionIndex = Math.floor(Math.random() * transitions.length);
-        const randomTransition = transitions[transitionIndex];
-        logger.task.info(this.id, `Transition ${i}: sử dụng hiệu ứng '${randomTransition}'`);
-        
-        // Tính toán offset chính xác cho hiệu ứng transition
-        // Sử dụng thời lượng thực tế của video trước đó
-        const offset = Math.max(0, videoDurations[i-1] - transitionDuration);
-        
-        // Nối video hiện tại với video trước đó
-        videoFilterComplex += `[v${i}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[v${i}out];`;
+        filterComplex += `[${i}:v]setpts=PTS-STARTPTS,fps=${ffmpegConfig.video.frameRate}[v${i}];`;
         if (i < this.resources.separateVideos.length - 1) {
-          videoFilterComplex += `[v${i}out]`;
+          // Chọn transition ngẫu nhiên cho mỗi cặp video
+          const transitionIndex = Math.floor(Math.random() * transitions.length);
+          const randomTransition = transitions[transitionIndex];
+          logger.task.info(this.id, `Transition ${i + 1}: sử dụng hiệu ứng '${randomTransition}'`);
+          
+          // Tính toán offset dựa trên thời lượng của video
+          const duration = parseFloat(this.task.durations[i]);
+          const offset = Math.max(0, duration - transitionDuration);
+          
+          // Thêm xfade filter
+          if (i === 0) {
+            filterComplex += `[v${i}][v${i+1}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[v${i+1}out];`;
+          } else {
+            filterComplex += `[v${i}out][v${i+1}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[v${i+1}out];`;
+          }
         }
       }
       
       // Thêm label output cuối cùng
-      videoFilterComplex += `[outv]`;
-      
-      // Xử lý audio - nối tất cả audio từ các video lại với nhau
-      audioFilterComplex += `[a0]`;
-      for (let i = 1; i < this.resources.separateVideos.length; i++) {
-        if (i === this.resources.separateVideos.length - 1) {
-          audioFilterComplex += `[a${i}]concat=n=2:v=0:a=1[outa]`;
-        } else {
-          audioFilterComplex += `[a${i}]concat=n=2:v=0:a=1[a${i}out];[a${i}out]`;
-        }
-      }
-      
-      // Kết hợp filter cho video và audio
-      const filterComplex = videoFilterComplex + audioFilterComplex;
+      filterComplex = filterComplex.replace(/\[v(\d+)out\];$/, '[outv];');
       
       logger.task.info(this.id, `Filter complex: ${filterComplex}`);
       
@@ -584,17 +546,10 @@ class SeparateVideoProcessor {
       concatArgs.push(
         "-filter_complex", filterComplex,
         "-map", "[outv]",
-        "-map", "[outa]"
-      );
-      
-      // Codec và các tham số khác
-      concatArgs.push(
         "-c:v", "libx265",
         "-preset", "medium", 
         "-crf", "23",
-        "-pix_fmt", "yuv420p",
-        "-c:a", "aac", 
-        "-b:a", "128k"
+        "-pix_fmt", "yuv420p"
       );
       
       // Thêm tham số tối ưu cho H.265
