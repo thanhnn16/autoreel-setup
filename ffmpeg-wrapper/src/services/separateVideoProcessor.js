@@ -496,94 +496,83 @@ class SeparateVideoProcessor {
     }
 
     try {
-      // Tạo video trống để sử dụng làm video trung gian
-      const blankVideoPath = await this.createBlankVideo();
+      // Tạo thư mục cho các video tạm thời
+      const tempDir = path.join(this.tempDir, 'concat_temp');
+      await ensureDir(tempDir);
 
-      // Xây dựng filter complex để nối video với xfade transitions
-      let filterComplex = '';
+      // Bắt đầu với video đầu tiên
+      let currentVideo = this.resources.separateVideos[0];
 
-      // Đảm bảo tất cả video có cùng framerate và timebase
-      for (let i = 0; i < this.resources.separateVideos.length; i++) {
-        // Thêm settb để đảm bảo timebase thống nhất
-        filterComplex += `[${i}:v]setpts=PTS-STARTPTS,fps=${ffmpegConfig.video.frameRate},settb=1/${ffmpegConfig.video.frameRate}[v${i}];`;
-      }
+      // Nối từng cặp video một
+      for (let i = 1; i < this.resources.separateVideos.length; i++) {
+        const nextVideo = this.resources.separateVideos[i];
+        const outputPath = path.join(tempDir, `xfade_${i}.mp4`);
 
-      // Thêm video trống vào filter complex với timebase thống nhất
-      const blankIndex = this.resources.separateVideos.length;
-      filterComplex += `[${blankIndex}:v]setpts=PTS-STARTPTS,fps=${ffmpegConfig.video.frameRate},settb=1/${ffmpegConfig.video.frameRate}[v${blankIndex}];`;
-
-      // Tiếp tục với phần xfade transitions như cũ
-      let lastVideoLabel = 'v0';
-      for (let i = 0; i < this.resources.separateVideos.length - 1; i++) {
+        // Chọn hiệu ứng chuyển cảnh
         const transitionIndex = Math.floor(Math.random() * transitions.length);
-        const randomTransition = transitions[transitionIndex];
+        const transition = transitions[transitionIndex];
+        logger.task.info(this.id, `Transition ${i}: sử dụng hiệu ứng '${transition}'`);
 
-        const duration = parseFloat(this.task.durations[i]);
+        // Lấy thời lượng của video hiện tại
+        const duration = await this.getVideoDuration(currentVideo);
         const offset = Math.max(0, duration - transitionDuration);
 
-        // Transition từ video hiện tại sang blank video
-        filterComplex += `[${lastVideoLabel}][v${blankIndex}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[vb${i}];`;
+        // Nối với hiệu ứng xfade
+        await runFFmpeg([
+          "-y", "-threads", "0",
+          "-i", currentVideo,
+          "-i", nextVideo,
+          "-filter_complex",
+          `[0:v][1:v]xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}[v];
+                 [0:a][1:a]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[a]`,
+          "-map", "[v]", "-map", "[a]",
+          "-c:v", "libx265",
+          "-preset", "medium",
+          "-crf", "23",
+          "-pix_fmt", "yuv420p",
+          outputPath
+        ]);
 
-        // Transition từ blank video sang video tiếp theo
-        filterComplex += `[vb${i}][v${i + 1}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=0[v${i + 1}_out];`;
-
-        lastVideoLabel = `v${i + 1}_out`;
+        // Cập nhật video hiện tại cho lần nối tiếp theo
+        currentVideo = outputPath;
       }
 
-      // Xử lý audio streams như cũ
-      for (let i = 0; i < this.resources.separateVideos.length; i++) {
-        filterComplex += `[${i}:a]aresample=48000,asetpts=PTS-STARTPTS[a${i}];`;
-      }
-
-      filterComplex += `[${blankIndex}:a]aresample=48000,asetpts=PTS-STARTPTS,volume=0[a${blankIndex}];`;
-
-      let lastAudioLabel = 'a0';
-      for (let i = 0; i < this.resources.separateVideos.length - 1; i++) {
-        const duration = parseFloat(this.task.durations[i]);
-        const offset = Math.max(0, duration - transitionDuration);
-
-        filterComplex += `[${lastAudioLabel}][a${blankIndex}]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[ab${i}];`;
-        filterComplex += `[ab${i}][a${i + 1}]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[a${i + 1}_out];`;
-
-        lastAudioLabel = `a${i + 1}_out`;
-      }
-
-      // Map final outputs
-      filterComplex += `[${lastVideoLabel}]setpts=PTS-STARTPTS[outv];[${lastAudioLabel}]aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[outa]`;
-
-      // Các tham số FFmpeg
-      const concatArgs = ["-y", "-threads", "0"];
-
-      // Thêm input
-      for (const videoPath of this.resources.separateVideos) {
-        concatArgs.push("-i", videoPath);
-      }
-
-      concatArgs.push("-i", blankVideoPath);
-      concatArgs.push("-filter_complex", filterComplex);
-      concatArgs.push("-map", "[outv]", "-map", "[outa]");
-
-      // Thay thế vsync bằng fps_mode
-      concatArgs.push("-fps_mode", "cfr");
-
-      // Các tham số khác giữ nguyên
-      if (ffmpegConfig.video.x265Params) {
-        concatArgs.push("-x265-params", ffmpegConfig.video.x265Params);
-        concatArgs.push("-tag:v", "hvc1");
-      }
-
+      // Sao chép kết quả cuối cùng vào thư mục output
       this.outputPath = path.join('output', `output_${this.id}.mp4`);
       await ensureOutputDir(path.dirname(this.outputPath), true);
-      concatArgs.push(this.outputPath);
+      fs.copyFileSync(currentVideo, this.outputPath);
 
-      logger.task.info(this.id, `Bắt đầu nối video...`);
-      await runFFmpeg(concatArgs);
       logger.task.info(this.id, 'Đã nối xong tất cả video với hiệu ứng xfade');
     } catch (error) {
       logger.task.error(this.id, `Lỗi trong quá trình nối video: ${error.message}`);
       throw error;
     }
   }
+
+  // Thêm hàm hỗ trợ để lấy thời lượng video
+  async getVideoDuration(videoPath) {
+    return new Promise((resolve, reject) => {
+      const ffprobe = spawn('ffprobe', [
+        '-v', 'error',
+        '-show_entries', 'format=duration',
+        '-of', 'default=noprint_wrappers=1:nokey=1',
+        videoPath
+      ]);
+
+      let output = '';
+      ffprobe.stdout.on('data', (data) => {
+        output += data.toString();
+      });
+
+      ffprobe.on('close', (code) => {
+        if (code !== 0) {
+          return reject(new Error(`Không thể lấy thời lượng video: ${videoPath}`));
+        }
+        resolve(parseFloat(output.trim()));
+      });
+    });
+  }
+
 
 
   /**
