@@ -581,7 +581,7 @@ class SeparateVideoProcessor {
         
         proc.stderr.on('data', (data) => {
           // FFmpeg ghi log vào stderr
-          logger.task.debug(this.id, `[Audio FFmpeg] ${data.toString()}`);
+          logger.task.info(this.id, `[Audio FFmpeg] ${data.toString()}`);
         });
         
         proc.on('close', (code) => {
@@ -653,7 +653,7 @@ class SeparateVideoProcessor {
         
         proc.stderr.on('data', (data) => {
           // FFmpeg ghi log vào stderr
-          logger.task.debug(this.id, `[Video FFmpeg] ${data.toString()}`);
+          logger.task.info(this.id, `[Video FFmpeg] ${data.toString()}`);
         });
         
         proc.on('close', (code) => {
