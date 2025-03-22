@@ -524,12 +524,39 @@ class SeparateVideoProcessor {
       const tempDir = path.join(this.tempDir, 'concat_temp');
       await ensureDir(tempDir);
 
+      // Tạo blank video để sử dụng giữa các cảnh
+      const blankVideoPath = await this.createBlankVideo(0.4);
+
+      // Chuẩn bị danh sách video để nối (bao gồm video trắng ở giữa)
+      let videosToProcess = [];
+      
+      // Kéo dài video cuối cùng thêm 1s ngay từ đầu
+      const lastIndex = this.resources.separateVideos.length - 1;
+      const extendedLastVideo = await this.extendLastVideo(this.resources.separateVideos[lastIndex], 1);
+      
+      // Tạo mảng video mới với blank video xen kẽ
+      for (let i = 0; i < this.resources.separateVideos.length; i++) {
+        // Nếu là video cuối cùng, sử dụng phiên bản đã kéo dài
+        if (i === lastIndex) {
+          videosToProcess.push(extendedLastVideo);
+        } else {
+          videosToProcess.push(this.resources.separateVideos[i]);
+        }
+        
+        // Thêm blank video sau mỗi video (trừ video cuối)
+        if (i < this.resources.separateVideos.length - 1) {
+          videosToProcess.push(blankVideoPath);
+        }
+      }
+
+      logger.task.info(this.id, `Đã chuẩn bị ${videosToProcess.length} video để nối (bao gồm blank videos)`);
+
       // Bắt đầu với video đầu tiên
-      let currentVideo = this.resources.separateVideos[0];
+      let currentVideo = videosToProcess[0];
 
       // Nối từng cặp video một
-      for (let i = 1; i < this.resources.separateVideos.length; i++) {
-        const nextVideo = this.resources.separateVideos[i];
+      for (let i = 1; i < videosToProcess.length; i++) {
+        const nextVideo = videosToProcess[i];
         const outputPath = path.join(tempDir, `xfade_${i}.mp4`);
 
         // Chọn hiệu ứng chuyển cảnh
@@ -546,22 +573,16 @@ class SeparateVideoProcessor {
 
         logger.task.info(this.id, `Video ${i}: duration=${duration}s, offset=${offset}s, transition=${transitionDuration}s`);
 
-        // Tính thời điểm bắt đầu cho việc fade in/out audio (sử dụng afade thay vì acrossfade)
-        const audioFadeOutStart = offset;
-        const audioFadeInStart = 0;
-
-        // Nối với hiệu ứng xfade cho video và afade cho audio
-        // Sử dụng afade thay vì acrossfade vì không hỗ trợ offset
+        // Nối với hiệu ứng xfade cho video và copy audio (không áp dụng fade)
         await runFFmpeg([
           "-y", "-threads", "0",
           "-i", currentVideo,
           "-i", nextVideo,
           "-filter_complex",
-          `[0:v][1:v]xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}[v];
-           [0:a]afade=t=out:st=${audioFadeOutStart}:d=${transitionDuration}[a1];
-           [1:a]afade=t=in:st=${audioFadeInStart}:d=${transitionDuration}[a2];
-           [a1][a2]concat=n=2:v=0:a=1[a]`,
-          "-map", "[v]", "-map", "[a]",
+          `[0:v][1:v]xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}[v]`,
+          "-map", "[v]", 
+          // Chỉ sử dụng audio từ video đầu tiên, không áp dụng fade
+          "-map", "0:a",
           "-c:v", "libx265",
           "-preset", "medium",
           "-crf", "23",
@@ -573,15 +594,12 @@ class SeparateVideoProcessor {
         currentVideo = outputPath;
       }
 
-      // Kéo dài video cuối cùng thêm 1s
-      const extendedVideo = await this.extendLastVideo(currentVideo, 1);
-
       // Sao chép kết quả cuối cùng vào thư mục output
       this.outputPath = path.join('output', `output_${this.id}.mp4`);
       await ensureOutputDir(path.dirname(this.outputPath), true);
-      fs.copyFileSync(extendedVideo, this.outputPath);
+      fs.copyFileSync(currentVideo, this.outputPath);
 
-      logger.task.info(this.id, 'Đã nối xong tất cả video với hiệu ứng xfade và kéo dài video cuối');
+      logger.task.info(this.id, 'Đã nối xong tất cả video với hiệu ứng xfade và sử dụng blank video ở giữa');
     } catch (error) {
       logger.task.error(this.id, `Lỗi trong quá trình nối video: ${error.message}`);
       throw error;
