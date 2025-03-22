@@ -311,7 +311,7 @@ class SeparateVideoProcessor {
           'format=yuv420p'
         ].join(',');
 
-        logger.task.debug(this.id, `- Filter complex: ${filter_complex}`);
+        logger.task.info(this.id, `- Filter complex: ${filter_complex}`);
 
         // Đường dẫn đầu ra
         const outputVideoPath = path.join(this.tempDir, 'videos', `video_${i + 1}.mp4`);
@@ -460,7 +460,7 @@ class SeparateVideoProcessor {
     // Thêm output label cuối cùng
     filterComplex += '[outv]';
     
-    logger.task.debug(this.id, `Filter complex: ${filterComplex}`);
+    logger.task.info(this.id, `Filter complex: ${filterComplex}`);
     
     // Thêm các tham số cuối cùng
     concatArgs.push(
