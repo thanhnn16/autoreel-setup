@@ -232,58 +232,50 @@ class SeparateVideoProcessor {
       retryDelay: config.retry.delay
     };
     
-    // Tải tất cả tài nguyên
-    const downloadPromises = [];
-    
+    // Xử lý tuần tự từng cặp theo đúng index
     for (let i = 0; i < images.length; i++) {
       const imageFile = path.join(imagesDir, `image_${i + 1}.jpg`).replace(/\\/g, '/');
       const voiceFile = path.join(voicesDir, `voice_${i + 1}.mp3`).replace(/\\/g, '/');
       
-      logger.task.info(this.id, `Bắt đầu tải tài nguyên cho video ${i + 1}:`);
+      logger.task.info(this.id, `===== Xử lý tài nguyên cho video ${i + 1}/${images.length} =====`);
       logger.task.info(this.id, `- Image: ${images[i]}`);
       logger.task.info(this.id, `- Voice: ${voices[i]}`);
       logger.task.info(this.id, `- Subtitle: ${subtitles[i] || 'không có'}`);
       logger.task.info(this.id, `- Duration: ${durations[i]}s`);
       
-      // Tạo promise tải tài nguyên cho mỗi index
-      const downloadPromise = (async () => {
-        try {
-          // Tải song song ảnh và voice
-          const [, , subtitleFilePath] = await Promise.all([
-            downloadFile(images[i], imageFile, downloadOptions),
-            downloadFile(voices[i], voiceFile, downloadOptions),
-            // Xử lý subtitle nếu có
-            subtitles[i] ? processAssSubtitle(
-              subtitles[i], 
-              subtitlesDir, 
-              { ...downloadOptions, filePrefix: `subtitle_${i + 1}` }
-            ) : Promise.resolve(null)
-          ]);
-          
-          // Lưu đường dẫn tương đối
-          this.resources.images[i] = path.relative(this.tempDir, imageFile).replace(/\\/g, '/');
-          this.resources.voices[i] = path.relative(this.tempDir, voiceFile).replace(/\\/g, '/');
-          
-          // Lưu đường dẫn subtitle nếu có
-          if (subtitleFilePath) {
-            const relativePath = path.relative(this.tempDir, subtitleFilePath).replace(/\\/g, '/');
-            this.resources.subtitles[i] = relativePath;
-            logger.task.info(this.id, `Đã lưu subtitle ${i + 1}: ${relativePath}`);
-          } else {
-            this.resources.subtitles[i] = null;
-            logger.task.info(this.id, `Không có subtitle cho video ${i + 1}`);
-          }
-        } catch (error) {
-          logger.task.error(this.id, `Lỗi tải tài nguyên cho video ${i + 1}: ${error.message}`);
-          throw error;
+      try {
+        // Tải song song ảnh và voice
+        const [, , subtitleFilePath] = await Promise.all([
+          downloadFile(images[i], imageFile, downloadOptions),
+          downloadFile(voices[i], voiceFile, downloadOptions),
+          // Xử lý subtitle nếu có
+          subtitles[i] ? processAssSubtitle(
+            subtitles[i], 
+            subtitlesDir, 
+            { ...downloadOptions, filePrefix: `subtitle_${i + 1}` }
+          ) : Promise.resolve(null)
+        ]);
+        
+        // Lưu đường dẫn tương đối
+        this.resources.images[i] = path.relative(this.tempDir, imageFile).replace(/\\/g, '/');
+        this.resources.voices[i] = path.relative(this.tempDir, voiceFile).replace(/\\/g, '/');
+        
+        // Lưu đường dẫn subtitle nếu có
+        if (subtitleFilePath) {
+          const relativePath = path.relative(this.tempDir, subtitleFilePath).replace(/\\/g, '/');
+          this.resources.subtitles[i] = relativePath;
+          logger.task.info(this.id, `Đã lưu subtitle ${i + 1}: ${relativePath}`);
+        } else {
+          this.resources.subtitles[i] = null;
+          logger.task.info(this.id, `Không có subtitle cho video ${i + 1}`);
         }
-      })();
-      
-      downloadPromises.push(downloadPromise);
+        
+        logger.task.info(this.id, `Đã xử lý xong tài nguyên cho video ${i + 1}`);
+      } catch (error) {
+        logger.task.error(this.id, `Lỗi xử lý tài nguyên cho video ${i + 1}: ${error.message}`);
+        throw error;
+      }
     }
-    
-    // Đợi tất cả tải xong
-    await Promise.all(downloadPromises);
     
     logger.task.info(this.id, 'Đã chuẩn bị xong tất cả tài nguyên');
     logger.task.info(this.id, `- Số lượng ảnh: ${this.resources.images.filter(Boolean).length}/${images.length}`);
@@ -307,14 +299,14 @@ class SeparateVideoProcessor {
     } = ffmpegConfig.video;
 
     const { kenBurns } = ffmpegConfig.effects;
-    const { durations, voices, subtitles } = this.task;
+    const { durations } = this.task;
 
     logger.task.info(this.id, `Bắt đầu xử lý ${this.resources.images.length} video riêng biệt`);
 
     // Mảng để lưu trữ các đường dẫn video đã tạo thành công
     this.resources.separateVideos = [];
 
-    // Xử lý tuần tự từng cặp theo đúng index
+    // Xử lý tuần tự từng video theo đúng index
     for (let i = 0; i < this.resources.images.length; i++) {
       try {
         const imagePath = this.resources.images[i];
@@ -504,6 +496,9 @@ class SeparateVideoProcessor {
     }
     
     try {
+      // Tạo video trống để sử dụng làm video trung gian
+      const blankVideoPath = await this.createBlankVideo();
+      
       // Xây dựng filter complex để nối video với xfade transitions
       let filterComplex = '';
       
@@ -512,8 +507,12 @@ class SeparateVideoProcessor {
         filterComplex += `[${i}:v]setpts=PTS-STARTPTS,fps=${ffmpegConfig.video.frameRate}[v${i}];`;
       }
 
-      // Thêm xfade transitions cho video
-      for (let i = 0; i < this.resources.separateVideos.length - 1; i++) {
+      // Thêm video trống vào filter complex
+      const blankIndex = this.resources.separateVideos.length;
+      filterComplex += `[${blankIndex}:v]setpts=PTS-STARTPTS,fps=${ffmpegConfig.video.frameRate}[v${blankIndex}];`;
+
+      // Thêm xfade transitions cho video với blank video
+      for (let i = 0; i < this.resources.separateVideos.length; i++) {
         const transitionIndex = Math.floor(Math.random() * transitions.length);
         const randomTransition = transitions[transitionIndex];
         logger.task.info(this.id, `Transition ${i + 1}: sử dụng hiệu ứng '${randomTransition}'`);
@@ -522,32 +521,52 @@ class SeparateVideoProcessor {
         const offset = Math.max(0, duration - transitionDuration);
         
         if (i === 0) {
-          filterComplex += `[v0][v1]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[vf1];`;
+          // Transition từ video đầu tiên sang blank video
+          filterComplex += `[v0][v${blankIndex}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[vf1];`;
+          // Transition từ blank video sang video tiếp theo
+          filterComplex += `[vf1][v1]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=0[vf2];`;
         } else {
-          filterComplex += `[vf${i}][v${i+1}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[vf${i+1}];`;
+          // Transition từ video hiện tại sang blank video
+          filterComplex += `[vf${i}][v${blankIndex}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[vf${i+1}];`;
+          // Transition từ blank video sang video tiếp theo
+          if (i < this.resources.separateVideos.length - 1) {
+            filterComplex += `[vf${i+1}][v${i+1}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=0[vf${i+2}];`;
+          }
         }
       }
 
-      // Xử lý audio streams
+      // Xử lý audio streams với crossfade
       for (let i = 0; i < this.resources.separateVideos.length; i++) {
-        filterComplex += `[${i}:a]asetpts=PTS-STARTPTS,dynaudnorm[a${i}];`;
+        // Đảm bảo audio stream có cùng sample rate và channels
+        filterComplex += `[${i}:a]aresample=48000,asetpts=PTS-STARTPTS[a${i}];`;
       }
 
+      // Thêm audio stream cho blank video (silence)
+      filterComplex += `[${blankIndex}:a]aresample=48000,asetpts=PTS-STARTPTS,volume=0[a${blankIndex}];`;
+
       // Nối audio streams với crossfade
-      for (let i = 0; i < this.resources.separateVideos.length - 1; i++) {
+      for (let i = 0; i < this.resources.separateVideos.length; i++) {
         const duration = parseFloat(this.task.durations[i]);
         const offset = Math.max(0, duration - transitionDuration);
         
         if (i === 0) {
-          filterComplex += `[a0][a1]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[af1];`;
+          // Crossfade từ audio đầu tiên sang silence
+          filterComplex += `[a0][a${blankIndex}]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[af1];`;
+          // Crossfade từ silence sang audio tiếp theo
+          filterComplex += `[af1][a1]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[af2];`;
         } else {
-          filterComplex += `[af${i}][a${i+1}]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[af${i+1}];`;
+          // Crossfade từ audio hiện tại sang silence
+          filterComplex += `[af${i}][a${blankIndex}]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[af${i+1}];`;
+          // Crossfade từ silence sang audio tiếp theo
+          if (i < this.resources.separateVideos.length - 1) {
+            filterComplex += `[af${i+1}][a${i+1}]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[af${i+2}];`;
+          }
         }
       }
 
       // Thêm labels cuối cùng
       const lastIndex = this.resources.separateVideos.length - 1;
-      filterComplex += `[vf${lastIndex}]copy[outv];[af${lastIndex}]copy[outa]`;
+      filterComplex += `[vf${lastIndex + 1}]copy[outv];[af${lastIndex + 1}]copy[outa]`;
       
       logger.task.info(this.id, `Filter complex: ${filterComplex}`);
       
@@ -558,6 +577,9 @@ class SeparateVideoProcessor {
       for (const videoPath of this.resources.separateVideos) {
         concatArgs.push("-i", videoPath);
       }
+      
+      // Thêm input cho blank video
+      concatArgs.push("-i", blankVideoPath);
       
       // Thêm filter complex vào
       concatArgs.push("-filter_complex", filterComplex);
