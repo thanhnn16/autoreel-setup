@@ -182,7 +182,7 @@ class SeparateVideoProcessor {
             subtitles[i] ? processAssSubtitle(
               subtitles[i], 
               subtitlesDir, 
-              { ...downloadOptions, filePrefix: `subtitle_${i + 1}_` }
+              { ...downloadOptions, filePrefix: `subtitle_${i + 1}` }
             ) : Promise.resolve(null)
           ]);
           

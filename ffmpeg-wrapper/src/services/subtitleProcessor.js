@@ -17,14 +17,22 @@ import { formatAssTime } from '../utils/ffmpeg.js';
  * @returns {Promise<string>} - Đường dẫn file ASS
  */
 async function processAssSubtitle(subtitleUrl, outputDir, options = {}) {
-  const { taskId } = options;
+  const { taskId, filePrefix } = options;
   const logPrefix = taskId ? `[Task ${taskId}]` : '';
   
   try {
     logger.info(`${logPrefix} Bắt đầu tải phụ đề từ ${subtitleUrl}`, 'SubtitleProcessor');
     
-    // Tạo tên file
-    const subtitleFilename = `subtitle_${taskId || Date.now()}.ass`;
+    // Tạo tên file với đảm bảo có đuôi .ass
+    let subtitleFilename;
+    if (filePrefix) {
+      // Sử dụng filePrefix và đảm bảo có .ass
+      subtitleFilename = filePrefix.endsWith('.ass') ? filePrefix : `${filePrefix}.ass`;
+    } else {
+      // Sử dụng taskId
+      subtitleFilename = `subtitle_${taskId || Date.now()}.ass`;
+    }
+    
     const subtitlePath = path.join(outputDir, subtitleFilename);
     
     // Đảm bảo thư mục tồn tại
