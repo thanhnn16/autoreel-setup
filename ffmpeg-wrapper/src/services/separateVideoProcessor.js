@@ -629,7 +629,7 @@ class SeparateVideoProcessor {
       
       // Mapping output cuối cùng
       const lastOutputLabel = processedVideos.length === 2 ? "v01" : `v${processedVideos.length-2}${processedVideos.length-1}`;
-      videoFilterComplex += `${lastOutputLabel}`;
+      videoFilterComplex += `[${lastOutputLabel}]`;
       
       // Tạo video với xfade và không có audio - sử dụng runFFmpeg thay vì spawn cmd
       const xfadeOutputPath = path.join(tempDir, 'xfade_output.mp4');
