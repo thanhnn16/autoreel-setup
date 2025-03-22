@@ -595,11 +595,14 @@ class SeparateVideoProcessor {
       
       for (let i = 0; i < audioFiles.length; i++) {
         // Thêm audio chính
-        concatAudioContent += `file '${audioFiles[i].replace(/\\/g, "/")}'\n`;
+        // Use relative paths from the concat list file location
+        const relativeAudioPath = path.relative(path.dirname(concatAudioListPath), audioFiles[i]).replace(/\\/g, "/");
+        concatAudioContent += `file '${relativeAudioPath}'\n`;
         
         // Thêm blank audio sau mỗi audio (trừ audio cuối)
         if (i < audioFiles.length - 1) {
-          concatAudioContent += `file '${blankAudioPath.replace(/\\/g, "/")}'\n`;
+          const relativeBlankPath = path.relative(path.dirname(concatAudioListPath), blankAudioPath).replace(/\\/g, "/");
+          concatAudioContent += `file '${relativeBlankPath}'\n`;
         }
       }
       
