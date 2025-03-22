@@ -60,7 +60,13 @@ async function downloadFile(source, filePath, options = {}) {
       logger.info(`${logPrefix} Đã sao chép file thành công: ${filePath}`, 'FileDownloader');
       return filePath;
     } catch (error) {
-      logger.error(`${logPrefix} Lỗi khi sao chép file cục bộ: ${error.message}`, 'FileDownloader');
+      logger.error(`${logPrefix} Lỗi khi sao chép file cục bộ: ${error.message}`, 'FileDownloader', {
+        metadata: {
+          source,
+          filePath,
+          error: error.message
+        }
+      });
       throw new Error(`Không thể sao chép file cục bộ: ${error.message}`);
     }
   }
@@ -123,13 +129,26 @@ async function downloadFile(source, filePath, options = {}) {
           // Kiểm tra kích thước file
           const stats = fs.statSync(filePath);
           if (contentLength && stats.size !== contentLength) {
-            throw new Error(`Kích thước file không khớp sau khi tải: ${stats.size}/${contentLength} bytes`);
+            throw new Error(`Kích thước file không khớp sau khi tải: ${stats.size}/${contentLength} bytes`, {
+              metadata: {
+                source,
+                filePath,
+                expectedSize: contentLength,
+                actualSize: stats.size
+              }
+            });
           }
           
           logger.info(`${logPrefix} Đã tải file video thành công: ${filePath}`, 'FileDownloader');
           return filePath;
         } catch (bufferError) {
-          logger.error(`${logPrefix} Lỗi khi tải file video vào bộ nhớ: ${bufferError.message}`, 'FileDownloader');
+          logger.error(`${logPrefix} Lỗi khi tải file video vào bộ nhớ: ${bufferError.message}`, 'FileDownloader', {
+            metadata: {
+              source,
+              filePath,
+              error: bufferError.message
+            }
+          });
           throw bufferError;
         }
       }
@@ -174,7 +193,14 @@ async function downloadFile(source, filePath, options = {}) {
       // Kiểm tra file đã tải
       const stats = fs.statSync(filePath);
       if (contentLength && stats.size !== contentLength) {
-        throw new Error(`Kích thước file không khớp sau khi tải: ${stats.size}/${contentLength} bytes`);
+        throw new Error(`Kích thước file không khớp sau khi tải: ${stats.size}/${contentLength} bytes`, {
+          metadata: {
+            source,
+            filePath,
+            expectedSize: contentLength,
+            actualSize: stats.size
+          }
+        });
       }
       
       logger.info(`${logPrefix} Đã tải file thành công: ${filePath}`, 'FileDownloader');
@@ -198,11 +224,27 @@ async function downloadFile(source, filePath, options = {}) {
       logger.info(
         `${logPrefix} Lỗi khi tải file (lần thử ${attempt}/${retries}): ${error.message}`,
         'FileDownloader',
-        logLevel
+        {
+          level: logLevel,
+          metadata: {
+            source,
+            filePath,
+            attempt,
+            retries,
+            error: error.message
+          }
+        }
       );
       
       if (isLastAttempt) {
-        throw new Error(`Không thể tải file sau ${retries} lần thử: ${error.message}`);
+        throw new Error(`Không thể tải file sau ${retries} lần thử: ${error.message}`, {
+          metadata: {
+            source,
+            filePath,
+            retries,
+            lastError: error.message
+          }
+        });
       }
       
       // Chờ trước khi thử lại với thời gian tăng dần
