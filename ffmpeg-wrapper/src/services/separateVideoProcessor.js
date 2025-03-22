@@ -620,7 +620,7 @@ class SeparateVideoProcessor {
             "-i", currentVideo,
             "-i", nextVideo,
             "-an", // Không lấy audio từ input
-            "-filter_complex", `[0:v][1:v]xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}[v]`,
+            "-filter_complex", `[0:v]setpts=PTS-STARTPTS,format=yuv420p[v0]; [1:v]setpts=PTS-STARTPTS,format=yuv420p[v1]; [v0][v1]xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}:enable='between(t,${offset},${offset+transitionDuration})'[v]`,
             "-map", "[v]",
             "-c:v", "libx265",
             "-preset", "medium",
@@ -659,7 +659,7 @@ class SeparateVideoProcessor {
           "-i", processedVideos[0],
           "-i", processedVideos[1],
           "-an", // Không lấy audio từ input
-          "-filter_complex", `[0:v][1:v]xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}[v]`,
+          "-filter_complex", `[0:v]setpts=PTS-STARTPTS,format=yuv420p[v0]; [1:v]setpts=PTS-STARTPTS,format=yuv420p[v1]; [v0][v1]xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}:enable='between(t,${offset},${offset+transitionDuration})'[v]`,
           "-map", "[v]",
           "-c:v", "libx265",
           "-preset", "medium",
