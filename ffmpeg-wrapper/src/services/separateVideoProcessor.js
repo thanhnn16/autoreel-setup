@@ -480,6 +480,8 @@ class SeparateVideoProcessor {
   async combineVideos() {
     const { transitions } = ffmpegConfig.effects;
     const transitionDuration = 0.4; // 0.4s cho hiệu ứng transition
+    const useBlankBuffer = true; // Set to true để sử dụng video trống làm buffer
+    
     logger.task.info(this.id, `Nối ${this.resources.separateVideos.length} video với hiệu ứng chuyển cảnh ${transitionDuration}s`);
 
     if (this.resources.separateVideos.length === 0) {
@@ -487,11 +489,12 @@ class SeparateVideoProcessor {
     }
 
     if (this.resources.separateVideos.length === 1) {
-      // Nếu chỉ có 1 video, sao chép ra thư mục output
+      // Nếu chỉ có 1 video, mở rộng video cuối rồi sao chép ra thư mục output
+      const extendedVideo = await this.extendLastVideo(this.resources.separateVideos[0], 1.0);
       this.outputPath = path.join('output', `output_${this.id}.mp4`);
       await ensureOutputDir(path.dirname(this.outputPath), true);
-      fs.copyFileSync(this.resources.separateVideos[0], this.outputPath);
-      logger.task.info(this.id, 'Chỉ có 1 video, đã sao chép trực tiếp ra thư mục output');
+      fs.copyFileSync(extendedVideo, this.outputPath);
+      logger.task.info(this.id, 'Chỉ có 1 video, đã kéo dài và sao chép trực tiếp ra thư mục output');
       return;
     }
 
@@ -500,41 +503,122 @@ class SeparateVideoProcessor {
       const tempDir = path.join(this.tempDir, 'concat_temp');
       await ensureDir(tempDir);
 
+      // Tạo video trống nếu cần
+      let blankVideoPath = null;
+      if (useBlankBuffer) {
+        blankVideoPath = await this.createBlankVideo();
+        logger.task.info(this.id, `Đã tạo video trống làm buffer: ${blankVideoPath}`);
+      }
+
       // Bắt đầu với video đầu tiên
       let currentVideo = this.resources.separateVideos[0];
 
       // Nối từng cặp video một
       for (let i = 1; i < this.resources.separateVideos.length; i++) {
         const nextVideo = this.resources.separateVideos[i];
-        const outputPath = path.join(tempDir, `xfade_${i}.mp4`);
+        
+        // Nếu sử dụng video trống làm buffer cho transition
+        if (useBlankBuffer) {
+          // Nối video hiện tại với video trống
+          const tempPath1 = path.join(tempDir, `temp1_${i}.mp4`);
+          // Chọn hiệu ứng chuyển cảnh
+          const transitionIndex1 = Math.floor(Math.random() * transitions.length);
+          const transition1 = transitions[transitionIndex1];
+          
+          // Lấy thời lượng của video hiện tại
+          const duration1 = await this.getVideoDuration(currentVideo);
+          const offset1 = Math.max(0, duration1 - transitionDuration * 1.2);
+          
+          logger.task.info(this.id, `Transition ${i}-1: video -> blank với hiệu ứng '${transition1}'`);
+          
+          // Nối video hiện tại với video trống
+          await runFFmpeg([
+            "-y", "-threads", "0",
+            "-i", currentVideo,
+            "-i", blankVideoPath,
+            "-filter_complex",
+            `[0:v][1:v]xfade=transition=${transition1}:duration=${transitionDuration}:offset=${offset1}[v];
+                 [0:a][1:a]acrossfade=d=${transitionDuration}:offset=${offset1}:c1=tri:c2=tri[a]`,
+            "-map", "[v]", "-map", "[a]",
+            "-c:v", "libx265",
+            "-preset", "medium",
+            "-crf", "23",
+            "-pix_fmt", "yuv420p",
+            tempPath1
+          ]);
+          
+          // Nối video trống với video tiếp theo
+          const tempPath2 = path.join(tempDir, `xfade_${i}.mp4`);
+          // Chọn hiệu ứng chuyển cảnh khác cho phần 2
+          const transitionIndex2 = Math.floor(Math.random() * transitions.length);
+          const transition2 = transitions[transitionIndex2];
+          
+          // Lấy thời lượng của video trống
+          const duration2 = await this.getVideoDuration(blankVideoPath);
+          const offset2 = Math.max(0, duration2 - transitionDuration * 1.2);
+          
+          logger.task.info(this.id, `Transition ${i}-2: blank -> video với hiệu ứng '${transition2}'`);
+          
+          // Nối video trống với video tiếp theo
+          await runFFmpeg([
+            "-y", "-threads", "0",
+            "-i", tempPath1,
+            "-i", nextVideo,
+            "-filter_complex",
+            `[0:v][1:v]xfade=transition=${transition2}:duration=${transitionDuration}:offset=${offset2}[v];
+                 [0:a][1:a]acrossfade=d=${transitionDuration}:offset=${offset2}:c1=tri:c2=tri[a]`,
+            "-map", "[v]", "-map", "[a]",
+            "-c:v", "libx265",
+            "-preset", "medium",
+            "-crf", "23",
+            "-pix_fmt", "yuv420p",
+            tempPath2
+          ]);
+          
+          // Cập nhật video hiện tại
+          currentVideo = tempPath2;
+        } else {
+          // Phương pháp nối video trực tiếp (không dùng buffer)
+          const outputPath = path.join(tempDir, `xfade_${i}.mp4`);
+          
+          // Chọn hiệu ứng chuyển cảnh
+          const transitionIndex = Math.floor(Math.random() * transitions.length);
+          const transition = transitions[transitionIndex];
+          logger.task.info(this.id, `Transition ${i}: sử dụng hiệu ứng '${transition}'`);
 
-        // Chọn hiệu ứng chuyển cảnh
-        const transitionIndex = Math.floor(Math.random() * transitions.length);
-        const transition = transitions[transitionIndex];
-        logger.task.info(this.id, `Transition ${i}: sử dụng hiệu ứng '${transition}'`);
+          // Lấy thời lượng của video hiện tại
+          const duration = await this.getVideoDuration(currentVideo);
+          
+          // Điều chỉnh offset để tránh video sau bắt đầu quá sớm (thêm buffer)
+          const offset = Math.max(0, duration - transitionDuration * 1.2);
+          
+          logger.task.info(this.id, `Áp dụng transition với duration=${transitionDuration}s, offset=${offset}s (từ video dài ${duration}s)`);
 
-        // Lấy thời lượng của video hiện tại
-        const duration = await this.getVideoDuration(currentVideo);
-        const offset = Math.max(0, duration - transitionDuration);
+          // Nối với hiệu ứng xfade - đồng bộ offset cho cả video và audio
+          await runFFmpeg([
+            "-y", "-threads", "0",
+            "-i", currentVideo,
+            "-i", nextVideo,
+            "-filter_complex",
+            `[0:v][1:v]xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}[v];
+                 [0:a][1:a]acrossfade=d=${transitionDuration}:offset=${offset}:c1=tri:c2=tri[a]`,
+            "-map", "[v]", "-map", "[a]",
+            "-c:v", "libx265",
+            "-preset", "medium",
+            "-crf", "23",
+            "-pix_fmt", "yuv420p",
+            outputPath
+          ]);
 
-        // Nối với hiệu ứng xfade
-        await runFFmpeg([
-          "-y", "-threads", "0",
-          "-i", currentVideo,
-          "-i", nextVideo,
-          "-filter_complex",
-          `[0:v][1:v]xfade=transition=${transition}:duration=${transitionDuration}:offset=${offset}[v];
-                 [0:a][1:a]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[a]`,
-          "-map", "[v]", "-map", "[a]",
-          "-c:v", "libx265",
-          "-preset", "medium",
-          "-crf", "23",
-          "-pix_fmt", "yuv420p",
-          outputPath
-        ]);
-
-        // Cập nhật video hiện tại cho lần nối tiếp theo
-        currentVideo = outputPath;
+          // Cập nhật video hiện tại cho lần nối tiếp theo
+          currentVideo = outputPath;
+        }
+        
+        // Nếu đây là video cuối cùng trong chuỗi, kéo dài thêm 1s
+        if (i === this.resources.separateVideos.length - 1) {
+          logger.task.info(this.id, 'Đã đến video cuối cùng, kéo dài thêm 1s');
+          currentVideo = await this.extendLastVideo(currentVideo, 1.0);
+        }
       }
 
       // Sao chép kết quả cuối cùng vào thư mục output
@@ -546,6 +630,41 @@ class SeparateVideoProcessor {
     } catch (error) {
       logger.task.error(this.id, `Lỗi trong quá trình nối video: ${error.message}`);
       throw error;
+    }
+  }
+
+  /**
+   * Kéo dài video cuối thêm một khoảng thời gian
+   * @param {string} videoPath Đường dẫn đến video cần kéo dài
+   * @param {number} extraDuration Thời gian cần kéo dài thêm (giây)
+   * @returns {string} Đường dẫn đến video đã được kéo dài
+   */
+  async extendLastVideo(videoPath, extraDuration = 1.0) {
+    logger.task.info(this.id, `Kéo dài video thêm ${extraDuration}s: ${videoPath}`);
+    
+    // Đường dẫn đầu ra
+    const outputPath = path.join(this.tempDir, 'extended_last.mp4');
+    
+    try {
+      // Sử dụng tpad để kéo dài video và apad để kéo dài audio
+      await runFFmpeg([
+        "-y", "-threads", "0",
+        "-i", videoPath,
+        "-vf", `tpad=stop_mode=clone:stop_duration=${extraDuration}`,
+        "-af", `apad=pad_dur=${extraDuration}`,
+        "-c:v", "libx265",
+        "-preset", "medium",
+        "-crf", "23",
+        "-pix_fmt", "yuv420p",
+        outputPath
+      ]);
+      
+      logger.task.info(this.id, `Đã kéo dài video thành công: ${outputPath}`);
+      return outputPath;
+    } catch (error) {
+      logger.task.error(this.id, `Lỗi khi kéo dài video: ${error.message}`);
+      logger.task.info(this.id, 'Sẽ sử dụng video gốc không kéo dài');
+      return videoPath;
     }
   }
 
