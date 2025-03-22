@@ -105,6 +105,9 @@ class SeparateVideoProcessor {
     // Xử lý từng phần video riêng biệt
     await this.processSeparateVideos();
     
+    // Tạo video trống để sử dụng làm video trung gian cho hiệu ứng xfade
+    const blankVideoPath = await this.createBlankVideo();
+    
     // Nối các video lại với nhau
     await this.combineVideos();
     
@@ -446,6 +449,38 @@ class SeparateVideoProcessor {
   }
 
   /**
+   * Tạo video trống để sử dụng làm video trung gian cho hiệu ứng xfade
+   * @returns {string} Đường dẫn đến video trống
+   */
+  async createBlankVideo() {
+    const { width, height, frameRate: fps } = ffmpegConfig.video;
+    const duration = 0.4; // Thời lượng 0.4s cho video trống
+    
+    logger.task.info(this.id, `Tạo video trống ${width}x${height} với thời lượng ${duration}s`);
+    
+    // Đường dẫn output
+    const blankVideoPath = path.join(this.tempDir, 'videos', 'blank.mp4');
+    
+    // Tạo video trống với màu đen
+    const args = [
+      "-y", "-threads", "0",
+      "-f", "lavfi",
+      "-i", `color=c=black:s=${width}x${height}:r=${fps}:d=${duration}`,
+      "-c:v", "libx265",
+      "-preset", "medium",
+      "-crf", "23",
+      "-pix_fmt", "yuv420p",
+      "-an", // Không có âm thanh
+      blankVideoPath
+    ];
+    
+    await runFFmpeg(args);
+    logger.task.info(this.id, 'Đã tạo xong video trống');
+    
+    return blankVideoPath;
+  }
+
+  /**
    * Nối các video riêng biệt lại với nhau
    */
   async combineVideos() {
@@ -485,10 +520,11 @@ class SeparateVideoProcessor {
       // Sử dụng filter complex với xfade
       const concatArgs = ["-y", "-threads", "0"];
       
-      // Thêm input cho tất cả video gốc
+      // Thêm input cho tất cả video gốc và video trống
       for (const videoPath of this.resources.separateVideos) {
         concatArgs.push("-i", videoPath);
       }
+      concatArgs.push("-i", path.join(this.tempDir, 'videos', 'blank.mp4'));
       
       // Xây dựng filter complex để nối video với audio
       let videoFilterComplex = '';
@@ -501,6 +537,10 @@ class SeparateVideoProcessor {
         videoFilterComplex += `[${i}:v]setpts=PTS-STARTPTS,fps=${ffmpegConfig.video.frameRate}[v${i}];`;
         audioFilterComplex += `[${i}:a]asetpts=PTS-STARTPTS[a${i}];`;
       }
+      
+      // Thêm video trống vào filter complex
+      const blankIndex = this.resources.separateVideos.length;
+      videoFilterComplex += `[${blankIndex}:v]setpts=PTS-STARTPTS,fps=${ffmpegConfig.video.frameRate}[blank];`;
       
       // Bắt đầu xử lý từ video đầu tiên
       videoFilterComplex += `[v0]`;
@@ -515,7 +555,10 @@ class SeparateVideoProcessor {
         // Sử dụng thời lượng thực tế của video trước đó
         const offset = Math.max(0, videoDurations[i-1] - transitionDuration);
         
-        // Nối video hiện tại với video tiếp theo
+        // Nối video hiện tại với video trống
+        videoFilterComplex += `[blank]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[v${i}out];[v${i}out]`;
+        
+        // Nối video trống với video tiếp theo
         if (i === this.resources.separateVideos.length - 1) {
           videoFilterComplex += `[v${i}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[outv]`;
         } else {
