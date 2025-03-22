@@ -504,7 +504,54 @@ class SeparateVideoProcessor {
     }
     
     try {
-      // Sử dụng filter complex với xfade
+      // Xây dựng filter complex để nối video với xfade transitions
+      let filterComplex = '';
+      
+      // Đảm bảo tất cả video có cùng framerate và timebase
+      for (let i = 0; i < this.resources.separateVideos.length; i++) {
+        filterComplex += `[${i}:v]setpts=PTS-STARTPTS,fps=${ffmpegConfig.video.frameRate}[v${i}];`;
+      }
+
+      // Thêm xfade transitions cho video
+      for (let i = 0; i < this.resources.separateVideos.length - 1; i++) {
+        const transitionIndex = Math.floor(Math.random() * transitions.length);
+        const randomTransition = transitions[transitionIndex];
+        logger.task.info(this.id, `Transition ${i + 1}: sử dụng hiệu ứng '${randomTransition}'`);
+        
+        const duration = parseFloat(this.task.durations[i]);
+        const offset = Math.max(0, duration - transitionDuration);
+        
+        if (i === 0) {
+          filterComplex += `[v0][v1]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[vf1];`;
+        } else {
+          filterComplex += `[vf${i}][v${i+1}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[vf${i+1}];`;
+        }
+      }
+
+      // Xử lý audio streams
+      for (let i = 0; i < this.resources.separateVideos.length; i++) {
+        filterComplex += `[${i}:a]asetpts=PTS-STARTPTS,dynaudnorm[a${i}];`;
+      }
+
+      // Nối audio streams với crossfade
+      for (let i = 0; i < this.resources.separateVideos.length - 1; i++) {
+        const duration = parseFloat(this.task.durations[i]);
+        const offset = Math.max(0, duration - transitionDuration);
+        
+        if (i === 0) {
+          filterComplex += `[a0][a1]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[af1];`;
+        } else {
+          filterComplex += `[af${i}][a${i+1}]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[af${i+1}];`;
+        }
+      }
+
+      // Thêm labels cuối cùng
+      const lastIndex = this.resources.separateVideos.length - 1;
+      filterComplex += `[vf${lastIndex}]copy[outv];[af${lastIndex}]copy[outa]`;
+      
+      logger.task.info(this.id, `Filter complex: ${filterComplex}`);
+      
+      // Thêm các tham số cuối cùng
       const concatArgs = ["-y", "-threads", "0"];
       
       // Thêm input cho tất cả video gốc
@@ -512,69 +559,8 @@ class SeparateVideoProcessor {
         concatArgs.push("-i", videoPath);
       }
       
-      // Xây dựng filter complex để nối video với xfade transitions
-      let filterComplex = '';
-      
-      // Đảm bảo tất cả video có cùng framerate và timebase
-      for (let i = 0; i < this.resources.separateVideos.length; i++) {
-        filterComplex += `[${i}:v]setpts=PTS-STARTPTS,fps=${ffmpegConfig.video.frameRate}[v${i}];`;
-        if (i < this.resources.separateVideos.length - 1) {
-          // Chọn transition ngẫu nhiên cho mỗi cặp video
-          const transitionIndex = Math.floor(Math.random() * transitions.length);
-          const randomTransition = transitions[transitionIndex];
-          logger.task.info(this.id, `Transition ${i + 1}: sử dụng hiệu ứng '${randomTransition}'`);
-          
-          // Tính toán offset dựa trên thời lượng của video
-          const duration = parseFloat(this.task.durations[i]);
-          const offset = Math.max(0, duration - transitionDuration);
-          
-          // Thêm xfade filter
-          if (i === 0) {
-            filterComplex += `[v${i}][v${i+1}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[v${i+1}out];`;
-          } else {
-            filterComplex += `[v${i}out][v${i+1}]xfade=transition=${randomTransition}:duration=${transitionDuration}:offset=${offset}[v${i+1}out];`;
-          }
-        }
-      }
-      
-      // Thêm label output cuối cùng cho video
-      filterComplex = filterComplex.replace(/\[v(\d+)out\];$/, '[outv];');
-      
-      // Xử lý audio - sử dụng acrossfade để tạo transition mượt mà cho audio
-      for (let i = 0; i < this.resources.separateVideos.length; i++) {
-        // Normalize audio và setpts để đồng bộ
-        filterComplex += `[${i}:a]asetpts=PTS-STARTPTS,dynaudnorm[a${i}];`;
-      }
-      
-      // Nối audio với crossfade
-      for (let i = 0; i < this.resources.separateVideos.length - 1; i++) {
-        const duration = parseFloat(this.task.durations[i]);
-        const offset = Math.max(0, duration - transitionDuration);
-        
-        if (i === 0) {
-          filterComplex += `[a${i}][a${i+1}]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[a${i+1}out];`;
-        } else {
-          filterComplex += `[a${i}out][a${i+1}]acrossfade=d=${transitionDuration}:c1=tri:c2=tri[a${i+1}out];`;
-        }
-      }
-      
-      // Rename audio output label
-      filterComplex = filterComplex.replace(/\[a(\d+)out\];$/, '[outa];');
-      
-      logger.task.info(this.id, `Filter complex: ${filterComplex}`);
-      
-      // Thêm các tham số cuối cùng
-      concatArgs.push(
-        "-filter_complex", filterComplex,
-        "-map", "[outv]",
-        "-map", "[outa]",
-        "-c:v", "libx265",
-        "-preset", "medium", 
-        "-crf", "23",
-        "-pix_fmt", "yuv420p",
-        "-c:a", "aac",
-        "-b:a", "128k"
-      );
+      // Thêm filter complex vào
+      concatArgs.push("-filter_complex", filterComplex);
       
       // Thêm tham số tối ưu cho H.265
       if (ffmpegConfig.video.x265Params) {
