@@ -157,20 +157,30 @@ class SeparateVideoProcessor {
     for (let i = 0; i < images.length; i++) {
       const imageFile = path.join(imagesDir, `image_${i + 1}.jpg`).replace(/\\/g, '/');
       const voiceFile = path.join(voicesDir, `voice_${i + 1}.mp3`).replace(/\\/g, '/');
-      const subtitleFile = subtitles[i] ? path.join(subtitlesDir, `subtitle_${i + 1}.ass`).replace(/\\/g, '/') : null;
       
-      // Tải song song các file
-      await Promise.all([
+      // Tải song song ảnh và voice
+      const [, , subtitleFilePath] = await Promise.all([
         downloadFile(images[i], imageFile, downloadOptions),
         downloadFile(voices[i], voiceFile, downloadOptions),
-        subtitles[i] ? processAssSubtitle(subtitles[i], subtitlesDir, { ...downloadOptions, filePrefix: `subtitle_${i + 1}_` }) : null
+        // Xử lý subtitle nếu có
+        subtitles[i] ? processAssSubtitle(
+          subtitles[i], 
+          subtitlesDir, 
+          { ...downloadOptions, filePrefix: `subtitle_${i + 1}_` }
+        ) : Promise.resolve(null)
       ]);
       
       // Lưu đường dẫn tương đối
       this.resources.images.push(path.relative(this.tempDir, imageFile).replace(/\\/g, '/'));
       this.resources.voices.push(path.relative(this.tempDir, voiceFile).replace(/\\/g, '/'));
-      if (subtitleFile) {
-        this.resources.subtitles.push(path.relative(this.tempDir, subtitleFile).replace(/\\/g, '/'));
+      
+      // Lưu đường dẫn subtitle nếu có
+      if (subtitleFilePath) {
+        const relativePath = path.relative(this.tempDir, subtitleFilePath).replace(/\\/g, '/');
+        this.resources.subtitles[i] = relativePath;
+        logger.task.info(this.id, `Đã lưu subtitle ${i + 1}: ${relativePath}`);
+      } else {
+        this.resources.subtitles[i] = null;
       }
     }
     
@@ -201,6 +211,12 @@ class SeparateVideoProcessor {
       const subtitlePath = this.resources.subtitles[i];
       const duration = parseFloat(this.task.durations[i]);
       
+      logger.task.info(this.id, `Bắt đầu tạo video ${i + 1}/${this.resources.images.length}`);
+      logger.task.info(this.id, `- Ảnh: ${imagePath}`);
+      logger.task.info(this.id, `- Voice: ${voicePath}`);
+      logger.task.info(this.id, `- Subtitle: ${subtitlePath || 'không có'}`);
+      logger.task.info(this.id, `- Thời lượng: ${duration}s`);
+      
       // Tạo video từ ảnh với hiệu ứng Ken Burns
       const frames = Math.round(fps * duration);
       
@@ -228,7 +244,6 @@ class SeparateVideoProcessor {
       ].join(',');
 
       // Tạo video với ảnh và hiệu ứng
-      const tempVideoPath = path.join(this.tempDir, `temp_video_${i + 1}.mp4`);
       const outputVideoPath = path.join(this.tempDir, 'videos', `video_${i + 1}.mp4`);
 
       // Tạo video từ ảnh
@@ -239,8 +254,27 @@ class SeparateVideoProcessor {
         "-i", path.join(this.tempDir, voicePath)
       ];
 
+      // Kiểm tra và xử lý subtitle
+      let subtitleFullPath = null;
       if (subtitlePath) {
-        videoArgs.push("-vf", `${filter_complex},ass=${path.join(this.tempDir, subtitlePath)}`);
+        subtitleFullPath = path.join(this.tempDir, subtitlePath);
+        // Kiểm tra xem file subtitle có tồn tại không
+        if (!fs.existsSync(subtitleFullPath)) {
+          logger.task.warn(this.id, `Subtitle không tồn tại: ${subtitleFullPath}, sẽ bỏ qua subtitle.`);
+          subtitleFullPath = null;
+        } else {
+          logger.task.info(this.id, `Sử dụng subtitle: ${subtitleFullPath}`);
+        }
+      }
+
+      // Thêm subtitle vào filter nếu có
+      if (subtitleFullPath) {
+        try {
+          videoArgs.push("-vf", `${filter_complex},ass=${subtitleFullPath}`);
+        } catch (error) {
+          logger.task.error(this.id, `Lỗi khi thêm subtitle: ${error.message}`);
+          videoArgs.push("-vf", filter_complex);
+        }
       } else {
         videoArgs.push("-vf", filter_complex);
       }
@@ -257,10 +291,42 @@ class SeparateVideoProcessor {
         outputVideoPath
       );
 
-      await runFFmpeg(videoArgs);
-      
-      this.resources.separateVideos.push(outputVideoPath);
-      logger.task.info(this.id, `Đã tạo xong video ${i + 1}/${this.resources.images.length}`);
+      try {
+        await runFFmpeg(videoArgs);
+        this.resources.separateVideos.push(outputVideoPath);
+        logger.task.info(this.id, `Đã tạo xong video ${i + 1}/${this.resources.images.length}`);
+      } catch (error) {
+        logger.task.error(this.id, `Lỗi khi tạo video ${i + 1}: ${error.message}`);
+        
+        // Nếu lỗi liên quan đến subtitle, thử lại không có subtitle
+        if (subtitleFullPath && error.message.includes('subtitle') || error.message.includes('ass')) {
+          logger.task.info(this.id, `Thử lại tạo video ${i + 1} không có subtitle`);
+          
+          // Tạo lại video không có subtitle
+          const fallbackArgs = [
+            "-y", "-threads", "0",
+            "-loop", "1",
+            "-i", path.join(this.tempDir, imagePath),
+            "-i", path.join(this.tempDir, voicePath),
+            "-vf", filter_complex,
+            "-t", duration.toString(),
+            "-c:v", "libx265",
+            "-preset", preset,
+            "-crf", video_quality.toString(),
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-shortest",
+            outputVideoPath
+          ];
+          
+          await runFFmpeg(fallbackArgs);
+          this.resources.separateVideos.push(outputVideoPath);
+          logger.task.info(this.id, `Đã tạo xong video ${i + 1} không có subtitle`);
+        } else {
+          throw error; // Ném lỗi nếu không phải lỗi subtitle hoặc thử lại không thành công
+        }
+      }
     }
   }
 
