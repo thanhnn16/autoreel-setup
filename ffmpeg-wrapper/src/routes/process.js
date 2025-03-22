@@ -194,7 +194,6 @@ router.get('/task/:id/status', (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
 /**
  * Route tải video đã xử lý
  */
@@ -209,65 +208,25 @@ router.get('/task/:id/download', (req, res) => {
       });
     }
 
-    const stat = fs.statSync(outputPath);
-    const fileSize = stat.size;
     const fileName = `video_${taskId}.mp4`;
-
-    // Xử lý range request để hỗ trợ resume download
-    const range = req.headers.range;
-    if (range) {
-      const parts = range.replace(/bytes=/, "").split("-");
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-      const chunksize = (end - start) + 1;
-      
-      if (start >= fileSize) {
-        res.status(416).send('Requested Range Not Satisfiable');
-        return;
+    
+    // Thiết lập header cho việc tải xuống
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    
+    // Sử dụng createReadStream để truyền file trực tiếp
+    const fileStream = fs.createReadStream(outputPath);
+    
+    // Xử lý lỗi stream
+    fileStream.on('error', (error) => {
+      logger.error(`Lỗi khi tải video: ${error.message}`, 'API');
+      if (!res.headersSent) {
+        res.status(500).json({ error: error.message });
       }
-      
-      const fileStream = fs.createReadStream(outputPath, {start, end});
-      
-      res.writeHead(206, {
-        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-        'Accept-Ranges': 'bytes',
-        'Content-Length': chunksize,
-        'Content-Type': 'video/mp4',
-        'Content-Disposition': `attachment; filename="${fileName}"`,
-        'Connection': 'keep-alive'
-      });
-      
-      // Xử lý lỗi stream
-      fileStream.on('error', (error) => {
-        logger.error(`Lỗi stream khi tải video: ${error.message}`, 'API');
-        if (!res.headersSent) {
-          res.status(500).json({ error: error.message });
-        }
-      });
-      
-      fileStream.pipe(res);
-    } else {
-      // Gửi toàn bộ file với header đầy đủ
-      res.writeHead(200, {
-        'Content-Length': fileSize,
-        'Content-Type': 'video/mp4',
-        'Content-Disposition': `attachment; filename="${fileName}"`,
-        'Accept-Ranges': 'bytes',
-        'Connection': 'keep-alive'
-      });
-      
-      const fileStream = fs.createReadStream(outputPath);
-      
-      // Xử lý lỗi stream
-      fileStream.on('error', (error) => {
-        logger.error(`Lỗi stream khi tải video: ${error.message}`, 'API');
-        if (!res.headersSent) {
-          res.status(500).json({ error: error.message });
-        }
-      });
-      
-      fileStream.pipe(res);
-    }
+    });
+    
+    // Pipe stream trực tiếp đến response
+    fileStream.pipe(res);
   } catch (error) {
     logger.error(`Lỗi khi tải video: ${error.message}`, 'API');
     res.status(500).json({ error: error.message });
